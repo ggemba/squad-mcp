@@ -34,6 +34,15 @@ Planned for a future minor:
   primitive.
 - Lexical AND realpath checks are both required for an override directory to
   match the allowlist (closes the lexical-allowed-but-symlinked-out bypass).
+- `init_local_config` now creates the override directory with mode `0o700` and
+  copied agent files with mode `0o600` on Unix (`fs.chmod` after `mkdir` /
+  `copyFile` to override the umask). Windows relies on `%APPDATA%`'s default
+  user-only DACL; custom paths outside `APPDATA` on Windows fall back to the
+  parent directory's DACL — document and use with care.
+- `agent-loader` warns once per process if the resolved override directory is
+  world-writable (`mode & 0o002 !== 0`). Group-writable does not trigger the
+  warning (single-user-host convention). Skipped on Windows since `fs.stat`
+  does not surface DACL semantics.
 
 ### Added
 
@@ -45,8 +54,9 @@ Planned for a future minor:
 - `SQUAD_AGENTS_ALLOW_UNSAFE=1` opt-in escape hatch for power users / CI on
   unusual paths.
 - `tests/agent-loader.test.ts` and `tests/override-allowlist.test.ts` covering
-  the accept/reject matrix, escape hatch, agent-name traversal guard, and
-  symlink escape.
+  the accept/reject matrix, escape hatch, agent-name traversal guard, symlink
+  escape, and Unix filesystem permissions (`0o700` dir, `0o600` files,
+  world-writable warn-once).
 
 ### Changed
 

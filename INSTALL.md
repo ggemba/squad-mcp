@@ -261,6 +261,22 @@ If the validation fails, the MCP server throws `OVERRIDE_REJECTED` on the first 
 
 For power users on unusual paths (NixOS, custom CI runners, `/opt/…`), set `SQUAD_AGENTS_ALLOW_UNSAFE=1` in the environment that launches the MCP host. This bypasses the allowlist while still rejecting malformed input (NUL bytes, ADS markers, tilde-prefixed paths). Every load logs a warn-level banner so the decision stays auditable.
 
+### Filesystem permissions (since v0.4.0)
+
+`init_local_config` creates the override directory and copied agent files with restrictive permissions:
+
+- **Unix:** directory is `chmod 0o700` (user-only rwx) and each agent file is `chmod 0o600` (user-only rw). The explicit `chmod` overrides any permissive `umask`.
+- **Windows:** `%APPDATA%` typically inherits a user-only DACL on stand-alone profiles, and the loader does not verify Windows ACLs at runtime. On managed, domain-joined, or VDI machines the inherited DACL may be broader; verify with `icacls "$env:APPDATA\squad-mcp\agents"` if the host is multi-user. For custom `SQUAD_AGENTS_DIR` paths outside `APPDATA`, the directory inherits the parent's DACL — set the ACL explicitly before pointing the env var there.
+
+`agent-loader` checks the resolved override directory at startup and emits a `warn`-level log once per process if it is world-writable (`mode & 0o002 !== 0` on Unix). To remediate:
+
+```bash
+chmod 700 "$SQUAD_AGENTS_DIR"
+chmod 600 "$SQUAD_AGENTS_DIR"/*.md
+```
+
+The warning does not block the override — it is advisory. Override files are still loaded and used.
+
 Seed the local directory with editable copies:
 
 ```text

@@ -171,3 +171,75 @@ describe('agent-loader — initLocalConfig idempotency', () => {
     expect(second.skipped.length).toBeGreaterThan(0);
   });
 });
+
+describe('agent-loader — filesystem permissions (Unix-only)', () => {
+  it.runIf(process.platform !== 'win32')('initLocalConfig creates the override dir with mode 0o700', async () => {
+    const parent = await insideHome('perms-dir-');
+    const dir = path.join(parent, 'agents');
+    vi.stubEnv('SQUAD_AGENTS_DIR', dir);
+    __resetAgentLoaderForTests();
+    await initLocalConfig();
+    const stat = await fs.stat(dir);
+    expect(stat.mode & 0o777).toBe(0o700);
+  });
+
+  it.runIf(process.platform !== 'win32')('initLocalConfig creates files with mode 0o600', async () => {
+    const dir = await insideHome('perms-file-');
+    vi.stubEnv('SQUAD_AGENTS_DIR', dir);
+    __resetAgentLoaderForTests();
+    await initLocalConfig();
+    const stat = await fs.stat(path.join(dir, 'PO.md'));
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
+
+  it.runIf(process.platform !== 'win32')(
+    'world-writable existing override dir triggers a warn-once log',
+    async () => {
+      const dir = await insideHome('perms-warn-');
+      // Create a file so the override dir actually serves something
+      await fs.writeFile(path.join(dir, 'PO.md'), '# overridden');
+      // Make the directory world-writable
+      await fs.chmod(dir, 0o757);
+      vi.stubEnv('SQUAD_AGENTS_DIR', dir);
+      __resetAgentLoaderForTests();
+      const { logger } = await import('../src/observability/logger.js');
+      const warnSpy = vi.spyOn(logger, 'warn');
+      try {
+        await resolveAgentFile('po');
+        // Trigger again — must NOT re-warn (warn-once)
+        await resolveAgentFile('senior-architect');
+        const permWarnings = warnSpy.mock.calls.filter(
+          (c) => typeof c[0] === 'string' && c[0].includes('world-writable'),
+        );
+        expect(permWarnings.length).toBe(1);
+      } finally {
+        warnSpy.mockRestore();
+        // Restore perms so the rm in afterEach can succeed
+        await fs.chmod(dir, 0o700).catch(() => {});
+      }
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'group-writable (but not world-writable) does NOT trigger the warn',
+    async () => {
+      const dir = await insideHome('perms-group-');
+      await fs.writeFile(path.join(dir, 'PO.md'), '# overridden');
+      await fs.chmod(dir, 0o770); // group-write, no other-write
+      vi.stubEnv('SQUAD_AGENTS_DIR', dir);
+      __resetAgentLoaderForTests();
+      const { logger } = await import('../src/observability/logger.js');
+      const warnSpy = vi.spyOn(logger, 'warn');
+      try {
+        await resolveAgentFile('po');
+        const permWarnings = warnSpy.mock.calls.filter(
+          (c) => typeof c[0] === 'string' && c[0].includes('world-writable'),
+        );
+        expect(permWarnings.length).toBe(0);
+      } finally {
+        warnSpy.mockRestore();
+        await fs.chmod(dir, 0o700).catch(() => {});
+      }
+    },
+  );
+});

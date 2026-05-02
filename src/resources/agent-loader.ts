@@ -76,6 +76,7 @@ async function isDirectory(p: string): Promise<boolean> {
 let embeddedAsserted = false;
 let overrideActiveAnnounced = false;
 let overrideMissingWarnEmitted = false;
+let permWarnEmitted = false;
 const overrideValidationCache: Map<string, ValidationOk | null> = new Map();
 
 /**
@@ -86,8 +87,65 @@ export function __resetAgentLoaderForTests(): void {
   embeddedAsserted = false;
   overrideActiveAnnounced = false;
   overrideMissingWarnEmitted = false;
+  permWarnEmitted = false;
   overrideValidationCache.clear();
   __resetOverrideAllowlistCache();
+}
+
+/**
+ * Create the override directory with user-only permissions.
+ * On Unix, mkdir's mode is masked by umask, so an explicit chmod follows.
+ * Chmod failures propagate — initLocalConfig must not silently succeed when the
+ * security invariant (mode 0o700) cannot be met.
+ * On Windows, fs.mkdir mode is ignored; APPDATA inherits user-only DACL by default.
+ * Custom paths outside APPDATA on Windows fall back to whatever the parent grants.
+ */
+async function createSecureDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') {
+    await fs.chmod(dir, 0o700);
+  }
+}
+
+/**
+ * Copy a file with user-only read/write permissions on Unix.
+ * fs.copyFile preserves the source mode (0o644 from the bundle), so an explicit
+ * chmod is required for 0o600 semantics. Failure propagates so the operator
+ * sees the security invariant breakage, rather than silent success.
+ */
+async function copyFileSecure(src: string, dst: string): Promise<void> {
+  await fs.copyFile(src, dst);
+  if (process.platform !== 'win32') {
+    await fs.chmod(dst, 0o600);
+  }
+}
+
+/**
+ * Warn once per process if the override directory is world-writable. Group-write
+ * is allowed (single-user box convention); only world-write triggers the warning.
+ * Skipped on Windows: fs.stat does not surface DACL semantics.
+ *
+ * The "once" flag is claimed BEFORE the await so concurrent first-load calls do
+ * not produce duplicate warnings.
+ */
+async function checkOverrideDirPerms(dir: string): Promise<void> {
+  if (process.platform === 'win32') return;
+  if (permWarnEmitted) return;
+  permWarnEmitted = true;
+  try {
+    const s = await fs.stat(dir);
+    if ((s.mode & 0o002) !== 0) {
+      logger.warn('override directory is world-writable', {
+        details: {
+          configured_path: dir,
+          mode: '0o' + (s.mode & 0o777).toString(8),
+          recommendation: `chmod 700 ${dir}`,
+        },
+      });
+    }
+  } catch {
+    // stat already validated upstream; ignore failure here
+  }
 }
 
 async function ensureEmbeddedDir(): Promise<void> {
@@ -166,6 +224,8 @@ async function resolveOverride(): Promise<ValidationOk | null> {
     }
   }
 
+  await checkOverrideDirPerms(result.resolvedPath);
+
   overrideValidationCache.set(rawDir, result);
   return result;
 }
@@ -235,7 +295,7 @@ export async function listAvailableAgents() {
 export async function initLocalConfig(force = false): Promise<{ created: string[]; skipped: string[]; dir: string }> {
   await ensureEmbeddedDir();
   const { rawDir } = getLocalDir();
-  await fs.mkdir(rawDir, { recursive: true });
+  await createSecureDir(rawDir);
   const created: string[] = [];
   const skipped: string[] = [];
   // SECURITY: file names come from hardcoded constants only; never accept user-supplied names here.
@@ -247,7 +307,7 @@ export async function initLocalConfig(force = false): Promise<{ created: string[
       continue;
     }
     const src = path.join(getEmbeddedDir(), file);
-    await fs.copyFile(src, dst);
+    await copyFileSecure(src, dst);
     created.push(file);
   }
   return { created, skipped, dir: rawDir };
