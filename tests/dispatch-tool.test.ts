@@ -49,7 +49,7 @@ describe('dispatchTool error mapping', () => {
       work_type: 'Bug Fix',
       files: ['../etc/passwd', 'src/legit.ts'],
       read_content: true,
-      workspace_root: 'C:/Users/Gustavo/OneDrive/Pessoal/Projetos/squad-mcp',
+      workspace_root: process.cwd(),
     }) as { content: { text: string }[]; isError?: boolean };
     expect(r.isError).toBeUndefined();
     const body = JSON.parse(r.content[0]!.text);

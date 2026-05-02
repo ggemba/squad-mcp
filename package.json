@@ -1,9 +1,31 @@
 {
-  "name": "@gustavo/squad-mcp",
-  "version": "0.3.0",
+  "name": "@gempack/squad-mcp",
+  "version": "0.3.1",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
-  "private": true,
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Gustavo",
+    "email": "next.uh@gmail.com"
+  },
+  "homepage": "https://github.com/ggemba/squad-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ggemba/squad-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ggemba/squad-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "squad-dev",
+    "code-review",
+    "agent",
+    "advisory",
+    "ai"
+  ],
   "bin": {
     "squad-mcp": "dist/index.js"
   },
@@ -21,10 +43,20 @@
   "files": [
     "dist",
     "agents",
-    "README.md"
+    "commands",
+    "skills",
+    ".claude-plugin",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

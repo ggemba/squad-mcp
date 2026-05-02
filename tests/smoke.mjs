@@ -63,15 +63,23 @@ try {
   console.log('tools:', toolNames.join(', '));
   const expected = [
     'apply_consolidation_rules',
+    'classify_work_type',
+    'compose_advisory_bundle',
+    'compose_squad_workflow',
+    'detect_changed_files',
     'get_agent_definition',
     'init_local_config',
     'list_agents',
     'score_risk',
     'select_squad',
     'slice_files_for_agent',
+    'validate_plan_text',
   ];
   for (const e of expected) {
     if (!toolNames.includes(e)) throw new Error(`missing tool: ${e}`);
+  }
+  if (toolNames.length !== expected.length) {
+    throw new Error(`tool count mismatch: ${toolNames.length} vs ${expected.length}`);
   }
 
   send({

@@ -7,6 +7,8 @@ import { applyConsolidationRulesTool } from './consolidate.js';
 import { classifyWorkTypeTool } from './classify-work-type.js';
 import { detectChangedFilesTool } from './detect-changed-files.js';
 import { validatePlanTextTool } from './validate-plan-text.js';
+import { composeSquadWorkflowTool } from './compose-squad-workflow.js';
+import { composeAdvisoryBundleTool } from './compose-advisory-bundle.js';
 import { isSquadError } from '../errors.js';
 import { logger, newRequestId } from '../observability/logger.js';
 
@@ -34,6 +36,8 @@ export function registerTools(): void {
   register(classifyWorkTypeTool);
   register(detectChangedFilesTool);
   register(validatePlanTextTool);
+  register(composeSquadWorkflowTool);
+  register(composeAdvisoryBundleTool);
 }
 
 export function listTools() {

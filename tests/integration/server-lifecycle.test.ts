@@ -22,6 +22,8 @@ describe('server lifecycle', () => {
     expect(names).toEqual([
       'apply_consolidation_rules',
       'classify_work_type',
+      'compose_advisory_bundle',
+      'compose_squad_workflow',
       'detect_changed_files',
       'get_agent_definition',
       'init_local_config',

@@ -1,0 +1,11 @@
+squad-mcp
+Copyright 2026 Gustavo
+
+This product includes software developed by Gustavo and contributors,
+distributed under the terms of the Apache License, Version 2.0 (see LICENSE).
+
+Third-party dependencies retain their own licenses; see node_modules or
+package-lock.json for the full list. Notable runtime dependencies:
+
+  - @modelcontextprotocol/sdk (MIT, https://github.com/modelcontextprotocol/typescript-sdk)
+  - zod (MIT, https://github.com/colinhacks/zod)

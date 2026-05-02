@@ -7,14 +7,82 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Planned for `0.3.1`:
+Planned for `0.4.0`:
 
-- Workflow composers: server-side pipeline tools that fuse `detect_changed_files`
-  → `classify_work_type` → `score_risk` → `select_squad` into single calls,
-  reducing host round-trips while keeping the deterministic building blocks.
-- Plugin packaging: distribute `squad-mcp` as both a Claude Code native plugin
-  (auto-registers MCP server, agents, slash commands) and a public npm package
-  under `@gemba/squad-mcp` so any MCP-capable client can install via `npx`.
+- Promote bundled agent markdowns to Claude Code native plugin agents (rename to
+  kebab-case + add YAML frontmatter), with a migration path for existing
+  `%APPDATA%\squad-mcp\agents` overrides.
+- Retire the legacy `/squad` and `/squad-review` skills now that the plugin
+  ships them as slash commands.
+
+## [0.3.1] - 2026-05-02
+
+First public release on npm and as a Claude Code plugin.
+
+### Added
+
+#### Workflow composers
+
+- `compose_squad_workflow` — single deterministic pipeline that runs
+  `detect_changed_files` → `classify_work_type` → `score_risk` →
+  `select_squad` and returns the union of their outputs. Risk signals
+  (`touches_auth`, `touches_money`, `touches_migration`, `new_module`,
+  `api_contract_change`) are auto-inferred from the changed-file paths;
+  callers can override any of them, override `work_type`, or pass
+  `force_agents`.
+- `compose_advisory_bundle` — chains `compose_squad_workflow` with a
+  `slice_files_for_agent` call per selected agent and a `validate_plan_text`
+  pass on the supplied plan. Returns a single bundle ready for the host LLM
+  to dispatch parallel advisory reviews.
+
+#### Distribution
+
+- Public npm package `@gempack/squad-mcp` with [provenance attestations](https://docs.npmjs.com/generating-provenance-statements).
+  Any MCP-capable client (Claude Desktop, Cursor, Warp, …) can install with
+  `npx -y @gempack/squad-mcp`.
+- Claude Code plugin packaging: `.claude-plugin/plugin.json` registers the
+  bundled MCP server (`${CLAUDE_PLUGIN_ROOT}/dist/index.js`) plus the
+  `/squad` and `/squad-review` slash commands. Marketplace manifest at
+  `.claude-plugin/marketplace.json` exposes the plugin under the `gempack`
+  marketplace; users install via `/plugin marketplace add ggemba/squad-mcp`
+  followed by `/plugin install squad@gempack`.
+- Slash commands `commands/squad.md` and `commands/squad-review.md` codify
+  the squad-dev orchestration flow as user-invocable commands inside the
+  plugin. They reference the MCP tools and the inviolable rules
+  (no-implementation-before-approval, Codex-requires-consent,
+  TechLead-Consolidator-owns-final-verdict).
+
+#### Continuous integration
+
+- `.github/workflows/ci.yml` — runs `npm run lint`, `npm test`, and
+  `npm run build` on every pull request and `main` push, on Linux + Windows,
+  Node 20 + 22.
+- `.github/workflows/release.yml` — triggered by tags matching `v*.*.*`.
+  Verifies that `package.json` version matches the tag, then publishes to
+  npm with `--access public --provenance` using `NPM_TOKEN` and the
+  workflow's OIDC `id-token` permission.
+
+#### Licensing
+
+- Apache-2.0 `LICENSE` and `NOTICE` files added.
+- `package.json` declares `"license": "Apache-2.0"`, `repository`, `bugs`,
+  `homepage`, `keywords`, `author`, and a `publishConfig` block with
+  `access: "public"` and `provenance: true`.
+
+### Changed
+
+- Package renamed from `@gustavo/squad-mcp` (private) to
+  `@gempack/squad-mcp` (public).
+- `package.json` `files` array extended to ship `commands/`, `skills/`,
+  `.claude-plugin/`, `LICENSE`, `NOTICE`, and `CHANGELOG.md` alongside
+  `dist/` and `agents/`.
+- `.npmrc` access changed from `restricted` to `public`.
+- `SERVER_VERSION` in `src/index.ts` bumped to `0.3.1`.
+- README rewritten around the new install paths (Claude Code plugin first,
+  then `npx -y @gempack/squad-mcp` for other clients) and includes
+  badges for npm version, CI, and license.
+- `tests/integration/server-lifecycle.test.ts` and `tests/smoke.mjs` updated
+  to assert the full set of 12 registered tools.
 
 ## [0.3.0] - 2026-05-02
 
@@ -208,6 +276,7 @@ update at commit `052c2ad`.
 - Smoke test (`tests/smoke.mjs`) plus initial unit tests for `score_risk`,
   `select_squad`, `consolidate`.
 
-[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ggemba/squad-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.3.0
 [0.1.0]: https://github.com/ggemba/squad-mcp/commit/548adc2

@@ -1,0 +1,20 @@
+{
+  "name": "gempack",
+  "owner": {
+    "name": "Gustavo",
+    "email": "next.uh@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "squad",
+      "source": {
+        "source": "github",
+        "repo": "ggemba/squad-mcp"
+      },
+      "description": "Squad-dev workflow: deterministic classification, risk scoring, agent selection, advisory orchestration over MCP, plus /squad and /squad-review slash commands.",
+      "version": "0.3.1",
+      "license": "Apache-2.0",
+      "homepage": "https://github.com/ggemba/squad-mcp"
+    }
+  ]
+}

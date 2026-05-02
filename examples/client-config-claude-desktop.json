@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "squad": {
-      "command": "node",
-      "args": ["C:/Users/Gustavo/OneDrive/Pessoal/Projetos/squad-mcp/dist/index.js"],
-      "env": {
-        "SQUAD_AGENTS_DIR": "C:/Users/Gustavo/AppData/Roaming/squad-mcp/agents"
-      }
+      "command": "npx",
+      "args": ["-y", "@gempack/squad-mcp"]
     }
   }
 }
