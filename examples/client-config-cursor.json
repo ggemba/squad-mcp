@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "squad": {
+      "command": "node",
+      "args": ["C:/Users/Gustavo/OneDrive/Pessoal/Projetos/squad-mcp/dist/index.js"]
+    }
+  }
+}
