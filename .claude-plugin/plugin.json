@@ -1,6 +1,6 @@
 {
   "name": "squad",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server and the /squad and /squad-review slash commands.",
   "license": "Apache-2.0",
   "author": {

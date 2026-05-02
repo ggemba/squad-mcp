@@ -4,6 +4,7 @@ export type SquadErrorCode =
   | 'PATH_INVALID'
   | 'AGENT_DIR_MISSING'
   | 'UNKNOWN_AGENT'
+  | 'OVERRIDE_REJECTED'
   | 'INVALID_INPUT'
   | 'INTERNAL_ERROR'
   | 'GIT_EXEC_DENIED'

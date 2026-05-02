@@ -121,7 +121,9 @@ The loader picks ONE local override directory:
 
 Per-file resolution: if the agent's `*.md` exists in the chosen local directory, it wins. Otherwise, the embedded default bundled in the package is used.
 
-Override files are loaded verbatim and rendered into the LLM's context with full agent authority — treat the directory as code (user-only writable, not on shared volumes, never sourced from untrusted input). See [INSTALL.md](INSTALL.md#local-override-of-agent-definitions) for the full security guidance.
+Override files are loaded verbatim and rendered into the LLM's context with full agent authority — treat the directory as code (user-only writable, not on shared volumes, never sourced from untrusted input).
+
+Since v0.4.0, the override directory is validated against an allowlist (`HOME`, `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`, `process.cwd()`); paths outside the allowlist are rejected with `OVERRIDE_REJECTED`. Set `SQUAD_AGENTS_ALLOW_UNSAFE=1` to bypass for unusual setups (logs a warn banner). See [INSTALL.md](INSTALL.md#local-override-of-agent-definitions) for the full security guidance.
 
 Run the `init_local_config` tool once to seed the local directory with editable defaults.
 

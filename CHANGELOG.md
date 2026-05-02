@@ -7,13 +7,67 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Planned for `0.4.0`:
+Planned for a future minor:
 
 - Promote bundled agent markdowns to Claude Code native plugin agents (rename to
   kebab-case + add YAML frontmatter), with a migration path for existing
   `%APPDATA%\squad-mcp\agents` overrides.
 - Retire the legacy `/squad` and `/squad-review` skills now that the plugin
   ships them as slash commands.
+
+## [0.4.0] - 2026-05-02
+
+### Security
+
+- **BREAKING:** `SQUAD_AGENTS_DIR` is now validated against an allowlist of
+  user-controlled prefixes (`HOME`, `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`,
+  `process.cwd()`). Override directories outside the allowlist are rejected with
+  a new structured `OVERRIDE_REJECTED` error. UNC and device-namespace paths on
+  Windows (`\\?\…`, `\\.\…`, `\\server\share\…`) are rejected before any
+  filesystem access. Migration: move the directory under one of the allowed
+  prefixes, or set `SQUAD_AGENTS_ALLOW_UNSAFE=1` to bypass the allowlist (logs a
+  warn-level banner once per process).
+- **BREAKING:** Per-file resolution now realpath-checks each agent file. If a
+  file inside the override directory is a symlink whose target escapes the
+  directory, that file silently falls back to the embedded default — preserving
+  the operator's per-file customizations while blocking the symlink-out
+  primitive.
+- Lexical AND realpath checks are both required for an override directory to
+  match the allowlist (closes the lexical-allowed-but-symlinked-out bypass).
+
+### Added
+
+- `src/util/override-allowlist.ts` — new module exposing `validateOverrideDir`
+  and `validateOverrideFile`.
+- `src/util/path-internal.ts` — extracted shared helpers (`rejectIfMalformed`,
+  `realpathOrSelf`) reused by `path-safety` and `override-allowlist`.
+- `OVERRIDE_REJECTED` added to `SquadErrorCode`.
+- `SQUAD_AGENTS_ALLOW_UNSAFE=1` opt-in escape hatch for power users / CI on
+  unusual paths.
+- `tests/agent-loader.test.ts` and `tests/override-allowlist.test.ts` covering
+  the accept/reject matrix, escape hatch, agent-name traversal guard, and
+  symlink escape.
+
+### Changed
+
+- `agent-loader` now logs a structured `agent override active` line on first
+  resolution with `resolved_path`, `allowlist_match`, `has_unsafe_override`,
+  `source` (`env` vs `platform_default`). Escape-hatch resolutions log at
+  `warn` instead of `info`.
+- `getLocalDir()` now returns `{ rawDir, explicit }` — the `list_agents` tool
+  output exposes both `local_dir` (the raw path) and `local_dir_explicit`.
+
+### Migration
+
+- If you set `SQUAD_AGENTS_DIR` to a path under your home / APPDATA / XDG dir,
+  no action is needed.
+- If you set it to `/opt/...`, `/srv/...`, a CI runner path, or any other
+  location outside those prefixes, you have two options:
+  1. Move the directory under `~/`, `~/AppData/Local/`, `~/.config/`, or your
+     project's working directory.
+  2. Set `SQUAD_AGENTS_ALLOW_UNSAFE=1` in the environment that launches the MCP
+     host. This bypasses the allowlist and logs a warning on every process
+     start so the choice stays auditable.
 
 ## [0.3.1] - 2026-05-02
 

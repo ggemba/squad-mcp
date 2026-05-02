@@ -87,7 +87,7 @@ The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package
 The default `npx -y @gempack/squad-mcp` resolves to the latest published version on every host launch. To pin a specific version, append `@<version>`:
 
 ```bash
-npx -y @gempack/squad-mcp@0.3.1
+npx -y @gempack/squad-mcp@0.4.0
 ```
 
 Releases are published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements). Verify the published tarball before configuring a host:
@@ -96,7 +96,7 @@ Releases are published from CI with [npm provenance](https://docs.npmjs.com/gene
 npm audit signatures @gempack/squad-mcp
 ```
 
-Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.3.1"]`).
+Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.4.0"]`).
 
 > **Note:** the per-host examples below use the unpinned default (`@gempack/squad-mcp`) for readability. For production setups, replace `@gempack/squad-mcp` with `@gempack/squad-mcp@<version>` in every host's `args` array.
 
@@ -244,7 +244,22 @@ Per-file resolution: if the agent's `*.md` exists in the chosen local directory,
 - Never place it on a shared volume, network mount, or world-writable path.
 - `SQUAD_AGENTS_DIR` must never be set from untrusted input (env files, CI variables sourced from PRs, etc.).
 
-Source-side hardening (path-realpath, allowlist prefix, symlink/UNC rejection) is tracked as a separate issue in the project tracker; until shipped, the disclosure above is the operator's only line of defense.
+### Allowlist (since v0.4.0)
+
+The override directory is validated at load time. It must resolve (after symlink realpath) inside one of these user-controlled prefixes:
+
+- `os.homedir()` — your home directory
+- `APPDATA` and `LOCALAPPDATA` (Windows)
+- `XDG_CONFIG_HOME` or `~/.config` (Unix)
+- `process.cwd()` — the host's working directory at launch
+
+UNC paths (`\\server\share\…`) and device-namespace paths (`\\?\…`, `\\.\…`) on Windows are rejected before any filesystem access. Per-file symlinks that escape the override directory silently fall back to the embedded default for that file.
+
+If the validation fails, the MCP server throws `OVERRIDE_REJECTED` on the first tool call that resolves an agent. The host shows the structured error so the misconfiguration surfaces immediately rather than degrading silently.
+
+### Escape hatch: SQUAD_AGENTS_ALLOW_UNSAFE
+
+For power users on unusual paths (NixOS, custom CI runners, `/opt/…`), set `SQUAD_AGENTS_ALLOW_UNSAFE=1` in the environment that launches the MCP host. This bypasses the allowlist while still rejecting malformed input (NUL bytes, ADS markers, tilde-prefixed paths). Every load logs a warn-level banner so the decision stays auditable.
 
 Seed the local directory with editable copies:
 

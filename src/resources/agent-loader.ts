@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { AGENTS, type AgentName } from '../config/ownership-matrix.js';
 import { SquadError } from '../errors.js';
 import { logger } from '../observability/logger.js';
+import {
+  validateOverrideDir,
+  validateOverrideFile,
+  rejectionToError,
+  getAllowlistSize,
+  __resetOverrideAllowlistCache,
+  type ValidationOk,
+} from '../util/override-allowlist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,8 +39,16 @@ function defaultLocalDir(): string {
   return path.join(xdg, 'squad-mcp', 'agents');
 }
 
-export function getLocalDir(): string {
-  return process.env.SQUAD_AGENTS_DIR ?? defaultLocalDir();
+/**
+ * Returns the configured override directory and whether it was set explicitly
+ * via `SQUAD_AGENTS_DIR`. Empty string is treated as unset.
+ */
+export function getLocalDir(): { rawDir: string; explicit: boolean } {
+  const env = process.env.SQUAD_AGENTS_DIR;
+  if (env !== undefined && env !== '') {
+    return { rawDir: env, explicit: true };
+  }
+  return { rawDir: defaultLocalDir(), explicit: false };
 }
 
 export function getEmbeddedDir(): string {
@@ -48,9 +64,31 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    const s = await fs.stat(p);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 let embeddedAsserted = false;
-let overrideWarnEmitted = false;
 let overrideActiveAnnounced = false;
+let overrideMissingWarnEmitted = false;
+const overrideValidationCache: Map<string, ValidationOk | null> = new Map();
+
+/**
+ * Test-only: reset all module-level caches and one-shot flags.
+ * Production code MUST NOT call this.
+ */
+export function __resetAgentLoaderForTests(): void {
+  embeddedAsserted = false;
+  overrideActiveAnnounced = false;
+  overrideMissingWarnEmitted = false;
+  overrideValidationCache.clear();
+  __resetOverrideAllowlistCache();
+}
 
 async function ensureEmbeddedDir(): Promise<void> {
   if (embeddedAsserted) return;
@@ -61,32 +99,110 @@ async function ensureEmbeddedDir(): Promise<void> {
   embeddedAsserted = true;
 }
 
-async function announceOverrideOnce(): Promise<void> {
-  if (overrideActiveAnnounced) return;
-  const localDir = getLocalDir();
-  if (process.env.SQUAD_AGENTS_DIR && (await exists(localDir))) {
-    logger.info('agent override active', { details: { local_dir_present: true } });
-  } else if (process.env.SQUAD_AGENTS_DIR && !overrideWarnEmitted) {
-    logger.warn('SQUAD_AGENTS_DIR set but directory not found; falling back to embedded defaults');
-    overrideWarnEmitted = true;
+/**
+ * Resolve and validate the active override directory.
+ *
+ * Returns:
+ *   - validated `ValidationOk` (override active for this resolution).
+ *   - `null` when there is no active override (use embedded). The "no active
+ *     override" cases include: directory does not exist on disk; default
+ *     platform dir failed validation (rare — these always live under an
+ *     allowlisted root in practice).
+ *
+ * Throws `OVERRIDE_REJECTED` only when `SQUAD_AGENTS_DIR` was set explicitly
+ * AND the directory exists but fails policy (outside allowlist, UNC, symlink
+ * escape, etc.). A missing explicit-env directory still soft-fails with a
+ * one-shot warn — this preserves the prior contract.
+ */
+async function resolveOverride(): Promise<ValidationOk | null> {
+  const { rawDir, explicit } = getLocalDir();
+
+  const cached = overrideValidationCache.get(rawDir);
+  if (cached !== undefined) return cached;
+
+  if (!(await isDirectory(rawDir))) {
+    if (explicit && !overrideMissingWarnEmitted) {
+      overrideMissingWarnEmitted = true;
+      logger.warn('SQUAD_AGENTS_DIR set but directory not found; falling back to embedded defaults', {
+        details: { configured_path: rawDir },
+      });
+    }
+    overrideValidationCache.set(rawDir, null);
+    return null;
   }
-  overrideActiveAnnounced = true;
+
+  const result = await validateOverrideDir(rawDir);
+
+  if (!result.ok) {
+    if (explicit) {
+      const size = await getAllowlistSize();
+      const err = rejectionToError(result, size);
+      logger.warn('SQUAD_AGENTS_DIR rejected', {
+        error_code: err.code,
+        details: { reason: result.reason, configured_path: rawDir },
+      });
+      throw err;
+    }
+    // Platform-default rejection: log warn, fall back silently. Rare.
+    logger.warn('platform default agent directory failed validation', {
+      details: { reason: result.reason, configured_path: rawDir },
+    });
+    overrideValidationCache.set(rawDir, null);
+    return null;
+  }
+
+  if (!overrideActiveAnnounced) {
+    overrideActiveAnnounced = true;
+    const fields = {
+      resolved_path: result.resolvedPath,
+      allowlist_match: result.allowlistMatch,
+      has_unsafe_override: result.unsafeOverride,
+      source: explicit ? 'env' : 'platform_default',
+    };
+    if (result.unsafeOverride) {
+      logger.warn('agent override active (unsafe escape hatch)', { details: fields });
+    } else {
+      logger.info('agent override active', { details: fields });
+    }
+  }
+
+  overrideValidationCache.set(rawDir, result);
+  return result;
+}
+
+/**
+ * Validate an agent name against the AGENT_FILE_MAP. Prevents agent-name
+ * traversal (e.g. `../../../etc/passwd`) at the loader boundary.
+ */
+function assertKnownAgent(name: string): asserts name is AgentName {
+  if (!Object.prototype.hasOwnProperty.call(AGENT_FILE_MAP, name)) {
+    throw new SquadError('UNKNOWN_AGENT', `unknown agent: ${name}`, { name });
+  }
 }
 
 export async function resolveAgentFile(name: AgentName): Promise<string> {
   await ensureEmbeddedDir();
-  await announceOverrideOnce();
+  assertKnownAgent(name);
   const file = AGENT_FILE_MAP[name];
-  const local = path.join(getLocalDir(), file);
-  if (await exists(local)) return local;
+  const override = await resolveOverride();
+  if (override) {
+    const overrideFile = await validateOverrideFile(override.resolvedPath, file);
+    if (overrideFile) return overrideFile;
+    // File missing or per-file escape — silent fallback to embedded for this file.
+  }
   return path.join(getEmbeddedDir(), file);
 }
 
 export async function resolveSharedFile(file: string): Promise<string> {
   await ensureEmbeddedDir();
-  await announceOverrideOnce();
-  const local = path.join(getLocalDir(), file);
-  if (await exists(local)) return local;
+  if (!SHARED_FILES.includes(file)) {
+    throw new SquadError('INVALID_INPUT', `shared file not allowed: ${file}`, { file });
+  }
+  const override = await resolveOverride();
+  if (override) {
+    const overrideFile = await validateOverrideFile(override.resolvedPath, file);
+    if (overrideFile) return overrideFile;
+  }
   return path.join(getEmbeddedDir(), file);
 }
 
@@ -96,28 +212,36 @@ export async function readAgentDefinition(name: AgentName): Promise<string> {
 }
 
 export async function listAvailableAgents() {
-  const dir = getLocalDir();
-  const localExists = await exists(dir);
+  // Trigger validation so misconfigured overrides surface here too.
+  let overridden = false;
+  try {
+    const result = await resolveOverride();
+    overridden = result !== null;
+  } catch {
+    // OVERRIDE_REJECTED bubbles up to the caller via the resolve call below
+    // when individual agent files are read. For listing, treat as no override.
+    overridden = false;
+  }
   return Object.values(AGENTS).map((a) => ({
     name: a.name,
     role: a.role,
     owns: a.owns,
     conventions: a.conventions,
     file: AGENT_FILE_MAP[a.name],
-    overridden: localExists,
+    overridden,
   }));
 }
 
 export async function initLocalConfig(force = false): Promise<{ created: string[]; skipped: string[]; dir: string }> {
   await ensureEmbeddedDir();
-  const dir = getLocalDir();
-  await fs.mkdir(dir, { recursive: true });
+  const { rawDir } = getLocalDir();
+  await fs.mkdir(rawDir, { recursive: true });
   const created: string[] = [];
   const skipped: string[] = [];
   // SECURITY: file names come from hardcoded constants only; never accept user-supplied names here.
   const sources = [...Object.values(AGENT_FILE_MAP), ...SHARED_FILES];
   for (const file of sources) {
-    const dst = path.join(dir, file);
+    const dst = path.join(rawDir, file);
     if ((await exists(dst)) && !force) {
       skipped.push(file);
       continue;
@@ -126,5 +250,5 @@ export async function initLocalConfig(force = false): Promise<{ created: string[
     await fs.copyFile(src, dst);
     created.push(file);
   }
-  return { created, skipped, dir };
+  return { created, skipped, dir: rawDir };
 }

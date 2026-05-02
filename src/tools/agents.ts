@@ -9,7 +9,10 @@ export const listAgentsTool: ToolDef<typeof listSchema> = {
   name: 'list_agents',
   description: 'List all configured agents with their roles, ownership, and naming conventions.',
   schema: listSchema,
-  handler: async () => ({ agents: await listAvailableAgents(), local_dir: getLocalDir() }),
+  handler: async () => {
+    const { rawDir, explicit } = getLocalDir();
+    return { agents: await listAvailableAgents(), local_dir: rawDir, local_dir_explicit: explicit };
+  },
 };
 
 const getSchema = z.object({
