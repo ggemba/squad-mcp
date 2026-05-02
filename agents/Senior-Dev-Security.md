@@ -57,10 +57,30 @@ Assess concrete evidence in the diff for each applicable category. Do not report
 - Verify HTTPS
 - When configuration is not visible in the diff, record as "not verifiable from diff"
 
-### Dependencies
-- Identify packages with known CVEs (when possible)
-- Assess outdated framework versions
-- When CVEs cannot be verified, record as a limitation
+### Dependencies and Known Exploits
+- Identify packages with known CVEs and active exploits.
+- Recommend running an SCA pass on the chosen stack as part of CI:
+  - **.NET**: `dotnet list package --vulnerable --include-transitive`, GitHub Dependabot, Snyk, OSV-Scanner.
+  - **Node / TypeScript**: `npm audit --omit=dev`, `pnpm audit`, Snyk, OSV-Scanner.
+  - **Python**: `pip-audit`, `safety check`, OSV-Scanner.
+  - **Java/Kotlin**: OWASP Dependency-Check, Snyk.
+  - **Go**: `govulncheck`.
+- Assess outdated framework / runtime versions (e.g., .NET out of LTS, Node out of active support).
+- When CVEs cannot be verified from the diff, record as a limitation and ask the orchestrator to run the SCA tool.
+
+### Static Analysis and Secret Scanning
+Recommend (and on critical changes, require) static analyzers and secret scanners on the chosen stack:
+
+- **Security linters**:
+  - **.NET**: `Microsoft.CodeAnalysis.NetAnalyzers` with security rules enabled, `SecurityCodeScan.VS2019`, Roslyn analyzers (`CA2100` SQL injection, `CA5350` weak crypto, etc.).
+  - **Node / TypeScript**: `eslint-plugin-security`, `eslint-plugin-no-secrets`, `semgrep` rulesets.
+  - **Python**: `bandit`, `semgrep`.
+  - **Go**: `gosec`.
+  - **Java/Kotlin**: SpotBugs + FindSecBugs, `semgrep`.
+- **Secret scanning** (must run pre-commit and in CI to prevent credential exposure):
+  - `gitleaks`, `trufflehog`, GitHub native secret scanning, `detect-secrets`.
+  - Scope: source files, config templates, `.env.example`, test fixtures, sample data.
+- If the project lacks any of these in CI, raise a Major and propose the configuration to add.
 
 ## Output Format
 

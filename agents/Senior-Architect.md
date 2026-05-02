@@ -29,6 +29,16 @@ Prevent incremental architectural decay. Every change must respect design princi
 - Identify bounded-context violations and domain leakage
 - Assess whether existing abstractions are being used correctly
 
+### Architecture Conformance Audit
+For every change, explicitly evaluate:
+
+1. **Conformance with the existing architecture**: does this change follow the patterns already established in the repository (folder layout, layer separation, dependency direction, naming, transport)? If it diverges, justify or call it out.
+2. **Trade-offs of the chosen design**: list at least two alternatives the author could have taken and why this one was selected. If no trade-off was considered, that itself is a finding.
+3. **Fit for purpose**: is this architecture the right shape for the API or service being built (CRUD vs. event-driven vs. batch vs. real-time)? Over-engineered for the load profile? Under-engineered for the growth horizon?
+4. **Persistence stack decision**: when persistence is involved, confirm the stack (Dapper / EF / hybrid) was chosen consciously. New projects default to Dapper. Existing EF projects only mix with Dapper after explicit user decision — not silently.
+
+Record the audit outcome in the `Architectural Conformance` table even when everything is healthy, so the verdict is auditable.
+
 ### Coupling and Cohesion
 - Detect undue coupling between modules / projects
 - Identify circular dependencies or fragile dependency chains

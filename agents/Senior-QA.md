@@ -63,6 +63,18 @@ Assess whether existing tests cover critical scenarios, whether the testing stra
 - Prioritize scenarios by risk and impact
 - Include failure and edge cases beyond the happy path
 
+### Property-Based Testing
+For logic with input domains the example-based tests cannot enumerate (parsers, serializers, calculators, state machines, idempotent handlers, concurrent code, anything pure-functional with non-trivial invariants), require a property-based test layer. Choose the library that fits the stack:
+
+- **.NET (C#/F#)**: `FsCheck` (with `FsCheck.Xunit` / `FsCheck.NUnit`), `CsCheck`.
+- **Node / TypeScript / JavaScript**: `fast-check`.
+- **Python**: `Hypothesis`.
+- **Java / Kotlin**: `jqwik`, `kotest property tests`.
+- **Go**: `gopter`, native `testing/quick`.
+- **Rust**: `proptest`, `quickcheck`.
+
+For each candidate, state the invariant being tested (e.g., `roundTrip(serialize(x)) == x`, `f(x) ≥ 0 for all x`, `commutative(a,b) == commutative(b,a)`). Property tests must run in CI with a deterministic seed plus a random seed, and shrink-failing-cases must be enabled.
+
 ## What to Analyze
 - Tests added or modified in the PR
 - Modified production code (to map coverage)

@@ -31,6 +31,17 @@ Prevent production performance problems and guarantee data integrity. Everything
 - Verify proper pagination for large datasets
 - Reason about implicit execution plans
 
+### Query Budget per Endpoint
+- A single endpoint call must execute **no more than 10 queries**. Anything above that is a Major finding.
+- Aggressively flag N+1 patterns: list iteration that triggers per-item queries, lazy-loaded navigation properties accessed inside loops, repository calls inside `foreach` over an entity collection.
+- Recommended fixes: eager-load (`Include` in EF, explicit JOIN in Dapper), batch fetch by IDs, projection (Select to DTO), CTE/window functions to collapse multiple round-trips into one.
+- Provide before/after query count estimate when reporting an N+1.
+
+### Persistence Stack Policy
+- **New projects**: prefer **Dapper** by default. Explicit SQL gives query-budget clarity, predictable plans, and avoids EF tracking overhead.
+- **Existing EF projects**: do not silently mix stacks. If the new feature is performance-sensitive or shapes data in a way EF handles poorly, **raise the question to the user** and let them decide between (a) following the existing EF pattern or (b) writing the new feature in Dapper. Document the chosen direction in the report.
+- When recommending Dapper inside an EF project, list the trade-offs: loss of change tracking, manual mapping, separate transaction handling. Do not recommend a switch without justification.
+
 ### Data Integrity
 - Validate constraints (FK, UK, CHECK, NOT NULL) in migrations
 - Verify transactions have correct scope and isolation
@@ -49,6 +60,16 @@ Prevent production performance problems and guarantee data integrity. Everything
 - Assess long transactions that may block resources
 - Evaluate optimistic vs. pessimistic locking strategies
 - Assess bulk-operation impact on contended tables
+
+### Concurrency and Data Integrity (Persistence Side)
+Detect and mitigate the following classes of defect when they originate in or are solved by the persistence layer. Items rooted in application flow are forwarded to Senior-Developer.
+
+- **Race conditions in read-modify-write**: SELECT-then-UPDATE patterns (counters, balances, inventory). Recommend atomic SQL (`UPDATE t SET x = x + 1`), optimistic concurrency via `RowVersion`/`xmin`, or pessimistic locking (`SELECT ... FOR UPDATE`).
+- **Deadlocks**: enforce consistent lock acquisition order across transactions; add indexes that cover WHERE/JOIN predicates so the engine takes row locks instead of escalating to page/table; keep transactions short; choose a fitting isolation level — prefer `READ COMMITTED SNAPSHOT` (SQL Server) or default `READ COMMITTED` (Postgres) for OLTP.
+- **Double processing / idempotency at the data layer**: for non-repeatable operations (payment, order creation, slot reservation), require either an idempotency key persisted with a unique constraint, a unique business-key constraint, or a database advisory/distributed lock (Postgres `pg_advisory_xact_lock`, Redis `SETNX` with TTL).
+- **Lost updates / wrong counters**: never read-then-write to increment. Always use `UPDATE t SET counter = counter + 1` or Redis `INCR`. In stored procedures, prefer `OUTPUT`/`RETURNING` to read the committed value.
+- **Phantom reads / non-repeatable reads**: when business logic depends on an invariant across multiple queries inside a transaction, escalate isolation to `REPEATABLE READ` or `SERIALIZABLE`. Document the chosen level and justify it.
+- **TOCTOU (time-of-check-to-time-of-use)**: gaps between validation and action open races. Close by locking the row, performing the validation inside the same transaction as the mutation, or expressing the check as a conditional `UPDATE`/`INSERT ... WHERE NOT EXISTS`.
 
 ### Entity Framework
 - Review mappings and EF configuration

@@ -41,6 +41,15 @@ Ensure the implementation is correct, robust, and pragmatic. The code must run i
 - Assess whether inconsistent states are possible
 - Verify partial operations leave the system in a valid state
 
+### Application-Level Concurrency
+Application-flow concurrency is yours; data-layer concurrency is Senior-DBA. Detect and flag:
+
+- **Read-modify-write at application level**: in-memory counters, cache increments, async handlers updating shared state. Recommend `Interlocked.Increment`, `lock`, `SemaphoreSlim`, `ConcurrentDictionary`, or atomic operations on the underlying store (Redis `INCR`, DB `UPDATE x SET y = y + 1`).
+- **Idempotency of public operations**: every non-repeatable endpoint (payment, order creation, booking) must be safe to retry. Require an idempotency key (`Idempotency-Key` header), a server-generated correlation, or a unique business key. The retry must yield the same response with no duplicate side effects.
+- **Distributed concurrency**: cross-instance state needs a distributed lock (Redis `SETNX` with TTL, Postgres advisory lock) or a single-writer pattern (queue, partition by key).
+- **TOCTOU at application boundaries**: any check-then-act sequence over external state (file, cache, queue) is a race. Close it via lock, atomic primitive, or move the validation into the mutating call.
+- Forward the persistence-side variant (transactions, isolation levels, row locks) to Senior-DBA.
+
 ### API Contracts
 - Validate request/response DTOs (required fields, types, formats)
 - Verify HTTP status codes fit each scenario
@@ -59,11 +68,50 @@ Ensure the implementation is correct, robust, and pragmatic. The code must run i
 - Assess whether relevant metrics are emitted
 - When alert configuration is not visible in the diff, record as "not verifiable"
 
+### Mandatory Logging
+- Every catch block that swallows or rethrows an exception must log at `Error` level with structured context (operation name, correlation id, key inputs).
+- Every code path that represents an unrecoverable failure (data corruption risk, lost work, security event) must log at `Critical` (or `Fatal`) level.
+- Use structured logging (Serilog `LogError(ex, "msg {Field}", value)` style — never string concatenation). Never log secrets or full PII; mask at log time.
+- Forward log retention/SIEM concerns to TechLead-Consolidator if outside the diff.
+
 ### Application Performance
 - Identify unnecessary allocations (strings, lists, boxing)
 - Assess serialization/deserialization (payload size, overhead)
 - Check streaming vs. buffering for large payloads
 - Identify blocking synchronous operations
+
+### Memory and Profiling
+Memory leaks are a release-blocker class of defect. Inspect every change for the patterns below and recommend a profiling pass on the host stack when in doubt.
+
+- **Common leak patterns**:
+  - Static collections (or DI Singletons) that grow unbounded with per-request data.
+  - Event handlers and `IObservable` subscriptions never disposed (remember to `-=` or use weak handlers).
+  - `IDisposable` instances created without `using` / `await using` (especially `HttpClient`, `DbContext`, file streams, `CancellationTokenSource`).
+  - Long-lived `HttpClient` not built through `IHttpClientFactory` (also causes socket exhaustion).
+  - Captured `this` in long-lived async state machines or background services.
+  - Caches without TTL or eviction policy (`MemoryCache.Set` without expiration; `Dictionary` used as cache).
+  - Async streams not consumed or cancelled (`IAsyncEnumerable` without `WithCancellation`).
+
+- **Recommended profilers per stack** (choose based on the project):
+  - **.NET**: `dotnet-counters`, `dotnet-trace`, `dotnet-gcdump`, JetBrains dotMemory, PerfView.
+  - **Node / TypeScript**: `clinic.js doctor`/`heap`, Chrome DevTools heap snapshots, `--inspect` + `--track-heap-objects`.
+  - **Python**: `tracemalloc`, `memray`, `objgraph`, `py-spy --record`.
+  - **Java/Kotlin**: JProfiler, async-profiler, `jcmd GC.heap_dump`.
+  - **Go**: `pprof` (`net/http/pprof`), `runtime.SetFinalizer` audits.
+
+- For long-running services, recommend a 30+ minute soak test with a profiler attached before release on any change touching caching, background workers, or singleton state.
+
+### Failure-Mode Analysis (chaos / fault injection)
+For every change that touches an external dependency, consider how the system behaves when that dependency fails mid-request and surface the answer to the user.
+
+- **Cache (Redis/Memcached) down**: does the request fall back to the source of truth, or does it 500? Stale-while-revalidate? Risk of stampede on cache restore?
+- **Relational database down or in failover**: are connections retried with backoff? Is the connection pool resilient? Do open transactions roll back cleanly?
+- **External HTTP service down or slow**: are timeouts configured (connect + total)? Is there a circuit breaker (Polly `CircuitBreakerPolicy`, Resilience4j)? What is the user-facing error?
+- **Message broker (Rabbit/Kafka/SQS) unavailable**: producer behavior on publish failure (drop / retry / outbox)? Consumer behavior on partial-batch failure (poison message handling, DLQ)?
+- **Disk full / network partition**: does the service degrade gracefully, or crash?
+- **Process restart mid-request**: are in-flight operations resumable, or do they leave inconsistent state?
+
+For each scenario above that applies to the change, state the expected behavior and whether the implementation matches it. If the implementation is silent on a scenario, list it as a Major or Blocker depending on impact.
 
 ## Output Format
 
