@@ -4,21 +4,21 @@ This guide walks through installing `squad-mcp` in every supported host: Claude 
 
 After install you get:
 
-- 12 deterministic MCP tools (`mcp__squad__*`)
+- 12 deterministic MCP tools (Claude Code exposes them as `mcp__squad__*`; other hosts may use a different prefix)
 - 12 MCP resources (`agent://*`, `severity://*`)
 - 3 MCP prompts (`squad_orchestration`, `agent_advisory`, `consolidator`)
 - 2 slash commands (`/squad`, `/squad-review`) — Claude Code only
 
 ## Prerequisites
 
-- Node.js 20 or 22 (only required for the npm path; the Claude Code plugin pulls Node from your existing install)
+- Node.js 20+ on `PATH`. Both the npm path and the Claude Code plugin path shell out to `node` (the plugin manifest runs `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js`); CI tests on Node 20 and 22.
 - A host that speaks MCP (Claude Code, Claude Desktop, Cursor, Warp, Continue, …)
 - Git available on `PATH` (used by `detect_changed_files`)
 
 Verify Node:
 
 ```bash
-node --version   # v20.x or v22.x
+node --version   # v20+
 ```
 
 ## Path A — Claude Code plugin (recommended)
@@ -41,14 +41,14 @@ The plugin bundles the MCP server, the slash commands, and the agent definitions
 
    Wait for `plugin installed`.
 
-3. **Restart Claude Code** (close and reopen, or run `/plugin reload`). This is required so the new slash commands and the `squad` MCP server are picked up.
+3. **Restart Claude Code** (close and reopen). The slash-command registry is populated at startup, so the new `/squad` and `/squad-review` commands and the `squad` MCP server only become available after a restart.
 
 4. **Verify the install.** In a fresh prompt:
 
    - Type `/squad ` (with the trailing space) — the autocomplete should suggest `/squad <task description>`.
    - Type `/squad-review` — same check.
    - Open Settings → MCP. You should see `squad` listed and connected.
-   - Ask Claude to call the `list_agents` tool from the `squad` MCP server. It should return 9 agents (PO, tech-lead-planner, tech-lead-consolidator, senior-architect, senior-dba, senior-developer, senior-dev-reviewer, senior-dev-security, senior-qa).
+   - Ask Claude to call the `list_agents` tool from the `squad` MCP server. It should return 9 agents (`po`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
 
 5. **Use it.**
 
@@ -82,13 +82,33 @@ Use this path for hosts that don't have a plugin marketplace (Claude Desktop, Cu
 
 The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package/@gempack/squad-mcp). You don't need to install it globally — `npx` will fetch and cache it on first run.
 
-Smoke-test the binary:
+### Version pinning and provenance
+
+The default `npx -y @gempack/squad-mcp` resolves to the latest published version on every host launch. To pin a specific version, append `@<version>`:
 
 ```bash
-npx -y @gempack/squad-mcp --help
+npx -y @gempack/squad-mcp@0.3.1
 ```
 
-It speaks MCP over stdio, so it will sit waiting for JSON-RPC. Ctrl+C to exit.
+Releases are published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements). Verify the published tarball before configuring a host:
+
+```bash
+npm audit signatures @gempack/squad-mcp
+```
+
+Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.3.1"]`).
+
+> **Note:** the per-host examples below use the unpinned default (`@gempack/squad-mcp`) for readability. For production setups, replace `@gempack/squad-mcp` with `@gempack/squad-mcp@<version>` in every host's `args` array.
+
+### Smoke test
+
+Verify the binary downloads and runs:
+
+```bash
+npx -y @gempack/squad-mcp
+```
+
+The server starts on stdio and waits silently for JSON-RPC on stdin (Ctrl+C to exit). Any error during `npx` resolution prints to stderr.
 
 ### Claude Desktop
 
@@ -96,7 +116,7 @@ Edit the config file:
 
 - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json` (unofficial — not all Claude Desktop builds support Linux)
 
 Add (or merge) the `squad` entry:
 
@@ -137,7 +157,7 @@ Settings → MCP servers → Add server.
 
 - **Name:** `squad`
 - **Command:** `npx`
-- **Args:** `-y @gempack/squad-mcp`
+- **Args:** `["-y", "@gempack/squad-mcp"]`. If your Warp build's UI takes a single space-separated string instead, enter `-y @gempack/squad-mcp`.
 
 Save. The server status should turn green.
 
@@ -147,21 +167,18 @@ In `~/.continue/config.json` (or the workspace equivalent):
 
 ```json
 {
-  "experimental": {
-    "modelContextProtocolServers": [
-      {
-        "transport": {
-          "type": "stdio",
-          "command": "npx",
-          "args": ["-y", "@gempack/squad-mcp"]
-        }
-      }
-    ]
+  "mcpServers": {
+    "squad": {
+      "command": "npx",
+      "args": ["-y", "@gempack/squad-mcp"]
+    }
   }
 }
 ```
 
 Reload the Continue extension.
+
+> Older Continue releases (pre-1.x) used `experimental.modelContextProtocolServers` with a `transport` envelope. If your build does not pick up the `mcpServers` key, check the [Continue MCP docs](https://docs.continue.dev/customize/deep-dives/mcp) for the schema your version expects.
 
 ### Any other MCP client
 
@@ -173,6 +190,25 @@ args:    -y @gempack/squad-mcp
 ```
 
 Most hosts accept either a JSON config block or a UI form with these two fields.
+
+### Faster startup / offline / corporate-proxy setups
+
+Install once globally and reference the binary by name (avoids the per-launch `npx` resolution):
+
+```bash
+npm install -g @gempack/squad-mcp
+```
+
+Then in any host config, replace `command: npx` + `args: ["-y", "@gempack/squad-mcp"]` with:
+
+```json
+{
+  "command": "squad-mcp",
+  "args": []
+}
+```
+
+This also works behind a registry proxy that rejects on-the-fly `npx` lookups.
 
 ## Path C — From source (development)
 
@@ -195,11 +231,20 @@ To point a host at your local build, replace `command: npx, args: -y @gempack/sq
 
 ## Local override of agent definitions
 
-The bundled agent markdowns can be overridden without forking. The loader resolves in this order:
+The bundled agent markdowns can be overridden without forking. The loader picks ONE local override directory:
 
-1. `$SQUAD_AGENTS_DIR` — env var, if set
-2. `%APPDATA%\squad-mcp\agents` (Windows) / `$XDG_CONFIG_HOME/squad-mcp/agents` (Unix)
-3. Embedded defaults bundled in the package
+- If `SQUAD_AGENTS_DIR` is set, that path is used **exclusively** (the platform default is not consulted).
+- Otherwise: `%APPDATA%\squad-mcp\agents` on Windows, `$XDG_CONFIG_HOME/squad-mcp/agents` on Unix (falls back to `~/.config/squad-mcp/agents` if `XDG_CONFIG_HOME` is unset).
+
+Per-file resolution: if the agent's `*.md` exists in the chosen local directory, it wins. Otherwise, the embedded default bundled in the package is used.
+
+**Security: override files are agent system prompts.** Files in the local override directory are loaded verbatim and rendered into the LLM's context with full agent authority. Treat the directory as code:
+
+- It must be writable only by the running user.
+- Never place it on a shared volume, network mount, or world-writable path.
+- `SQUAD_AGENTS_DIR` must never be set from untrusted input (env files, CI variables sourced from PRs, etc.).
+
+Source-side hardening (path-realpath, allowlist prefix, symlink/UNC rejection) is tracked as a separate issue in the project tracker; until shipped, the disclosure above is the operator's only line of defense.
 
 Seed the local directory with editable copies:
 
@@ -215,7 +260,7 @@ After install, regardless of host:
 
 - [ ] `squad` MCP server shows as connected in the host's MCP settings.
 - [ ] `list_agents` tool returns 9 agents.
-- [ ] `compose_squad_workflow` runs against a real workspace and returns `work_type`, `risk`, `squad.agents`.
+- [ ] `compose_squad_workflow` with arguments `{"workspace_root": ".", "user_prompt": "smoke"}` returns `work_type`, `risk`, `squad.agents`. Requires a git repo with at least one prior commit (the tool defaults `base_ref` to `HEAD~1` internally).
 - [ ] Resources `agent://senior-architect` and `severity://_severity-and-ownership` are readable.
 - [ ] (Claude Code only) `/squad` and `/squad-review` autocomplete.
 
@@ -231,15 +276,17 @@ Restart Claude Code. The slash command registry is populated at startup. If stil
 Check the host's MCP log:
 
 - Claude Code: Help → Show Logs → MCP.
-- Claude Desktop: `%APPDATA%\Claude\logs\mcp-server-squad.log` (Windows) or `~/Library/Logs/Claude/mcp-server-squad.log` (macOS).
+- Claude Desktop: `%APPDATA%\Claude\logs\mcp-server-squad.log` (Windows), `~/Library/Logs/Claude/mcp-server-squad.log` (macOS), `~/.config/Claude/logs/mcp-server-squad.log` (Linux — note that Claude Desktop on Linux is unofficial; verify your build).
+
+The log can include workspace file paths and `git diff` output. Review and redact before sharing for support.
 
 Common causes: Node not on `PATH`, corporate proxy blocking npm, or `npx` cache permission errors. Run `npx -y @gempack/squad-mcp` in a terminal to surface the real error.
 
 **`detect_changed_files` returns an error.**
-The tool runs `git diff --name-status` and is hardened (allowlisted refs, 10s timeout, 1MB stdout cap). Verify `git --version` works and the workspace is a git repo. Refs must match `^[A-Za-z0-9._/-]+$`.
+The tool runs `git diff --name-status --no-renames` (renames are reported as add+delete pairs) and is hardened: 10s timeout, 1MB stdout cap, allowlisted subcommands only. Verify `git --version` works and the workspace is a git repo. Refs must satisfy: matches `^[a-zA-Z0-9_/][a-zA-Z0-9_./-]*$`, max 200 chars, no leading `-`, no trailing `.`, must not contain `..`, `@{`, or `.lock`.
 
 **Tools work but the agents look wrong.**
-You probably have a stale local override at `%APPDATA%\squad-mcp\agents`. Delete it (or edit it) — the loader prefers the local copy over the bundled defaults.
+You probably have a stale local override. If `SQUAD_AGENTS_DIR` is set, only that directory is consulted; otherwise check `%APPDATA%\squad-mcp\agents` (Windows) or `$XDG_CONFIG_HOME/squad-mcp/agents` / `~/.config/squad-mcp/agents` (Unix). Delete or edit the file — the loader prefers the local copy over the bundled defaults.
 
 **Tools missing on Cursor / Warp after editing JSON.**
 Both hosts cache the MCP server list. Fully quit and relaunch (not just reload window).

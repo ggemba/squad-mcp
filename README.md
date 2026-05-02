@@ -77,7 +77,7 @@ node dist/index.js
 
 | Tool | Purpose |
 |------|---------|
-| `detect_changed_files` | Hardened `git diff --name-status` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap. |
+| `detect_changed_files` | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap. |
 | `classify_work_type` | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence. |
 | `score_risk` | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change). |
 | `select_squad` | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file. |
@@ -114,13 +114,16 @@ Output of `select_squad` includes per-file `evidence` with `confidence` and `low
 
 ## Local override of agent definitions
 
-Agent markdown is loaded with this priority:
+The loader picks ONE local override directory:
 
-1. `$SQUAD_AGENTS_DIR` (env var, if set)
-2. `%APPDATA%\squad-mcp\agents` (Windows) / `$XDG_CONFIG_HOME/squad-mcp/agents` (Unix)
-3. Embedded defaults bundled in the package
+- If `SQUAD_AGENTS_DIR` is set, that path is used **exclusively** (the platform default is not consulted).
+- Otherwise: `%APPDATA%\squad-mcp\agents` on Windows, `$XDG_CONFIG_HOME/squad-mcp/agents` on Unix (falls back to `~/.config/squad-mcp/agents` if `XDG_CONFIG_HOME` is unset).
 
-Run the `init_local_config` tool once to seed the local directory with defaults you can edit.
+Per-file resolution: if the agent's `*.md` exists in the chosen local directory, it wins. Otherwise, the embedded default bundled in the package is used.
+
+Override files are loaded verbatim and rendered into the LLM's context with full agent authority — treat the directory as code (user-only writable, not on shared volumes, never sourced from untrusted input). See [INSTALL.md](INSTALL.md#local-override-of-agent-definitions) for the full security guidance.
+
+Run the `init_local_config` tool once to seed the local directory with editable defaults.
 
 ## Repo layout
 
@@ -132,7 +135,7 @@ squad-mcp/
 ├── commands/                   # Plugin slash commands (/squad, /squad-review)
 ├── src/
 │   ├── index.ts                # stdio entry
-│   ├── tools/                  # MCP tools (10 deterministic functions)
+│   ├── tools/                  # MCP tools (12 deterministic functions)
 │   ├── resources/              # MCP resources + agent loader
 │   ├── prompts/                # MCP prompt templates
 │   ├── exec/git.ts             # hardened git execution layer
