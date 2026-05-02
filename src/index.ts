@@ -12,11 +12,16 @@ import {
 import { registerTools, dispatchTool, listTools } from './tools/registry.js';
 import { listResources, readResource } from './resources/registry.js';
 import { listPrompts, getPrompt } from './prompts/registry.js';
+import { logger, setupProcessHandlers } from './observability/logger.js';
+
+setupProcessHandlers();
+
+const SERVER_VERSION = '0.3.0';
 
 const server = new Server(
   {
     name: 'squad-mcp',
-    version: '0.1.0',
+    version: SERVER_VERSION,
   },
   {
     capabilities: {
@@ -40,3 +45,7 @@ server.setRequestHandler(GetPromptRequestSchema, async (req) => getPrompt(req.pa
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+logger.info('server started', {
+  details: { version: SERVER_VERSION, tools: listTools().length },
+});

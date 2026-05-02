@@ -1,6 +1,6 @@
 {
   "name": "@gustavo/squad-mcp",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "private": true,

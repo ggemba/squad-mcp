@@ -9,6 +9,20 @@ export type AgentName =
   | 'senior-dev-security'
   | 'senior-qa';
 
+export const AGENT_NAMES: AgentName[] = [
+  'po',
+  'tech-lead-planner',
+  'tech-lead-consolidator',
+  'senior-architect',
+  'senior-dba',
+  'senior-developer',
+  'senior-dev-reviewer',
+  'senior-dev-security',
+  'senior-qa',
+];
+
+export const AGENT_NAMES_TUPLE = AGENT_NAMES as [AgentName, ...AgentName[]];
+
 export type WorkType =
   | 'Feature'
   | 'Bug Fix'
@@ -125,13 +139,32 @@ export const SQUAD_BY_TYPE: Record<WorkType, { core: AgentName[]; conditional: {
   },
 };
 
+/**
+ * Detection signal contract: signals are ADDITIVE only.
+ *
+ * Worst case from a bad signal = an extra agent is selected (cost, never wrong exclusion).
+ * Never remove or override a signal as part of a tightening effort — the matrix grows;
+ * it does not arbitrate.
+ *
+ * `ext_filter`, when provided, is a list of lowercase file extensions (including dot)
+ * that gate the signal. Use it for cross-stack patterns that would false-positive in
+ * unrelated languages (e.g. `Schema(` in JS vs Python). Match: case-insensitive
+ * `path.extname(file)`.
+ */
 export interface ContentSignal {
   agent: AgentName;
   pattern: RegExp;
   description: string;
+  ext_filter?: string[];
 }
 
+const TS_EXT = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+const TSX_EXT = ['.ts', '.tsx', '.jsx'];
+const PY_EXT = ['.py'];
+const GO_EXT = ['.go'];
+
 export const CONTENT_SIGNALS: ContentSignal[] = [
+  // .NET / C# (existing)
   { agent: 'senior-dba', pattern: /class\s+\w+\s*:\s*DbContext/, description: 'EF DbContext' },
   { agent: 'senior-dba', pattern: /:\s*IRepository</, description: 'Repository pattern' },
   { agent: 'senior-dba', pattern: /modelBuilder\.Entity</, description: 'EF model config' },
@@ -157,12 +190,38 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
 
   { agent: 'senior-qa', pattern: /\[Fact\]|\[Theory\]/, description: 'xUnit test' },
   { agent: 'senior-qa', pattern: /\[Test\]|\[TestCase\]/, description: 'NUnit test' },
-  { agent: 'senior-qa', pattern: /\b(describe|it|test)\s*\(/, description: 'JS/TS test' },
+  { agent: 'senior-qa', pattern: /\b(describe|it|test)\s*\(/, description: 'JS/TS test', ext_filter: TS_EXT },
   { agent: 'senior-qa', pattern: /Assert\.|Should\(\)|expect\s*\(/, description: 'Assertion' },
 
-  { agent: 'senior-developer', pattern: /HttpClient|IHttpClientFactory/, description: 'HTTP client (external integration)' },
+  { agent: 'senior-developer', pattern: /HttpClient|IHttpClientFactory/, description: 'HTTP client (.NET integration)' },
   { agent: 'senior-developer', pattern: /Polly|RetryPolicy|CircuitBreaker/, description: 'Resilience policy' },
   { agent: 'senior-developer', pattern: /ILogger<|Activity\.Current|MetricsCollector/, description: 'Observability' },
+
+  // TypeScript / Node
+  { agent: 'senior-developer', pattern: /from\s+['"]express['"]/, description: 'Express import', ext_filter: TS_EXT },
+  { agent: 'senior-dev-security', pattern: /\bRouter\s*\(\s*\)/, description: 'Express router', ext_filter: TS_EXT },
+  { agent: 'senior-dba', pattern: /\bprisma\.\w+\.(findFirst|findMany|findUnique|create|update|delete|upsert)\b/, description: 'Prisma client query', ext_filter: TS_EXT },
+  { agent: 'senior-dba', pattern: /from\s+['"]typeorm['"]|@Entity\s*\(/, description: 'TypeORM', ext_filter: TS_EXT },
+  { agent: 'senior-dba', pattern: /from\s+['"]sequelize['"]|sequelize\.define\s*\(/, description: 'Sequelize', ext_filter: TS_EXT },
+  { agent: 'senior-dba', pattern: /from\s+['"]mongoose['"]|mongoose\.Schema\s*\(/, description: 'Mongoose', ext_filter: TS_EXT },
+  { agent: 'senior-dev-security', pattern: /from\s+['"]bcrypt(?:js)?['"]/, description: 'bcrypt import', ext_filter: TS_EXT },
+  { agent: 'senior-dev-security', pattern: /\bpassport\.(use|authenticate)\s*\(/, description: 'Passport auth', ext_filter: TS_EXT },
+  { agent: 'senior-dev-security', pattern: /from\s+['"]jsonwebtoken['"]|\bjwt\.(sign|verify)\s*\(/, description: 'JWT', ext_filter: TS_EXT },
+  { agent: 'senior-developer', pattern: /\buseState\s*\(|\buseEffect\s*\(/, description: 'React hook', ext_filter: TSX_EXT },
+  { agent: 'senior-developer', pattern: /from\s+['"]next\//, description: 'Next.js', ext_filter: TS_EXT },
+
+  // Python
+  { agent: 'senior-dba', pattern: /from\s+sqlalchemy/, description: 'SQLAlchemy', ext_filter: PY_EXT },
+  { agent: 'senior-developer', pattern: /from\s+(django|flask|fastapi)\b/, description: 'Python web framework', ext_filter: PY_EXT },
+  { agent: 'senior-dev-security', pattern: /@app\.route|@router\.(get|post|put|delete|patch)/, description: 'Python HTTP route', ext_filter: PY_EXT },
+  { agent: 'senior-dba', pattern: /import\s+alembic|alembic\.config/, description: 'Alembic migration', ext_filter: PY_EXT },
+  { agent: 'senior-qa', pattern: /import\s+pytest|^def\s+test_/m, description: 'pytest', ext_filter: PY_EXT },
+  { agent: 'senior-qa', pattern: /import\s+unittest/, description: 'unittest', ext_filter: PY_EXT },
+
+  // Go
+  { agent: 'senior-dba', pattern: /\bgorm\.(Open|Model|DB)\b/, description: 'GORM', ext_filter: GO_EXT },
+  { agent: 'senior-dba', pattern: /\bsqlx\.(Open|Connect|MustConnect)\b/, description: 'sqlx', ext_filter: GO_EXT },
+  { agent: 'senior-dev-security', pattern: /\bgin\.(Default|New)\b|\bchi\.(Mux|NewRouter)\b|\becho\.New\b/, description: 'Go HTTP framework', ext_filter: GO_EXT },
 ];
 
 export interface PathHint {
@@ -176,12 +235,26 @@ export const PATH_HINTS: PathHint[] = [
   { agent: 'senior-dba', pattern: /\.(sql|psql)$/i, description: 'SQL file' },
   { agent: 'senior-dba', pattern: /Repository\.cs$/i, description: 'Repository naming' },
   { agent: 'senior-dba', pattern: /DbContext\.cs$/i, description: 'DbContext naming' },
+  { agent: 'senior-dba', pattern: /[\\/]models[\\/]/i, description: 'models folder' },
   { agent: 'senior-dev-security', pattern: /Controller\.cs$/i, description: 'Controller naming' },
   { agent: 'senior-dev-security', pattern: /[\\/]Endpoints?[\\/]/i, description: 'endpoints folder' },
   { agent: 'senior-dev-security', pattern: /(Auth|Identity|Jwt)\w*\.cs$/i, description: 'auth file naming' },
+  { agent: 'senior-developer', pattern: /[\\/](api|handlers|middleware|services)[\\/]/i, description: 'api/handlers/middleware/services folder' },
   { agent: 'senior-architect', pattern: /Program\.cs$|Startup\.cs$/i, description: 'composition root' },
   { agent: 'senior-architect', pattern: /\.csproj$|Directory\.Packages\.props$/i, description: 'project boundary' },
   { agent: 'senior-architect', pattern: /DependencyInjection\.cs$|ServiceCollectionExtensions\.cs$/i, description: 'DI extensions' },
   { agent: 'senior-qa', pattern: /[\\/]Tests?[\\/]/i, description: 'tests folder' },
-  { agent: 'senior-qa', pattern: /\.(test|spec|tests)\.(ts|js|cs)$/i, description: 'test file naming' },
+  { agent: 'senior-qa', pattern: /\.(test|spec|tests)\.(ts|tsx|js|jsx|cs)$/i, description: 'test file naming' },
+  { agent: 'senior-qa', pattern: /_test\.go$/i, description: 'Go test file naming' },
+  { agent: 'senior-qa', pattern: /(?:^|[\\/])test_[\w-]+\.py$/i, description: 'Python pytest naming' },
 ];
+
+/**
+ * Returns true when the signal applies to the given file path.
+ * If `ext_filter` is unset, the signal applies to all files (default behavior).
+ */
+export function signalApplies(sig: ContentSignal, file: string): boolean {
+  if (!sig.ext_filter || sig.ext_filter.length === 0) return true;
+  const ext = file.toLowerCase().match(/\.[^./\\]+$/)?.[0];
+  return ext !== undefined && sig.ext_filter.includes(ext);
+}

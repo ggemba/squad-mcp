@@ -4,6 +4,11 @@ import { selectSquadTool } from './select-squad.js';
 import { sliceFilesForAgentTool } from './slice-files.js';
 import { listAgentsTool, getAgentDefinitionTool, initLocalConfigTool } from './agents.js';
 import { applyConsolidationRulesTool } from './consolidate.js';
+import { classifyWorkTypeTool } from './classify-work-type.js';
+import { detectChangedFilesTool } from './detect-changed-files.js';
+import { validatePlanTextTool } from './validate-plan-text.js';
+import { isSquadError } from '../errors.js';
+import { logger, newRequestId } from '../observability/logger.js';
 
 export interface ToolDef<T extends ZodTypeAny = ZodTypeAny> {
   name: string;
@@ -26,6 +31,9 @@ export function registerTools(): void {
   register(getAgentDefinitionTool);
   register(initLocalConfigTool);
   register(applyConsolidationRulesTool);
+  register(classifyWorkTypeTool);
+  register(detectChangedFilesTool);
+  register(validatePlanTextTool);
 }
 
 export function listTools() {
@@ -36,26 +44,108 @@ export function listTools() {
   }));
 }
 
-export async function dispatchTool(name: string, args: unknown) {
-  const tool = tools.get(name);
-  if (!tool) {
-    return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
+interface ToolErrorBody {
+  error: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+function asToolErrorResponse(body: ToolErrorBody) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
+    isError: true,
+  };
+}
+
+function shapeOf(args: unknown): Record<string, unknown> | undefined {
+  if (args === null || typeof args !== 'object') return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+    if (v === null || v === undefined) {
+      out[k] = v;
+    } else if (Array.isArray(v)) {
+      out[k] = `[Array(${v.length})]`;
+    } else if (typeof v === 'object') {
+      out[k] = '[object]';
+    } else if (typeof v === 'string') {
+      out[k] = `[string(${v.length})]`;
+    } else {
+      out[k] = typeof v;
+    }
   }
+  return out;
+}
+
+export async function dispatchTool(name: string, args: unknown) {
+  const requestId = newRequestId();
+  const started = Date.now();
+  const tool = tools.get(name);
+
+  if (!tool) {
+    logger.warn('unknown tool', {
+      tool: name,
+      request_id: requestId,
+      outcome: 'unknown_tool',
+      duration_ms: Date.now() - started,
+    });
+    return asToolErrorResponse({
+      error: { code: 'UNKNOWN_TOOL', message: `unknown tool: ${name}` },
+    });
+  }
+
+  logger.debug('tool call', { tool: name, request_id: requestId, input_shape: shapeOf(args) });
+
   const parsed = tool.schema.safeParse(args);
   if (!parsed.success) {
-    return {
-      content: [{ type: 'text', text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+    logger.warn('invalid input', {
+      tool: name,
+      request_id: requestId,
+      outcome: 'invalid_input',
+      duration_ms: Date.now() - started,
+    });
+    return asToolErrorResponse({
+      error: {
+        code: 'INVALID_INPUT',
+        message: parsed.error.message,
+        details: { issues: parsed.error.issues.length },
+      },
+    });
   }
+
   try {
     const result = await tool.handler(parsed.data);
+    logger.info('tool ok', {
+      tool: name,
+      request_id: requestId,
+      outcome: 'success',
+      duration_ms: Date.now() - started,
+    });
     return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { content: [{ type: 'text', text: `Tool error: ${msg}` }], isError: true };
+    const duration_ms = Date.now() - started;
+    if (isSquadError(err)) {
+      logger.warn('tool error', {
+        tool: name,
+        request_id: requestId,
+        outcome: 'tool_error',
+        duration_ms,
+        error_code: err.code,
+      });
+      return asToolErrorResponse({
+        error: { code: err.code, message: err.message, details: err.details },
+      });
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('internal error', {
+      tool: name,
+      request_id: requestId,
+      outcome: 'internal_error',
+      duration_ms,
+      details: { message },
+    });
+    return asToolErrorResponse({
+      error: { code: 'INTERNAL_ERROR', message: 'internal tool error' },
+    });
   }
 }
 
@@ -77,5 +167,6 @@ function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
   if (schema instanceof z.ZodEnum) return { type: 'string', enum: schema.options };
   if (schema instanceof z.ZodOptional) return zodToJsonSchema(schema.unwrap());
   if (schema instanceof z.ZodDefault) return zodToJsonSchema(schema.removeDefault());
+  if (schema instanceof z.ZodEffects) return zodToJsonSchema(schema.innerType());
   return {};
 }

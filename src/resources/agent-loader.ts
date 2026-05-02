@@ -3,6 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { AGENTS, type AgentName } from '../config/ownership-matrix.js';
+import { SquadError } from '../errors.js';
+import { logger } from '../observability/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,7 +48,34 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+let embeddedAsserted = false;
+let overrideWarnEmitted = false;
+let overrideActiveAnnounced = false;
+
+async function ensureEmbeddedDir(): Promise<void> {
+  if (embeddedAsserted) return;
+  const dir = getEmbeddedDir();
+  if (!(await exists(dir))) {
+    throw new SquadError('AGENT_DIR_MISSING', `embedded agents directory missing at ${dir}`);
+  }
+  embeddedAsserted = true;
+}
+
+async function announceOverrideOnce(): Promise<void> {
+  if (overrideActiveAnnounced) return;
+  const localDir = getLocalDir();
+  if (process.env.SQUAD_AGENTS_DIR && (await exists(localDir))) {
+    logger.info('agent override active', { details: { local_dir_present: true } });
+  } else if (process.env.SQUAD_AGENTS_DIR && !overrideWarnEmitted) {
+    logger.warn('SQUAD_AGENTS_DIR set but directory not found; falling back to embedded defaults');
+    overrideWarnEmitted = true;
+  }
+  overrideActiveAnnounced = true;
+}
+
 export async function resolveAgentFile(name: AgentName): Promise<string> {
+  await ensureEmbeddedDir();
+  await announceOverrideOnce();
   const file = AGENT_FILE_MAP[name];
   const local = path.join(getLocalDir(), file);
   if (await exists(local)) return local;
@@ -54,6 +83,8 @@ export async function resolveAgentFile(name: AgentName): Promise<string> {
 }
 
 export async function resolveSharedFile(file: string): Promise<string> {
+  await ensureEmbeddedDir();
+  await announceOverrideOnce();
   const local = path.join(getLocalDir(), file);
   if (await exists(local)) return local;
   return path.join(getEmbeddedDir(), file);
@@ -78,10 +109,12 @@ export async function listAvailableAgents() {
 }
 
 export async function initLocalConfig(force = false): Promise<{ created: string[]; skipped: string[]; dir: string }> {
+  await ensureEmbeddedDir();
   const dir = getLocalDir();
   await fs.mkdir(dir, { recursive: true });
   const created: string[] = [];
   const skipped: string[] = [];
+  // SECURITY: file names come from hardcoded constants only; never accept user-supplied names here.
   const sources = [...Object.values(AGENT_FILE_MAP), ...SHARED_FILES];
   for (const file of sources) {
     const dst = path.join(dir, file);

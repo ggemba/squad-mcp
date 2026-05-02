@@ -7,3 +7,6 @@ dist/
 coverage/
 .vscode/
 .idea/
+
+# personal exploration scripts (not for publish)
+tools/inspect-warp-db.mjs
