@@ -6,7 +6,7 @@
 
 MCP server that exposes the `squad-dev` workflow as deterministic tools, prompts, and resources. It classifies a task, scores its risk, picks an advisory squad of specialist reviewers, slices the changed files per agent, validates the plan, and consolidates the advisory verdicts. The host LLM (Claude Code, Cursor, Warp, Claude Desktop, …) orchestrates; `squad-mcp` provides the building blocks.
 
-It also ships as a Claude Code plugin that bundles the MCP server and the `/squad` and `/squad-review` slash commands behind a single `/plugin install`.
+It also ships as a Claude Code plugin that bundles the MCP server, four slash commands (`/squad`, `/squad-review`, `/brainstorm`, `/commit-suggest`), and the matching skills behind a single `/plugin install`.
 
 ## Install
 
@@ -17,7 +17,7 @@ It also ships as a Claude Code plugin that bundles the MCP server and the `/squa
 /plugin install squad@gempack
 ```
 
-The plugin bundles the MCP server, the `/squad` command, and the `/squad-review` command. After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
+The plugin bundles the MCP server plus four slash commands and skills (`/squad`, `/squad-review`, `/brainstorm`, `/commit-suggest`). After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
 
 ### npm package (any MCP client)
 
@@ -102,6 +102,31 @@ node dist/index.js
 - `severity://_severity-and-ownership` — severity matrix + ownership rules.
 - `severity://skill-squad-dev`, `severity://skill-squad-review` — full skill specs.
 
+### Bundled skills
+
+The plugin auto-registers these skills via `skills/` (or sync them to `~/.claude/skills/` for non-plugin clients with `node tools/sync-agents.mjs`):
+
+| Skill | Trigger | Purpose |
+|-------|---------|---------|
+| `/squad` | implementation workflow | Builds an approved plan, distributes work to specialist agents in parallel, implements the change, consolidates via tech-lead. Optional `--codex` second-opinion. New `--quick` mode reduces to 1 specialist + tech-lead with terse prompts (mutually exclusive with `--codex`; auto-fallback to normal mode on security/data-layer scope). |
+| `/squad-review` | multi-perspective review | Auto-detects affected domains, spawns specialist agents in parallel, scores on a weighted rubric (Code Quality 20%, Security 20%, Maintainability 20%, Performance 20%, Async/Concurrency 8%, Error Handling 7%, Architecture Fit 5%), tech-lead consolidates the verdict. New `--quick` mode for fast iteration. |
+| `/brainstorm` | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad` implements, `/squad-review` reviews. |
+| `/commit-suggest` | commit message generator | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves. |
+
+Workflow positioning:
+
+```
+/brainstorm   ->  decide what to build
+     v
+/squad        ->  implement what was decided
+     v
+/squad-review ->  review what was implemented
+     v
+/commit-suggest -> craft the commit message
+```
+
+See [INSTALL.md](INSTALL.md#bundled-skills) for trigger examples and the optional `commit-msg` git hook + `permissions.deny` snippet that hard-enforce the read-only and no-AI-attribution invariants at the OS / Claude Code layer.
+
 ## Detection strategy (`select_squad` / `slice_files_for_agent`)
 
 Three layers, in order of strength:
@@ -134,7 +159,8 @@ squad-mcp/
 ├── .claude-plugin/             # Claude Code plugin manifest + marketplace
 ├── .github/workflows/          # CI + release workflows
 ├── agents/                     # Bundled agent markdown defaults
-├── commands/                   # Plugin slash commands (/squad, /squad-review)
+├── commands/                   # Plugin slash commands (/squad, /squad-review, /brainstorm, /commit-suggest)
+├── skills/                     # Bundled skills (commit-suggest, brainstorm)
 ├── src/
 │   ├── index.ts                # stdio entry
 │   ├── tools/                  # MCP tools (12 deterministic functions)
@@ -146,6 +172,9 @@ squad-mcp/
 │   └── config/
 │       └── ownership-matrix.ts # agents, work types, content/path patterns
 ├── tests/                      # vitest unit + integration + stdio smoke
+├── tools/
+│   ├── sync-agents.mjs         # mirror agents + skills into ~/.claude/ for non-plugin clients
+│   └── git-hooks/commit-msg    # opt-in hook rejecting AI-attribution trailers
 └── dist/                       # compiled JS (gitignored, shipped via npm)
 ```
 
