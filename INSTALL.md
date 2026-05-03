@@ -343,6 +343,43 @@ For host-level enforcement of read-only behavior during `/commit-suggest` invoca
 
 Both layers compose: prompt rule, `permissions.deny`, and the `commit-msg` hook. A tampered skill or a prompt-injection attempt has to defeat all three.
 
+## Bundled skills
+
+The plugin ships these skills under `skills/` (auto-registered when the plugin is enabled, or mirrored to `~/.claude/skills/` via `node tools/sync-agents.mjs` for non-plugin clients):
+
+| Skill | Trigger | Purpose |
+|-------|---------|---------|
+| `commit-suggest` | `/commit-suggest` | Read-only Conventional Commits message suggester. No AI co-author trailers. |
+| `brainstorm` | `/brainstorm <topic>` | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code. |
+
+Workflow positioning:
+
+```
+/brainstorm   ->  decide what to build (research + options)
+     v
+/squad        ->  implement what was decided
+     v
+/squad-review ->  review what was implemented
+     v
+/commit-suggest -> craft the commit message
+```
+
+`/brainstorm` examples:
+
+```
+/brainstorm choosing between SQLite and PostgreSQL for a desktop app
+-> Default depth: medium (~6 web queries + 2-3 agents)
+
+/brainstorm --depth deep how to design idempotent payment retries
+-> 10+ queries + 4 agents + tech-lead consolidator
+
+/brainstorm --no-web should we extract this module into a separate package
+-> Agents-only (offline / repo-internal topic)
+
+/brainstorm --focus security how to store API keys in a desktop app
+-> Forces senior-dev-security as the primary specialist
+```
+
 ## Verification checklist
 
 After install, regardless of host:

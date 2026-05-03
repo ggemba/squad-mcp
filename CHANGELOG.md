@@ -9,6 +9,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`brainstorm` skill.** Collaborative pre-implementation exploration. Takes a
+  problem, decision, or implementation idea; runs deep web research in parallel
+  (market patterns, best practices, pitfalls, examples); spawns specialist
+  agents for multi-domain perspectives; synthesizes findings into a sourced
+  options matrix with a recommendation. Exploratory only — produces no code or
+  file changes. Position in the workflow: `/brainstorm` decides *what* to
+  build; `/squad` implements; `/squad-review` reviews. Triggered via
+  `/brainstorm` or natural-language asks ("brainstorm", "research approaches",
+  "explore options", "what does the industry use"). Supports `--depth
+  quick|medium|deep`, `--no-web`, `--focus <domain>`, and `--sources <N>`.
 - **`commit-suggest` skill.** Read-only Conventional Commits message suggester.
   Runs only an allowlist of git commands (`status`, `diff`, `log`, `rev-parse`,
   `config --get`, `ls-files`, `show <ref>:<path>`); never executes any
