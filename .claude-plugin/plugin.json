@@ -11,6 +11,7 @@
   "repository": "https://github.com/ggemba/squad-mcp",
   "keywords": ["mcp", "squad-dev", "code-review", "advisory", "agent"],
   "commands": "./commands/",
+  "skills": "./skills/",
   "mcpServers": {
     "squad": {
       "command": "node",

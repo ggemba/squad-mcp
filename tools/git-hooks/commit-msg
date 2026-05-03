@@ -1,0 +1,45 @@
+#!/usr/bin/env sh
+# commit-msg hook — reject AI-attribution trailers in commit messages.
+#
+# This hook enforces the "no AI attribution" rule from the commit-suggest
+# skill at the git layer, so violations cannot land via misuse of the skill,
+# adversarial prompt injection, or any other path that produces a commit
+# message string. The hook is opt-in: install with
+#
+#   cp tools/git-hooks/commit-msg .git/hooks/commit-msg
+#   chmod +x .git/hooks/commit-msg
+#
+# Or for repo-wide enforcement on every clone, point core.hooksPath at this
+# directory:
+#
+#   git config core.hooksPath tools/git-hooks
+#
+# The hook reads the commit message file passed as $1 and rejects with a
+# clear error if any forbidden trailer matches. Comment lines (#-prefixed)
+# are ignored so users can still document the rule in templates.
+
+set -e
+
+msg_file="$1"
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+    echo "commit-msg hook: missing or unreadable message file: $msg_file" >&2
+    exit 1
+fi
+
+# Strip comments (lines starting with #) before scanning. Use grep -E with
+# case-insensitive match against the AI-attribution patterns.
+forbidden_pattern='(^Co-Authored-By:.*(Claude|Anthropic|GPT|OpenAI|Gemini|Copilot|AI[[:space:]]|noreply@anthropic\.com))|(^Generated with[[:space:]].*Claude)|(^Generated with[[:space:]]\[Claude)|(^Made by[[:space:]].*AI)|(Co-Authored-By:[[:space:]].*<noreply@anthropic\.com>)'
+
+if grep -v '^#' "$msg_file" | grep -E -i "$forbidden_pattern" > /dev/null 2>&1; then
+    echo "" >&2
+    echo "commit-msg hook: rejected — AI-attribution trailers are forbidden in commit messages." >&2
+    echo "" >&2
+    echo "Matching line(s):" >&2
+    grep -v '^#' "$msg_file" | grep -E -i -n "$forbidden_pattern" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "Author is always the user. Remove any Co-Authored-By: Claude/Anthropic/AI/Copilot/etc," >&2
+    echo "Generated with [Claude Code] / Made by AI lines, then re-commit." >&2
+    exit 1
+fi
+
+exit 0

@@ -341,9 +341,29 @@ Spawn `tech-lead-consolidator` with every advisory report and the delivered delt
 | Parameter | Type   | Default | Description |
 |-----------|--------|---------|-------------|
 | --codex   | flag   | off     | Enable Codex for plan validation and implementation review |
+| --quick   | flag   | off     | Quick mode (see below). Trades depth for speed. Mutually exclusive with `--codex`. |
 | squad     | string | auto    | Specific squad or "auto" for detection |
 | plan-only | bool   | false   | Build the plan only, do not execute |
 | verbose   | bool   | false   | Show individual agent reports inline |
+
+## Quick Mode (`--quick`)
+
+Reduced agent set, terse prompts, condensed delivery. Suitable for small fixes, isolated changes, or iterative work where a full squad pass is overkill. Roughly one third of the normal time and tokens.
+
+Phase deltas vs. normal mode:
+
+| Phase | Normal | Quick |
+|-------|--------|-------|
+| Plan | Full plan with risks/decisions/tests | Condensed: objective, files, top 1-2 risks. Skip alternatives table. |
+| Codex plan validation | Opt-in via `--codex` | Force-disabled. `--quick --codex` is rejected. |
+| User approval gate | Always required | Auto-proceed when risk Low AND scope ≤3 files AND no security/data path. Otherwise still gates. |
+| Squad | Auto-detect 3-7 specialists + tech-lead | Hard cap: 1 specialist + tech-lead. Specialist = work-type primary. |
+| Agent prompts | Full template | "Flag only Blocker/Major. ≤200 words. No long template. If clean, reply 'No issues in scope.'" |
+| Codex review | Opt-in | Skipped (force-disabled with `--quick`) |
+| Tech-lead consolidator | Always | Skipped when zero Blocker/Major from specialist |
+| Delivery | Full report | Condensed: objective, files, tests, residual risks |
+
+Critical-change auto-fallback: if scope touches `auth`, `crypto`, `permissions`, `Program.cs`, `Startup.cs`, migrations, EF mappings, or `appsettings`, fall back to normal mode with warning `Quick mode disabled — change touches security/data layer. Running full workflow.`.
 
 ## Usage Examples
 
@@ -358,12 +378,19 @@ Spawn `tech-lead-consolidator` with every advisory report and the delivered delt
 
 /squad refactor ExchangeUsdService to split responsibilities
 -> Plan + Planner -> User approves -> Advisory -> Implement -> Consolidator
+
+/squad --quick rename a misspelled local variable in BalanceController
+-> Quick mode: condensed plan, 1 specialist + tech-lead, terse prompts, condensed delivery
+
+/squad --quick --codex anything
+-> Error: --quick is mutually exclusive with --codex
 ```
 
 ## Inviolable Rules
-1. Every implementation starts from an approved plan.
-2. Codex only runs with user consent (flag or confirmed auto-suggestion).
-3. TechLead-Consolidator always delivers the final verdict.
+1. Every implementation starts from a plan (approved explicitly, or auto-proceeded under `--quick` when risk Low).
+2. Codex only runs with user consent (flag or confirmed auto-suggestion). Never combined with `--quick`.
+3. TechLead-Consolidator always delivers the final verdict in normal mode. Under `--quick`, skipped only when the specialist reports zero Blocker/Major findings.
 4. Advisory agents do not implement — they assess and recommend; Claude implements.
 5. Method names in English. No emojis.
 6. Never run commit or push.
+7. Quick mode auto-fallback: scope touching security/data layers forces full workflow.

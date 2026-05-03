@@ -80,6 +80,17 @@ Then restart Claude Code.
 
 Use this path for hosts that don't have a plugin marketplace (Claude Desktop, Cursor, Warp, Continue, etc.) or when you want the MCP server only without the slash commands.
 
+> **Path B vs Path A — what gets installed:** the npm package ships **only the MCP server** (`dist/index.js`). The bundled agents (`agents/*.md`), shared docs (`agents/_squad-shared/`), and skills (`skills/*/SKILL.md`) are **not** auto-mirrored to `~/.claude/` by `npx`. Path A (Claude Code plugin) registers them via the manifest; Path B users who want the slash commands and skills materialized in `~/.claude/agents/` and `~/.claude/skills/` must run the bundled sync script after installing:
+>
+> ```bash
+> # From a checkout of https://github.com/ggemba/squad-mcp at the matching tag:
+> node tools/sync-agents.mjs
+> ```
+>
+> The sync is idempotent. Re-running it preserves any skill files you have edited locally (skip-with-warning policy). Delete a skill file under `~/.claude/skills/<name>/` (losing your edits) to receive the next bundled update.
+>
+> The script maintains a `~/.claude/skills/.bundle-hashes.json` baseline file that records the hash of the last bundled version of each skill file. It distinguishes "unmodified prior bundle" (overwrite on update) from "user-modified" (preserve with warning). Do **not** edit or delete this file manually — deleting it forces all existing skills to be classified as user-modified until they happen to match a future bundle.
+
 The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package/@gempack/squad-mcp). You don't need to install it globally — `npx` will fetch and cache it on first run.
 
 ### Version pinning and provenance
@@ -284,6 +295,53 @@ Call the `init_local_config` MCP tool from your host.
 ```
 
 Then edit any `*.md` in that directory. Restart the host (or reconnect the MCP server) to pick up changes.
+
+## Optional hardening — commit-suggest skill
+
+The `commit-suggest` skill is read-only by spec and never adds AI co-author trailers, but the rule is enforced at the prompt layer only — a sufficiently adversarial prompt-injection or model regression could violate it. For repos where you want a structural guarantee, install the bundled `commit-msg` hook:
+
+```bash
+# Per-repo install
+cp tools/git-hooks/commit-msg .git/hooks/commit-msg
+chmod +x .git/hooks/commit-msg
+
+# Or repo-wide enforcement on every clone (preferred):
+git config core.hooksPath tools/git-hooks
+```
+
+The hook rejects any commit whose message contains `Co-Authored-By: Claude/Anthropic/GPT/OpenAI/Gemini/Copilot/AI`, `Generated with [Claude Code]`, `Made by AI`, or `<noreply@anthropic.com>` trailers. Comment lines (`#`-prefixed) are ignored so commit-message templates can still document the rule.
+
+For host-level enforcement of read-only behavior during `/commit-suggest` invocations, add a `permissions.deny` block to your Claude Code project settings. Example `.claude/settings.json` snippet:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Bash(git commit*)",
+      "Bash(git add*)",
+      "Bash(git push*)",
+      "Bash(git reset*)",
+      "Bash(git rebase*)",
+      "Bash(git merge*)",
+      "Bash(git checkout*)",
+      "Bash(git switch*)",
+      "Bash(git stash*)",
+      "Bash(git tag*)",
+      "Bash(git branch*)",
+      "Bash(git apply*)",
+      "Bash(git cherry-pick*)",
+      "Bash(git revert*)",
+      "Bash(git rm*)",
+      "Bash(git mv*)",
+      "Bash(git restore*)",
+      "Bash(git clean*)",
+      "Bash(git update-ref*)"
+    ]
+  }
+}
+```
+
+Both layers compose: prompt rule, `permissions.deny`, and the `commit-msg` hook. A tampered skill or a prompt-injection attempt has to defeat all three.
 
 ## Verification checklist
 

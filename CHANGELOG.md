@@ -7,6 +7,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`commit-suggest` skill.** Read-only Conventional Commits message suggester.
+  Runs only an allowlist of git commands (`status`, `diff`, `log`, `rev-parse`,
+  `config --get`, `ls-files`, `show <ref>:<path>`); never executes any
+  state-mutating git command; never adds AI co-author trailers. Output is text
+  only — the user runs the commit themselves. Triggered via `/commit-suggest`
+  or natural-language asks ("suggest a commit", "commit message").
+- **Plugin manifest exports `skills/`**. The `commit-suggest` skill (and any
+  future skill bundled under `skills/`) is auto-registered when the plugin is
+  enabled in Claude Code.
+- **`tools/git-hooks/commit-msg`**. Optional opt-in hook that rejects commits
+  whose messages contain AI-attribution trailers (`Co-Authored-By: Claude /
+  Anthropic / GPT / OpenAI / Gemini / Copilot / AI`, `Generated with [Claude
+  Code]`, `Made by AI`, `<noreply@anthropic.com>`). Install via `cp` to
+  `.git/hooks/` or repo-wide via `git config core.hooksPath tools/git-hooks`.
+- **`tools/sync-agents.mjs` skills sync.** Mirrors bundled skills to
+  `~/.claude/skills/` for non-plugin clients (Claude Desktop, Cursor, Warp).
+  Recursive walker; baseline-hash store at `~/.claude/skills/.bundle-hashes.json`
+  with versioned envelope (`{version: 1, baselines: {...}}`); tri-state policy
+  (identical / stale-baseline / user-modified) preserves user edits with a
+  `skip-with-warning` log; symlink refusal at source, destination, leaf, and
+  baseline-file layers; containment assert against escape-via-skill-name;
+  `COPYFILE_EXCL` race guard with EEXIST recurse fallback; mode `0o600` on
+  baseline file (Unix); atomic temp+rename writes; non-zero exit on
+  `skillsFailed > 0`.
+- **`tools/sync-agents.mjs` agents sync hardening.** Symmetric symlink-at-
+  destination defense for the agents path: refuses to write through a symlinked
+  `~/.claude/agents/<file>.md` (matches the existing skills behavior).
+- **8 integration tests** for the skills sync (`tests/sync-agents.test.ts`):
+  cold sync + baseline persistence, bundle update overwrites stale dst, user
+  edits preserved, symlink-dst refused (Unix-only), corrupt baseline graceful
+  fallback, idempotent rerun, HOME/USERPROFILE guard.
+
+### Changed
+
+- **Global `~/.claude/CLAUDE.md` rule** (user-side, not shipped): commits
+  produced or suggested by Claude must never carry AI-attribution trailers.
+
+### Documentation
+
+- **`INSTALL.md` Path B note**: documents that npm-package users must run
+  `node tools/sync-agents.mjs` to mirror agents and skills to `~/.claude/`,
+  and that the manual sync is idempotent.
+- **`INSTALL.md` Optional hardening section**: documents how to install the
+  `commit-msg` hook and a recommended `permissions.deny` block in
+  `.claude/settings.json` for structural enforcement of the read-only invariant.
+- **`INSTALL.md` baseline file note**: documents that
+  `~/.claude/skills/.bundle-hashes.json` is installer state and should not be
+  edited or deleted manually.
+
 Planned for a future minor:
 
 - Promote bundled agent markdowns to Claude Code native plugin agents (rename to
@@ -14,6 +65,13 @@ Planned for a future minor:
   `%APPDATA%\squad-mcp\agents` overrides.
 - Retire the legacy `/squad` and `/squad-review` skills now that the plugin
   ships them as slash commands.
+- Extract `tools/sync-agents.mjs` helpers into a `tools/sync/` module
+  (`baseline-store.mjs`, `safe-copy.mjs`, `agents.mjs`, `skills.mjs`) once a
+  third sync target lands.
+- Streaming SHA-256 over `fs.createReadStream` for skill files larger than a
+  threshold (avoids `readFileSync` doubling memory on large bundled assets).
+- Property-based tests for `hasPathSeparator` and the tri-state baseline
+  policy state machine via `fast-check`.
 
 ## [0.4.0] - 2026-05-02
 

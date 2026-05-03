@@ -232,6 +232,67 @@ If an agent did not participate, mark as "Not evaluated".
 | scope     | string | branch  | "branch" (branch diff), "file:path" (specific file), "commit:hash" |
 | base      | string | master  | Base branch for the diff |
 | verbose   | bool   | false   | If true, show full individual reports; if false, only the consolidated one |
+| --quick   | flag   | off     | Quick mode (see below). Trades depth for speed. Mutually exclusive with `--codex`. |
+
+## Quick Mode (`--quick`)
+
+Reduced agent set, terse prompts, condensed output. Goal: usable verdict in roughly one third of the normal time and tokens. Suitable for iterative work, small diffs, or sanity checks before a full review.
+
+Phase deltas vs. normal mode:
+
+| Aspect | Normal | Quick |
+|--------|--------|-------|
+| Agents | Auto-detect 3-7 specialists + tech-lead | Hard cap: 1 specialist + tech-lead. Specialist defaults to `senior-dev-reviewer` (or focus mode primary) |
+| Per-agent prompt | Full template | "Flag only Blocker/Major in your domain. ≤200 words. No scorecard. No comments-by-file table. If clean: 'No issues in scope.'" |
+| Tech-lead consolidator | Always runs | Skipped when zero Blocker/Major reported by specialist |
+| Codex | Opt-in via `--codex` | Force-disabled. `--quick --codex` rejected. |
+| Critical-change auto-fallback | N/A | Diff touching `auth`, `crypto`, `permissions`, `Program.cs`, `Startup.cs`, migrations, `appsettings` falls back to normal mode with warning |
+| Output | Full Markdown with scorecard, per-file comments, individual reports | Condensed: verdict + top 3 issues + "run without --quick for full review" hint |
+
+Quick agent prompt:
+
+```
+You are participating in a quick squad review. Be terse.
+
+## Context
+{user prompt}
+
+## Files to Review
+{diff stat + the diff itself}
+
+## Your Task
+Report ONLY Blocker and Major findings within your ownership.
+Hard limit: 200 words total. No scorecard. No table.
+If you find nothing, reply exactly: "No issues in scope."
+Format each finding as one line: `[Severity] file:line — problem; fix.`
+```
+
+Quick output:
+
+```
+# Squad Review (quick) — {short description}
+
+Squad: {agent names}
+Verdict: {APPROVED | CHANGES REQUIRED | REJECTED}
+
+Top issues:
+1. [Severity] file:line — problem; fix.
+2. [Severity] file:line — problem; fix.
+3. [Severity] file:line — problem; fix.
+
+(Run without --quick for full scorecard, per-file comments, and individual reports.)
+```
+
+When the specialist reports `No issues in scope.` and tech-lead is skipped:
+
+```
+# Squad Review (quick) — {short description}
+
+Squad: {specialist}
+Verdict: APPROVED — no Blocker or Major findings.
+
+(Run without --quick for full scorecard.)
+```
 
 ## Usage Examples
 
@@ -247,6 +308,15 @@ If an agent did not participate, mark as "Not evaluated".
 
 /squad-review full
 -> Every agent; complete review
+
+/squad-review --quick
+-> Quick mode: 1 specialist + tech-lead, terse prompts, condensed output
+
+/squad-review --quick code
+-> Quick code-quality review (senior-dev-reviewer + tech-lead)
+
+/squad-review --quick --codex
+-> Error: --quick is mutually exclusive with --codex
 ```
 
 ## Considerations
