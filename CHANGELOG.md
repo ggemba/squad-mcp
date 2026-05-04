@@ -7,8 +7,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+Planned for a future minor:
+
+- Promote bundled agent markdowns to Claude Code native plugin agents (rename to
+  kebab-case + add YAML frontmatter), with a migration path for existing
+  `%APPDATA%\squad-mcp\agents` overrides.
+- Retire the legacy `/squad` and `/squad-review` skills now that the plugin
+  ships them as slash commands.
+- Extract `tools/sync-agents.mjs` helpers into a `tools/sync/` module
+  (`baseline-store.mjs`, `safe-copy.mjs`, `agents.mjs`, `skills.mjs`) once a
+  third sync target lands.
+- Streaming SHA-256 over `fs.createReadStream` for skill files larger than a
+  threshold (avoids `readFileSync` doubling memory on large bundled assets).
+- Property-based tests for `hasPathSeparator` and the tri-state baseline
+  policy state machine via `fast-check`.
+
+## [0.5.0] - 2026-05-04
+
 ### Added
 
+- **`Senior-Dev-Reviewer` weighted scorecard.** Reviewer agent now produces a
+  numeric scorecard (0–10 per dimension, weighted average overall) across Code
+  Quality 20%, Security 20%, Maintainability 20%, Performance 20%,
+  Async/Concurrency 8%, Error Handling 7%, Architecture Fit 5%. Includes
+  per-stack idiomatic checklists for the top 5 backend (C#/.NET, Python, Java,
+  Go, Node.js) and top 5 frontend (TypeScript, React, Vue, Angular, Svelte)
+  stacks with auto-detection. Severity table drives the scorecard penalty.
+  Dimensions lacking diff evidence are reported as `N/A` rather than zero.
 - **`brainstorm` skill.** Collaborative pre-implementation exploration. Takes a
   problem, decision, or implementation idea; runs deep web research in parallel
   (market patterns, best practices, pitfalls, examples); spawns specialist
@@ -67,21 +92,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`INSTALL.md` baseline file note**: documents that
   `~/.claude/skills/.bundle-hashes.json` is installer state and should not be
   edited or deleted manually.
-
-Planned for a future minor:
-
-- Promote bundled agent markdowns to Claude Code native plugin agents (rename to
-  kebab-case + add YAML frontmatter), with a migration path for existing
-  `%APPDATA%\squad-mcp\agents` overrides.
-- Retire the legacy `/squad` and `/squad-review` skills now that the plugin
-  ships them as slash commands.
-- Extract `tools/sync-agents.mjs` helpers into a `tools/sync/` module
-  (`baseline-store.mjs`, `safe-copy.mjs`, `agents.mjs`, `skills.mjs`) once a
-  third sync target lands.
-- Streaming SHA-256 over `fs.createReadStream` for skill files larger than a
-  threshold (avoids `readFileSync` doubling memory on large bundled assets).
-- Property-based tests for `hasPathSeparator` and the tri-state baseline
-  policy state machine via `fast-check`.
 
 ## [0.4.0] - 2026-05-02
 
@@ -408,7 +418,9 @@ update at commit `052c2ad`.
 - Smoke test (`tests/smoke.mjs`) plus initial unit tests for `score_risk`,
   `select_squad`, `consolidate`.
 
-[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.5.0
+[0.4.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ggemba/squad-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.3.0
 [0.1.0]: https://github.com/ggemba/squad-mcp/commit/548adc2
