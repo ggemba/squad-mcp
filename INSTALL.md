@@ -4,10 +4,18 @@ This guide walks through installing `squad-mcp` in every supported host: Claude 
 
 After install you get:
 
-- 12 deterministic MCP tools (Claude Code exposes them as `mcp__squad__*`; other hosts may use a different prefix)
+- 23 deterministic MCP tools (Claude Code exposes them as `mcp__squad__*`; other hosts may use a different prefix). Counts grow as new features land — the running server is authoritative; call `tools/list` to see the live count.
 - 12 MCP resources (`agent://*`, `severity://*`)
 - 3 MCP prompts (`squad_orchestration`, `agent_advisory`, `consolidator`)
-- 2 slash commands (`/squad`, `/squad-review`) — Claude Code only
+- 4 slash commands — Claude Code only:
+  - `/squad <task>` — implementation workflow
+  - `/squad-review [target]` — advisory-only review of an existing diff/branch/PR
+  - `/brainstorm <topic>` — pre-implementation research
+  - `/commit-suggest` — Conventional Commits message suggester (read-only)
+- Two on-disk stores under `.squad/` (versioned in git):
+  - `.squad/tasks.json` — atomic tasks decomposed from a PRD (see [`Tasks`](#path-d--using-the-tasks-store))
+  - `.squad/learnings.jsonl` — accept/reject decisions on past advisory findings (see [`Learnings`](#path-e--using-the-learnings-store))
+- Optional repo configuration in [`.squad.yaml`](#repo-configuration--squadyaml) (weights, skip paths, disabled agents, learnings/tasks paths, PR-posting policy).
 
 ## Prerequisites
 
@@ -47,7 +55,7 @@ The plugin bundles the MCP server, the slash commands, and the agent definitions
    - Type `/squad ` (with the trailing space) — the autocomplete should suggest `/squad <task description>`.
    - Type `/squad-review` — same check.
    - Open Settings → MCP. You should see `squad` listed and connected.
-   - Ask Claude to call the `list_agents` tool from the `squad` MCP server. It should return 9 agents (`po`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
+   - Ask Claude to call the `list_agents` tool from the `squad` MCP server. It should return 9 agents (`product-owner`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
 
 5. **Use it.**
 
@@ -90,7 +98,7 @@ The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package
 The default `npx -y @gempack/squad-mcp` resolves to the latest published version on every host launch. To pin a specific version, append `@<version>`:
 
 ```bash
-npx -y @gempack/squad-mcp@0.4.0
+npx -y @gempack/squad-mcp@0.6.0
 ```
 
 Releases are published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements). Verify the published tarball before configuring a host:
@@ -99,7 +107,7 @@ Releases are published from CI with [npm provenance](https://docs.npmjs.com/gene
 npm audit signatures @gempack/squad-mcp
 ```
 
-Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.4.0"]`).
+Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.6.0"]`).
 
 > **Note:** the per-host examples below use the unpinned default (`@gempack/squad-mcp`) for readability. For production setups, replace `@gempack/squad-mcp` with `@gempack/squad-mcp@<version>` in every host's `args` array.
 
@@ -119,7 +127,7 @@ Edit the config file:
 
 - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Linux:** `~/.config/Claude/claude_desktop_config.json` (unofficial — not all Claude Desktop builds support Linux)
+- **Linux:** `~/.config/Claude/claude_desktop_config.json` (unofficial — not all Claude Desktop builds support Linux). Flatpak builds sandbox `~/.config/`; check `~/.var/app/com.anthropic.Claude/config/Claude/` if the standard path doesn't load. Snap builds use `~/snap/claude/current/.config/Claude/`.
 
 Add (or merge) the `squad` entry:
 
@@ -232,6 +240,137 @@ To point a host at your local build, replace `command: npx, args: -y @gempack/sq
 }
 ```
 
+## Repo configuration — `.squad.yaml`
+
+Drop a `.squad.yaml` (or `.squad.yml`) at the workspace root to override defaults per-project. Versioned with the code. Picked up automatically by the composers (`compose_squad_workflow`, `compose_advisory_bundle`).
+
+All keys optional; partial files merge with package defaults. Cached by mtime — long-running MCP servers pick up edits without restart.
+
+```yaml
+# .squad.yaml — example for a regulated fintech backend
+
+# Rubric weights (must sum to 100 across the agents you list).
+weights:
+  senior-dev-security: 30
+  senior-dba: 22
+  senior-developer: 20
+  senior-architect: 15
+  senior-qa: 13
+
+# Per-dimension flag threshold (default 75).
+threshold: 80
+
+# Quality floor: APPROVED with weighted score below this becomes CHANGES_REQUIRED.
+min_score: 75
+
+# Files excluded from advisory.
+skip_paths:
+  - "docs/**"
+  - "**/*.md"
+  - "**/generated/**"
+
+# Agents not relevant for this repo.
+disable_agents:
+  - product-owner
+
+# Tasks store (Path D below).
+tasks:
+  path: .squad/tasks.json
+  enabled: true
+
+# Learnings store (Path E below).
+learnings:
+  path: .squad/learnings.jsonl
+  max_recent: 50
+  enabled: true
+
+# PR posting (used by /squad-review with PR refs).
+pr_posting:
+  auto_post: false
+  request_changes_below_score: 60
+  omit_attribution_footer: false
+```
+
+Validation is strict: weights must sum to 100, unknown agent names rejected, threshold/min_score 0-100. `force_agents` in tool calls still wins over `disable_agents`.
+
+## Path D — Using the tasks store
+
+The squad's biggest source of token bloat is re-analysing the whole repo on every prompt. The tasks store fixes that: a PRD is decomposed into atomic tasks up front; the squad runs against ONE task's narrowed scope at a time.
+
+**Decompose a PRD (Claude Code):**
+
+```
+/squad-tasks docs/my-prd.md
+```
+
+The skill:
+
+1. Calls `compose_prd_parse` with the PRD text.
+2. Decomposes via the host LLM (no provider keys on the server).
+3. Shows you the parsed tasks; waits for your "record".
+4. Calls `record_tasks` only after confirmation.
+
+**Work tasks:**
+
+```
+/squad-next        # picks the highest-priority ready task
+/squad-task 5      # explicit pick by id
+```
+
+For each task, `slice_files_for_task` narrows the changed-files list to the task's `scope` glob; `compose_squad_workflow` runs against that slice with `agent_hints` as `force_agents` so only the relevant specialists wake up. When done, the skill flips status via `update_task_status`.
+
+**CLI for non-MCP environments:**
+
+```bash
+echo '[{"title":"Add CSRF","scope":"src/api/**"}]' | node tools/record-tasks.mjs
+node tools/list-tasks.mjs --status pending
+node tools/next-task.mjs --json
+node tools/update-task-status.mjs --task 5 --status done
+```
+
+The tasks file (`.squad/tasks.json` by default) is intended to live in git so the team's decomposition ships with the repo.
+
+## Path E — Using the learnings store
+
+Once `/squad-review` produces a verdict, you can record per-finding decisions (accept / reject + reason) into `.squad/learnings.jsonl`. Future advisory runs read the recent tail and inject it into agent + consolidator prompts so the squad stops re-raising findings the team has already considered.
+
+**Record a decision (Claude Code):**
+
+```
+record reject senior-dev-security "missing CSRF on POST /api/refund"
+  reason: CSRF terminated at API gateway
+  scope: src/api/**
+```
+
+The skill restates the decision and waits for explicit confirmation before calling `record_learning`. Per-finding authorisation is required — silence or "thanks" is not authorisation.
+
+**CLI helper:**
+
+```bash
+node tools/record-learning.mjs --reject \
+  --agent senior-dev-security \
+  --finding "missing CSRF on POST /api/refund" \
+  --reason "CSRF terminated at API gateway" \
+  --scope "src/api/**" \
+  --pr 42
+```
+
+The journal is append-only by design — corrections are appended, never amended.
+
+## Path F — Posting `/squad-review` to GitHub PRs
+
+When `/squad-review #42` runs, the verdict + scorecard can be posted to the PR via `gh pr review`. Default behaviour: dry-run + confirmation.
+
+```bash
+echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42 --dry-run
+# review the body, then:
+echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42
+```
+
+The CLI maps verdict → `gh` action deterministically (APPROVED → `--approve`, CHANGES_REQUIRED → `--comment`, REJECTED → `--request-changes`). Set `pr_posting.auto_post: true` in `.squad.yaml` to skip the second confirmation, but the skill still always shows the body before posting.
+
+Inviolable: never amend or delete a posted review through this skill (re-run for a fresh review); never post `--request-changes` on a PR you do not own without explicit user instruction.
+
 ## Local override of agent definitions
 
 The bundled agent markdowns can be overridden without forking. The loader picks ONE local override directory:
@@ -339,11 +478,11 @@ Both layers compose: prompt rule, `permissions.deny`, and the `commit-msg` hook.
 
 The plugin ships these skills under `skills/` (auto-registered when the plugin is enabled):
 
-| Skill            | Trigger                                  | Purpose                                                                                                                                                                                |
-| ---------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `squad`          | `/squad <task>` or `/squad-review [tgt]` | Single skill, two modes. Implement runs the full squad-dev orchestration; review runs the advisory portion only against an existing diff/branch/PR. Mode is selected by entry command. |
-| `commit-suggest` | `/commit-suggest`                        | Read-only Conventional Commits message suggester. No AI co-author trailers.                                                                                                            |
-| `brainstorm`     | `/brainstorm <topic>`                    | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code.                                                         |
+| Skill            | Trigger                                                                                         | Purpose                                                                                                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `squad`          | `/squad <task>`, `/squad-review [tgt]`, `/squad-tasks <prd>`, `/squad-next`, `/squad-task <id>` | Single skill, three modes. Implement runs the full orchestration. Review runs the advisory portion only on an existing diff/branch/PR. Tasks decomposes a PRD into atomic tasks and runs the squad on one task's scope at a time. |
+| `commit-suggest` | `/commit-suggest`                                                                               | Read-only Conventional Commits message suggester. No AI co-author trailers.                                                                                                                                                       |
+| `brainstorm`     | `/brainstorm <topic>`                                                                           | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code.                                                                                                    |
 
 Workflow positioning:
 
@@ -378,10 +517,10 @@ Workflow positioning:
 After install, regardless of host:
 
 - [ ] `squad` MCP server shows as connected in the host's MCP settings.
-- [ ] `list_agents` tool returns 9 agents.
-- [ ] `compose_squad_workflow` with arguments `{"workspace_root": ".", "user_prompt": "smoke"}` returns `work_type`, `risk`, `squad.agents`. Requires a git repo with at least one prior commit (the tool defaults `base_ref` to `HEAD~1` internally).
+- [ ] `list_agents` tool returns 9 agents (names: `product-owner`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
+- [ ] `compose_squad_workflow` with arguments `{"workspace_root": "<absolute path to a git repo>", "user_prompt": "smoke"}` returns `work_type`, `risk`, `squad.agents`. Requires a git repo with at least one prior commit (the tool defaults `base_ref` to `HEAD~1` internally). **`workspace_root` must be an absolute path** — relative paths are rejected with `PATH_INVALID`.
 - [ ] Resources `agent://senior-architect` and `severity://_severity-and-ownership` are readable.
-- [ ] (Claude Code only) `/squad` and `/squad-review` autocomplete.
+- [ ] (Claude Code only) `/squad`, `/squad-review`, `/brainstorm`, and `/commit-suggest` autocomplete.
 
 ## Troubleshooting
 

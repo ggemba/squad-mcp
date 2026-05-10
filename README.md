@@ -109,7 +109,7 @@ node dist/index.js
 
 ### Resources
 
-- `agent://product-owner`, `agent://tech-lead-planner`, `agent://tech-lead-consolidator`, `agent://senior-architect`, `agent://senior-dba`, `agent://senior-developer`, `agent://senior-dev-reviewer`, `agent://senior-dev-security`, `agent://senior-qa`.
+- `agent://product-owner`, `agent://tech-lead-planner`, `agent://tech-lead-consolidator`, `agent://senior-architect`, `agent://senior-dba`, `agent://senior-developer`, `agent://senior-dev-reviewer`, `agent://senior-dev-security`, `agent://senior-qa`. (Renamed from PascalCase / `po` in v0.6.0 — older 0.5.x consumers must use `agent://po` instead.)
 - `severity://_severity-and-ownership` — severity matrix + ownership rules.
 - `severity://skill-squad-dev`, `severity://skill-squad-review` — full skill specs.
 
@@ -416,7 +416,7 @@ squad-mcp/
 │   └── commit-suggest/
 ├── src/
 │   ├── index.ts                # stdio entry
-│   ├── tools/                  # MCP tools (12 deterministic functions)
+│   ├── tools/                  # MCP tools (23 deterministic functions)
 │   ├── resources/              # MCP resources + agent loader
 │   ├── prompts/                # MCP prompt templates
 │   ├── exec/git.ts             # hardened git execution layer

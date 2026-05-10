@@ -208,7 +208,7 @@ describe("appendLearning", () => {
       finding: "missing index",
       decision: "accept",
     });
-    expect(result.filePath).toContain(".squad/learnings.jsonl");
+    expect(result.filePath).toContain(path.join(".squad", "learnings.jsonl"));
     expect(result.entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     const raw = await fs.readFile(result.filePath, "utf8");
     const lines = raw.trim().split("\n");
@@ -266,7 +266,7 @@ describe("appendLearning", () => {
       },
       { configuredPath: rel },
     );
-    expect(result.filePath).toContain(rel);
+    expect(result.filePath).toContain(path.join("logs", "decisions.jsonl"));
     const exists = await fs
       .stat(path.join(workspace, rel))
       .then(() => true)
