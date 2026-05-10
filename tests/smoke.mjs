@@ -74,6 +74,7 @@ try {
     "get_agent_definition",
     "init_local_config",
     "list_agents",
+    "read_squad_config",
     "score_risk",
     "score_rubric",
     "select_squad",

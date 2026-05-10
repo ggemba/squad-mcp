@@ -1,25 +1,30 @@
 export type SquadErrorCode =
-  | 'PATH_TRAVERSAL_DENIED'
-  | 'PATH_REQUIRES_WORKSPACE'
-  | 'PATH_INVALID'
-  | 'AGENT_DIR_MISSING'
-  | 'UNKNOWN_AGENT'
-  | 'OVERRIDE_REJECTED'
-  | 'INVALID_INPUT'
-  | 'INTERNAL_ERROR'
-  | 'GIT_EXEC_DENIED'
-  | 'GIT_EXEC_TIMEOUT'
-  | 'GIT_NOT_FOUND'
-  | 'GIT_OUTPUT_TOO_LARGE'
-  | 'GIT_NOT_A_REPO';
+  | "PATH_TRAVERSAL_DENIED"
+  | "PATH_REQUIRES_WORKSPACE"
+  | "PATH_INVALID"
+  | "AGENT_DIR_MISSING"
+  | "UNKNOWN_AGENT"
+  | "OVERRIDE_REJECTED"
+  | "INVALID_INPUT"
+  | "INTERNAL_ERROR"
+  | "GIT_EXEC_DENIED"
+  | "GIT_EXEC_TIMEOUT"
+  | "GIT_NOT_FOUND"
+  | "GIT_OUTPUT_TOO_LARGE"
+  | "GIT_NOT_A_REPO"
+  | "CONFIG_READ_FAILED";
 
 export class SquadError extends Error {
   readonly code: SquadErrorCode;
   readonly details?: Record<string, unknown>;
 
-  constructor(code: SquadErrorCode, message: string, details?: Record<string, unknown>) {
+  constructor(
+    code: SquadErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
-    this.name = 'SquadError';
+    this.name = "SquadError";
     this.code = code;
     this.details = details;
   }

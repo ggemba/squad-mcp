@@ -1,0 +1,388 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import yaml from "js-yaml";
+import { z } from "zod";
+import {
+  AGENT_NAMES_TUPLE,
+  type AgentName,
+  DEFAULT_RUBRIC_WEIGHTS,
+} from "./ownership-matrix.js";
+import { SquadError } from "../errors.js";
+import { logger } from "../observability/logger.js";
+
+/**
+ * `.squad.yaml` schema. All fields optional; absent keys fall back to package defaults.
+ *
+ * Repo-versioned config. Lives at workspace_root. Loaded by composers
+ * (compose_squad_workflow, compose_advisory_bundle) automatically when they
+ * receive a workspace_root. Pure tools (apply_consolidation_rules, score_rubric,
+ * select_squad) do NOT read it directly — that would make them stateful and
+ * couple their inputs to the filesystem. Composers do the read; pure tools
+ * receive the resolved values via parameters.
+ */
+const squadYamlSchema = z.object({
+  /**
+   * Override default rubric weights. Keys are agent names; values 0-100. The set
+   * of supplied keys MUST sum to 100 across the agents you list. Agents not
+   * listed fall back to the package default. Use weight 0 to ignore a dimension.
+   */
+  weights: z
+    .record(z.enum(AGENT_NAMES_TUPLE), z.number().min(0).max(100))
+    .optional(),
+  /**
+   * Per-dimension threshold (0-100). Below this, the dimension is flagged in the
+   * scorecard. Default 75 (in code, not duplicated here).
+   */
+  threshold: z.number().min(0).max(100).optional(),
+  /**
+   * Quality floor. If supplied AND the weighted score is below it AND verdict
+   * would otherwise be APPROVED, the consolidator downgrades to CHANGES_REQUIRED.
+   */
+  min_score: z.number().min(0).max(100).optional(),
+  /**
+   * Glob patterns (relative to workspace_root) of files to exclude from advisory.
+   * Matched against `changed_files` BEFORE squad selection. Use to silence
+   * docs-only changes, generated code, etc.
+   */
+  skip_paths: z.array(z.string().min(1).max(512)).max(200).optional(),
+  /**
+   * Agents to disable for this repo. Removed from the selected squad in
+   * compose_squad_workflow. Useful for repos that don't have, say, a database
+   * (disable senior-dba) or aren't user-facing (disable product-owner).
+   */
+  disable_agents: z.array(z.enum(AGENT_NAMES_TUPLE)).max(20).optional(),
+});
+
+export type SquadYamlConfig = z.infer<typeof squadYamlSchema>;
+
+export interface ResolvedSquadConfig {
+  /** Effective weights with defaults merged in. Sum = 100 across all advisory agents. */
+  weights: Record<AgentName, number>;
+  /** Effective threshold; default 75 if not set in YAML. */
+  threshold: number;
+  /** min_score (undefined if not set — caller decides whether to apply). */
+  min_score: number | undefined;
+  /** skip_paths (empty array if absent). */
+  skip_paths: string[];
+  /** disable_agents (empty array if absent). */
+  disable_agents: AgentName[];
+  /** Where the config was loaded from, or null if defaults only. */
+  source: string | null;
+}
+
+const CANDIDATE_FILENAMES = [".squad.yaml", ".squad.yml"];
+
+/**
+ * Per-process cache. Key = canonicalised workspace_root absolute path. Value =
+ * (mtimeMs, parsed config OR null sentinel for "no file"). On read, we stat the
+ * file and invalidate if mtimeMs changed; this keeps long-running MCP server
+ * processes from serving stale config when the user edits .squad.yaml.
+ */
+interface CacheEntry {
+  mtimeMs: number; // 0 if no file existed at last check
+  resolved: ResolvedSquadConfig;
+  filePath: string | null;
+}
+const cache = new Map<string, CacheEntry>();
+
+/**
+ * Test-only: clear the cache. Production code MUST NOT call this.
+ */
+export function __resetSquadYamlCacheForTests(): void {
+  cache.clear();
+}
+
+async function locate(
+  workspaceRoot: string,
+): Promise<{ filePath: string; mtimeMs: number } | null> {
+  for (const name of CANDIDATE_FILENAMES) {
+    const candidate = path.join(workspaceRoot, name);
+    try {
+      const s = await fs.stat(candidate);
+      if (s.isFile()) {
+        return { filePath: candidate, mtimeMs: s.mtimeMs };
+      }
+    } catch {
+      // ENOENT or stat failure — try next.
+    }
+  }
+  return null;
+}
+
+function applyDefaults(
+  parsed: SquadYamlConfig,
+  source: string | null,
+): ResolvedSquadConfig {
+  // Merge weights: parsed override sums to 100 across its keys (validated below);
+  // missing keys take the default. Returning a fully-populated map keeps the
+  // downstream score_rubric simple (no fallback chain in math).
+  const weights: Record<AgentName, number> = { ...DEFAULT_RUBRIC_WEIGHTS };
+  if (parsed.weights) {
+    const supplied = Object.entries(parsed.weights) as [AgentName, number][];
+    const sum = supplied.reduce((acc, [, v]) => acc + v, 0);
+    if (Math.abs(sum - 100) > 0.01) {
+      throw new SquadError(
+        "INVALID_INPUT",
+        `.squad.yaml weights must sum to 100 across the agents listed; got ${sum}`,
+        { source: source ?? "<inline>", supplied: parsed.weights },
+      );
+    }
+    for (const [name, w] of supplied) {
+      weights[name] = w;
+    }
+    // Zero-out the agents NOT supplied — the YAML user explicitly chose a
+    // partial set of weights, so anything missing is "this dimension does not
+    // count for this repo". Keeping defaults would let ungated dimensions sneak
+    // back into the rollup.
+    const overridden = new Set(supplied.map(([name]) => name));
+    for (const name of AGENT_NAMES_TUPLE) {
+      if (!overridden.has(name)) weights[name] = 0;
+    }
+  }
+
+  return {
+    weights,
+    threshold: parsed.threshold ?? 75,
+    min_score: parsed.min_score,
+    skip_paths: parsed.skip_paths ?? [],
+    disable_agents: parsed.disable_agents ?? [],
+    source,
+  };
+}
+
+/**
+ * Read `.squad.yaml` (or `.squad.yml`) from workspace_root. Returns the resolved
+ * config with defaults filled in. If no file is present, returns defaults.
+ * Caches by absolute path + mtimeMs.
+ *
+ * Throws `SquadError(INVALID_INPUT)` only on malformed YAML or schema violations
+ * (e.g. weights not summing to 100). Missing-file and partial config are NOT
+ * errors — they fall back gracefully.
+ */
+export async function readSquadYaml(
+  workspaceRoot: string,
+): Promise<ResolvedSquadConfig> {
+  const absRoot = path.resolve(workspaceRoot);
+  const located = await locate(absRoot);
+
+  if (!located) {
+    // No file. Cache the "no file" sentinel keyed by mtimeMs=0.
+    const cached = cache.get(absRoot);
+    if (cached && cached.filePath === null && cached.mtimeMs === 0) {
+      return cached.resolved;
+    }
+    const resolved = applyDefaults({}, null);
+    cache.set(absRoot, { mtimeMs: 0, resolved, filePath: null });
+    return resolved;
+  }
+
+  const cached = cache.get(absRoot);
+  if (
+    cached &&
+    cached.filePath === located.filePath &&
+    cached.mtimeMs === located.mtimeMs
+  ) {
+    return cached.resolved;
+  }
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(located.filePath, "utf8");
+  } catch (err) {
+    throw new SquadError(
+      "CONFIG_READ_FAILED",
+      `failed to read ${located.filePath}: ${(err as Error).message}`,
+      {
+        source: located.filePath,
+      },
+    );
+  }
+
+  let doc: unknown;
+  try {
+    doc = yaml.load(raw, {
+      filename: located.filePath,
+      schema: yaml.FAILSAFE_SCHEMA,
+    });
+  } catch (err) {
+    throw new SquadError(
+      "INVALID_INPUT",
+      `invalid YAML in ${located.filePath}: ${(err as Error).message}`,
+      {
+        source: located.filePath,
+      },
+    );
+  }
+
+  // FAILSAFE_SCHEMA returns strings for everything; coerce numbers in known fields.
+  // Doing this here keeps the zod schema strict (numbers stay numbers) while
+  // tolerating YAML's "1" vs 1 ambiguity.
+  if (typeof doc === "object" && doc !== null) {
+    const o = doc as Record<string, unknown>;
+    if (o.threshold !== undefined)
+      o.threshold = coerceNumber(o.threshold, "threshold", located.filePath);
+    if (o.min_score !== undefined)
+      o.min_score = coerceNumber(o.min_score, "min_score", located.filePath);
+    if (o.weights && typeof o.weights === "object") {
+      const w = o.weights as Record<string, unknown>;
+      for (const [k, v] of Object.entries(w)) {
+        w[k] = coerceNumber(v, `weights.${k}`, located.filePath);
+      }
+    }
+  } else if (doc === null || doc === undefined) {
+    // Empty YAML file — treat as empty object.
+    doc = {};
+  }
+
+  const parsed = squadYamlSchema.safeParse(doc);
+  if (!parsed.success) {
+    throw new SquadError(
+      "INVALID_INPUT",
+      `${located.filePath}: ${parsed.error.message}`,
+      {
+        source: located.filePath,
+        issues: parsed.error.issues.length,
+      },
+    );
+  }
+
+  const resolved = applyDefaults(parsed.data, located.filePath);
+  cache.set(absRoot, {
+    mtimeMs: located.mtimeMs,
+    resolved,
+    filePath: located.filePath,
+  });
+
+  logger.info("squad-yaml loaded", {
+    details: {
+      source: located.filePath,
+      has_weights: Boolean(parsed.data.weights),
+      threshold: resolved.threshold,
+      skip_paths_count: resolved.skip_paths.length,
+      disabled_agents_count: resolved.disable_agents.length,
+    },
+  });
+
+  return resolved;
+}
+
+function coerceNumber(value: unknown, field: string, source: string): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+      throw new SquadError(
+        "INVALID_INPUT",
+        `${source}: ${field} must be a number, got "${value}"`,
+        { source },
+      );
+    }
+    return n;
+  }
+  throw new SquadError(
+    "INVALID_INPUT",
+    `${source}: ${field} must be a number`,
+    { source },
+  );
+}
+
+/**
+ * Glob-ish path matching used for skip_paths. Supports:
+ *   - double-star matches any number of segments (zero or more)
+ *   - single star matches anything within a single segment
+ *   - `?` matches one character within a segment
+ *   - exact strings
+ *
+ * Patterns and paths are matched after normalising path separators to `/`.
+ * NOT a full minimatch — kept tiny on purpose to avoid pulling minimatch as a
+ * dep. Sufficient for the canonical use cases (docs/double-star, double-star
+ * slash *.md, double-star slash generated slash *.ts, vendor/double-star).
+ */
+export function matchesGlob(pattern: string, p: string): boolean {
+  const normPattern = pattern.replace(/\\/g, "/");
+  const normPath = p.replace(/\\/g, "/");
+  const re = globToRegExp(normPattern);
+  return re.test(normPath);
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let i = 0;
+  let out = "^";
+  while (i < pattern.length) {
+    const c = pattern[i] as string;
+    if (c === "*" && pattern[i + 1] === "*") {
+      // `**` — zero or more segments
+      // Handle `**/`, `/**`, `/**/`, or bare `**`.
+      if (pattern[i + 2] === "/") {
+        // `**/` — zero or more segments followed by /
+        out += "(?:.*/)?";
+        i += 3;
+        continue;
+      }
+      out += ".*";
+      i += 2;
+      continue;
+    }
+    if (c === "*") {
+      // single segment
+      out += "[^/]*";
+      i += 1;
+      continue;
+    }
+    if (c === "?") {
+      out += "[^/]";
+      i += 1;
+      continue;
+    }
+    if (".+^${}()|[]\\".includes(c)) {
+      out += "\\" + c;
+      i += 1;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  out += "$";
+  return new RegExp(out);
+}
+
+/**
+ * Apply `skip_paths` filter to a list of files. Returns { kept, skipped }.
+ * Skipped files are excluded from advisory; they still appear in the diff but
+ * agents don't see them.
+ */
+export function applySkipPaths(
+  files: string[],
+  skipPaths: string[],
+): { kept: string[]; skipped: string[] } {
+  if (skipPaths.length === 0) return { kept: files, skipped: [] };
+  const kept: string[] = [];
+  const skipped: string[] = [];
+  for (const f of files) {
+    if (skipPaths.some((p) => matchesGlob(p, f))) {
+      skipped.push(f);
+    } else {
+      kept.push(f);
+    }
+  }
+  return { kept, skipped };
+}
+
+/**
+ * Filter a selected squad against `disable_agents`. Returns the agents that
+ * remain. Logs a warning if every agent was disabled (likely a misconfig).
+ */
+export function applyDisableAgents(
+  squad: AgentName[],
+  disableAgents: AgentName[],
+): AgentName[] {
+  if (disableAgents.length === 0) return squad;
+  const disabled = new Set(disableAgents);
+  const remaining = squad.filter((a) => !disabled.has(a));
+  if (remaining.length === 0 && squad.length > 0) {
+    logger.warn("squad-yaml disable_agents removed every selected agent", {
+      details: { selected: squad, disabled: disableAgents },
+    });
+  }
+  return remaining;
+}

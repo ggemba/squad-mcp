@@ -75,20 +75,22 @@ node dist/index.js
 
 ### Tools (deterministic, pure functions)
 
-| Tool                        | Purpose                                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                |
-| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence. |
-| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                   |
-| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                              |
-| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                   |
-| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).           |
-| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                             |
-| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                           |
-| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED).                                                                          |
-| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                              |
-| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                      |
-| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                 |
+| Tool                        | Purpose                                                                                                                                                                 |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                          |
+| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence.           |
+| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                             |
+| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                                        |
+| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                             |
+| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).                     |
+| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                                       |
+| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                                     |
+| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED). Returns weighted rubric scorecard when reports carry per-dimension scores.         |
+| `score_rubric`              | Pure rubric calculator. Takes per-agent scores (0-100) + optional weight overrides, returns weighted score, per-dimension breakdown, and pre-formatted ASCII scorecard. |
+| `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                        |
+| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                                        |
+| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                                |
+| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                           |
 
 ### Prompts
 
@@ -133,6 +135,48 @@ Workflow positioning:
 ```
 
 See [INSTALL.md](INSTALL.md#bundled-skills) for trigger examples and the optional `commit-msg` git hook + `permissions.deny` snippet that hard-enforce the read-only and no-AI-attribution invariants at the OS / Claude Code layer.
+
+## Repo configuration — `.squad.yaml`
+
+Drop a `.squad.yaml` (or `.squad.yml`) at the repo root to override defaults per-project. Versioned with the code, picked up automatically by `compose_squad_workflow` and `compose_advisory_bundle`.
+
+```yaml
+# .squad.yaml — example for a regulated fintech backend
+
+# Rubric weights (must sum to 100 across the agents you list).
+# Agents NOT listed are zeroed out — listing weights is an explicit choice
+# of which dimensions count for this repo.
+weights:
+  senior-dev-security: 30 # PCI compliance — security weighted higher
+  senior-dba: 22 # double-entry ledger, money on the line
+  senior-developer: 20
+  senior-architect: 15
+  senior-qa: 13
+
+# Per-dimension flag threshold (default 75). Below this, the dimension is
+# marked with ⚠ in the scorecard.
+threshold: 80
+
+# Quality floor: APPROVED with weighted score below this becomes
+# CHANGES_REQUIRED. Severity rules (Blocker/Major) take precedence.
+min_score: 75
+
+# Files excluded from advisory. Glob syntax: ** for any depth, * for one
+# segment, ? for one char. Useful for docs-only or generated paths.
+skip_paths:
+  - "docs/**"
+  - "**/*.md"
+  - "**/generated/**"
+  - "vendor/**"
+
+# Agents not relevant for this repo (e.g. internal tool, no PO involved).
+disable_agents:
+  - product-owner
+```
+
+All keys are optional; partial files merge with package defaults. `force_agents` in tool calls still wins over `disable_agents` (config is a default policy, not a veto over explicit caller intent). Validation is strict: weights that don't sum to 100, unknown agent names, or invalid threshold ranges are rejected with a clear error.
+
+The reader is cached by mtime — long-running MCP servers automatically pick up edits without a restart.
 
 ## Detection strategy (`select_squad` / `slice_files_for_agent`)
 
