@@ -75,22 +75,24 @@ node dist/index.js
 
 ### Tools (deterministic, pure functions)
 
-| Tool                        | Purpose                                                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                          |
-| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence.           |
-| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                             |
-| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                                        |
-| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                             |
-| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).                     |
-| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                                       |
-| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                                     |
-| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED). Returns weighted rubric scorecard when reports carry per-dimension scores.         |
-| `score_rubric`              | Pure rubric calculator. Takes per-agent scores (0-100) + optional weight overrides, returns weighted score, per-dimension breakdown, and pre-formatted ASCII scorecard. |
-| `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                        |
-| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                                        |
-| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                                |
-| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                           |
+| Tool                        | Purpose                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                                                               |
+| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence.                                                |
+| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                                                                  |
+| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                                                                             |
+| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                                                                  |
+| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).                                                          |
+| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                                                                            |
+| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                                                                          |
+| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED). Returns weighted rubric scorecard when reports carry per-dimension scores.                                              |
+| `score_rubric`              | Pure rubric calculator. Takes per-agent scores (0-100) + optional weight overrides, returns weighted score, per-dimension breakdown, and pre-formatted ASCII scorecard.                                      |
+| `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                                                             |
+| `read_learnings`            | Load past accept/reject decisions from `.squad/learnings.jsonl`. Filters by agent / decision / changed-file scope. Returns entries plus a markdown block ready to inject into agent or consolidator prompts. |
+| `record_learning`           | Append one accept/reject decision to `.squad/learnings.jsonl`. Side-effecting; the skill (or CLI) is responsible for per-finding user authorisation.                                                         |
+| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                                                                             |
+| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                                                                     |
+| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                                                                |
 
 ### Prompts
 
@@ -177,6 +179,59 @@ disable_agents:
 All keys are optional; partial files merge with package defaults. `force_agents` in tool calls still wins over `disable_agents` (config is a default policy, not a veto over explicit caller intent). Validation is strict: weights that don't sum to 100, unknown agent names, or invalid threshold ranges are rejected with a clear error.
 
 The reader is cached by mtime — long-running MCP servers automatically pick up edits without a restart.
+
+## Learnings — persistent accept/reject memory
+
+Each time the team accepts or rejects an advisory finding, the decision can be appended to `.squad/learnings.jsonl`. Future runs of the squad load recent decisions and inject them into per-agent and consolidator prompts so the squad stops re-raising findings the team has already considered.
+
+```jsonl
+{"ts":"2026-04-12T15:02:31Z","pr":42,"agent":"senior-dev-security","severity":"Major","finding":"missing CSRF on POST /api/refund","decision":"reject","reason":"CSRF terminated at API gateway, see infra/edge.tf","scope":"src/api/**"}
+{"ts":"2026-04-15T09:18:11Z","pr":47,"agent":"senior-architect","severity":"Major","finding":"cross-module coupling Auth → Billing","decision":"accept","reason":"refactored to event bus"}
+```
+
+The file lives in git. Decisions are auditable in PR diffs.
+
+### Recording decisions
+
+Inside Claude Code, after `/squad-review` produces the verdict, tell the skill to record:
+
+```
+record reject senior-dev-security "missing CSRF on POST /api/refund"
+  reason: CSRF terminated at API gateway
+  scope: src/api/**
+```
+
+The skill confirms each decision and calls the `record_learning` MCP tool. **Per-finding authorisation is required** — silence or "thanks" is not authorisation.
+
+For non-MCP environments, use the CLI helper:
+
+```bash
+node tools/record-learning.mjs --reject \
+  --agent senior-dev-security \
+  --finding "missing CSRF on POST /api/refund" \
+  --reason "CSRF terminated at API gateway" \
+  --scope "src/api/**" \
+  --pr 42
+```
+
+### How the squad uses them
+
+In Phase 5 (per-agent advisory) the skill calls `read_learnings(workspace_root, agent, changed_files)` and injects the rendered `## Past team decisions` block into the agent's prompt. In Phase 10 (consolidator) it does the same without an agent filter — the consolidator sees the full picture across agents.
+
+Each agent is told: when a current finding matches a previously **rejected** decision (similar agent + similar finding text + matching scope), suppress or downgrade severity unless the diff materially changes the rationale. When a finding contradicts a previously **accepted** decision, flag the contradiction explicitly.
+
+### Configuration
+
+Override defaults via `.squad.yaml`:
+
+```yaml
+learnings:
+  path: .squad/learnings.jsonl # default
+  max_recent: 50 # how many recent entries to inject (hard cap 200)
+  enabled: true # set false to disable injection without deleting the journal
+```
+
+The store reader is mtime-cached. The journal is append-only by design — the skill never amends or deletes past entries; correcting a stale decision means appending a new one.
 
 ## Posting reviews to GitHub PRs
 

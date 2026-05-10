@@ -73,6 +73,27 @@ const squadYamlSchema = z.object({
       omit_attribution_footer: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * Optional `.squad/learnings.jsonl` configuration. The store records
+   * accept/reject decisions on findings; future advisory runs read the
+   * recent tail and inject it into agent / consolidator prompts so the
+   * squad stops re-suggesting things the team has already declined.
+   *
+   * - `path`: relative location of the JSONL file (default
+   *   `.squad/learnings.jsonl`). Override only if the repo already uses
+   *   `.squad/` for something else.
+   * - `max_recent`: how many entries to inject per advisory run (default 50,
+   *   hard cap 200). Larger = more context but more prompt cost.
+   * - `enabled`: master switch. Default true. Set false to disable the
+   *   read/inject side without deleting the file.
+   */
+  learnings: z
+    .object({
+      path: z.string().min(1).max(512).optional(),
+      max_recent: z.number().int().positive().max(200).optional(),
+      enabled: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export type SquadYamlConfig = z.infer<typeof squadYamlSchema>;
@@ -84,6 +105,15 @@ export interface PrPostingConfig {
   request_changes_below_score: number | undefined;
   /** Default false — footer present unless explicitly suppressed. */
   omit_attribution_footer: boolean;
+}
+
+export interface LearningsConfig {
+  /** Effective path relative to workspace_root. Default `.squad/learnings.jsonl`. */
+  path: string;
+  /** Effective tail size for prompt injection. Default 50. */
+  max_recent: number;
+  /** Effective master switch. Default true. */
+  enabled: boolean;
 }
 
 export interface ResolvedSquadConfig {
@@ -99,6 +129,8 @@ export interface ResolvedSquadConfig {
   disable_agents: AgentName[];
   /** PR posting policy — fully populated with defaults. */
   pr_posting: PrPostingConfig;
+  /** Learnings store policy — fully populated with defaults. */
+  learnings: LearningsConfig;
   /** Where the config was loaded from, or null if defaults only. */
   source: string | null;
 }
@@ -180,6 +212,12 @@ function applyDefaults(
       parsed.pr_posting?.omit_attribution_footer ?? false,
   };
 
+  const learnings: LearningsConfig = {
+    path: parsed.learnings?.path ?? ".squad/learnings.jsonl",
+    max_recent: parsed.learnings?.max_recent ?? 50,
+    enabled: parsed.learnings?.enabled ?? true,
+  };
+
   return {
     weights,
     threshold: parsed.threshold ?? 75,
@@ -187,6 +225,7 @@ function applyDefaults(
     skip_paths: parsed.skip_paths ?? [],
     disable_agents: parsed.disable_agents ?? [],
     pr_posting,
+    learnings,
     source,
   };
 }
@@ -285,6 +324,19 @@ export async function readSquadYaml(
       }
       if (typeof p.omit_attribution_footer === "string") {
         p.omit_attribution_footer = p.omit_attribution_footer === "true";
+      }
+    }
+    if (o.learnings && typeof o.learnings === "object") {
+      const l = o.learnings as Record<string, unknown>;
+      if (l.max_recent !== undefined) {
+        l.max_recent = coerceNumber(
+          l.max_recent,
+          "learnings.max_recent",
+          located.filePath,
+        );
+      }
+      if (typeof l.enabled === "string") {
+        l.enabled = l.enabled === "true";
       }
     }
   } else if (doc === null || doc === undefined) {
