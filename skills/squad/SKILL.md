@@ -9,12 +9,13 @@ Single skill that hosts both the **implement** workflow (full squad-dev orchestr
 
 ## Modes
 
-| Mode                  | Triggered by             | What it does                                                                                                                                                                                  |
-| --------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `implement` (default) | `/squad <task>`          | Full squad-dev: classify → score risk → select advisory agents → planner → Gate 1 (plan approval) → parallel advisory → Gate 2 (Blocker halt) → implementation → consolidator → final verdict |
-| `review`              | `/squad-review [target]` | Review only: same agents on an existing diff/branch/PR, never implements. Output is consolidated advisory verdict + scorecard.                                                                |
+| Mode                  | Triggered by                                            | What it does                                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `implement` (default) | `/squad <task>`                                         | Full squad-dev: classify → score risk → select advisory agents → planner → Gate 1 (plan approval) → parallel advisory → Gate 2 (Blocker halt) → implementation → consolidator → final verdict |
+| `review`              | `/squad-review [target]`                                | Review only: same agents on an existing diff/branch/PR, never implements. Output is consolidated advisory verdict + scorecard.                                                                |
+| `tasks`               | `/squad-tasks <prd>`, `/squad-next`, `/squad-task <id>` | Task-mode: decompose a PRD into atomic tasks (Phase 0.5), pick the next ready task, then run squad on that task's scope only. Prevents context bloat by working one focused task at a time.   |
 
-The user-invoked entry command determines the mode. If the prompt contains `--review`, treat as review mode regardless of entry.
+The user-invoked entry command determines the mode. If the prompt contains `--review`, treat as review mode regardless of entry. Task-mode commands compose with implement/review: `/squad-task <id>` runs implement-mode against just that task's scope.
 
 ## Inviolable Rules (both modes)
 
@@ -45,8 +46,78 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `list_agents` — list configured agents with role, ownership, and dimension weight
 - `read_learnings` — load past accept/reject decisions (filtered by agent + scope), returns a markdown block ready to inject into agent or consolidator prompts
 - `record_learning` — append a new accept/reject decision to `.squad/learnings.jsonl` (Phase 14 post-PR record)
+- `compose_prd_parse` — build a prompt + JSON schema for the host LLM to decompose a PRD into atomic tasks (Phase 0.5)
+- `list_tasks` — read tasks from `.squad/tasks.json` with optional filters (status / agent / changed_files)
+- `next_task` — pick the next ready task (deps satisfied, optional agent / scope filter)
+- `record_tasks` — bulk-create tasks (after user confirmation in Phase 0.5)
+- `update_task_status` — flip task or subtask status (pending / in-progress / review / done / blocked / cancelled)
+- `expand_task` — append subtasks to a task (mechanical; LLM supplies the subtasks)
+- `slice_files_for_task` — filter a file list to those matching a task's `scope` glob
 
 Available named subagents (Claude Code `Task(subagent_type=…)`): `product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`. The plugin registers these from `agents/`. In other MCP clients, the same role can be obtained via `get_agent_definition` and embedded in a generic dispatch prompt.
+
+## Phase 0.5 — Decompose PRD into tasks (task-mode only)
+
+Triggered by `/squad-tasks <prd-file>` (or `/squad-tasks` with the PRD pasted inline). Skipped entirely in plain `/squad` and `/squad-review` flows.
+
+### 1. Build the parse prompt
+
+Read the PRD file (or accept inline text). Call `compose_prd_parse` with:
+
+- `workspace_root` — repo root
+- `prd_text` — the PRD contents
+- `max_tasks` — soft cap (default 40)
+
+The tool returns a `prompt`, an `output_schema`, the existing tasks (so the LLM doesn't duplicate), and `next_id_floor`.
+
+### 2. Run the prompt through your own LLM
+
+Feed the returned `prompt` to your model (you ARE the model — generate the JSON directly). Output MUST match `output_schema` — one JSON object, no prose. If you cannot produce valid JSON, abort and tell the user.
+
+### 3. Show the user the parsed tasks BEFORE recording
+
+Render the parsed tasks as a table (id placeholders starting at `next_id_floor + 1`, title, deps, priority, scope, agent_hints). Wait for the user to confirm before any write. Acceptable confirmations: "looks good", "record", "go", "yes". Anything else (silence, "wait", "let me edit") = abort or accept edits.
+
+If the user wants to edit a task's title/deps/scope, apply the edit and re-show. Don't bulk-record half-edited output.
+
+### 4. Call record_tasks
+
+Once confirmed, call `record_tasks` with the validated array. Surface the resulting `ids` and `file` path to the user. Remind them to commit `.squad/tasks.json` if they want the decomposition to ship with the repo.
+
+### 5. Inviolable rules for Phase 0.5
+
+- **Never call record_tasks without explicit user confirmation.** Bulk-recording a hallucinated task list is a destructive write — the user must have seen it.
+- **Never invent dependencies.** If two tasks aren't clearly ordered, leave deps empty rather than guess. Wrong deps will silently block `next_task` later.
+- **Never alter ids the user reviewed.** If the user said "record", the ids the LLM showed are the ids that get written. `record_tasks` allocates from `next_id_floor + 1` in array order — same as the preview.
+
+## Phase 0.6 — Pick a task to work on (task-mode only)
+
+Triggered by `/squad-next` (default) or `/squad-task <id>` (explicit pick).
+
+### `/squad-next`
+
+Call `next_task` with `workspace_root` and any contextual filters (`agent` if the user is wearing one hat today, `changed_files` if they want a task that touches files they're already editing). The tool returns the next ready task, OR a `reason` (`no_candidates` / `all_blocked`) plus the blocked list.
+
+If `task` is null:
+
+- `no_candidates` → tell the user there are no pending tasks. Suggest `/squad-tasks` to add some.
+- `all_blocked` → show the blocked list with their `missing_deps`. The user can either complete a dep manually, or call `/squad-task <id>` to override.
+
+If `task` is set, surface its title + scope + agent_hints. Ask the user "work on this?" before flipping status to `in-progress`.
+
+### `/squad-task <id>`
+
+Explicit pick. Call `list_tasks` (filter to that id by listing all and finding the match) — id-by-id read isn't a separate primitive. Confirm the task is `pending` or `blocked` (not already done/cancelled). Show it to the user, ask for confirmation, then flip to `in-progress` via `update_task_status`.
+
+### Then: run the squad on that task's scope
+
+Call `slice_files_for_task` with `workspace_root`, the task's `id`, and the current changed_files list. The tool returns `matched` (files within scope) and `unmatched`.
+
+Use `matched` as the file slice for `compose_advisory_bundle` — the squad now reviews ONLY the files that belong to this task. Phase 1 onward proceeds normally with the narrowed scope. This is the anti-bloat mechanism: each task drives a focused advisory pass instead of one giant context window.
+
+If the task has `agent_hints`, pass them as `force_agents` to `compose_squad_workflow` so only the relevant specialists wake up.
+
+When the implementation is done (Phase 8) and the consolidator approves (Phase 10), flip status to `done` via `update_task_status` before returning to the user.
 
 ## Phase 1 — Detect changes + classify + score + select
 

@@ -75,24 +75,31 @@ node dist/index.js
 
 ### Tools (deterministic, pure functions)
 
-| Tool                        | Purpose                                                                                                                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                                                               |
-| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence.                                                |
-| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                                                                  |
-| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                                                                             |
-| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                                                                  |
-| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).                                                          |
-| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                                                                            |
-| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                                                                          |
-| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED). Returns weighted rubric scorecard when reports carry per-dimension scores.                                              |
-| `score_rubric`              | Pure rubric calculator. Takes per-agent scores (0-100) + optional weight overrides, returns weighted score, per-dimension breakdown, and pre-formatted ASCII scorecard.                                      |
-| `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                                                             |
-| `read_learnings`            | Load past accept/reject decisions from `.squad/learnings.jsonl`. Filters by agent / decision / changed-file scope. Returns entries plus a markdown block ready to inject into agent or consolidator prompts. |
-| `record_learning`           | Append one accept/reject decision to `.squad/learnings.jsonl`. Side-effecting; the skill (or CLI) is responsible for per-finding user authorisation.                                                         |
-| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                                                                             |
-| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                                                                     |
-| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                                                                |
+| Tool                        | Purpose                                                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `detect_changed_files`      | Hardened `git diff --name-status --no-renames` for a workspace. Allowlisted refs, 10s timeout, 1MB stdout cap.                                                                                                           |
+| `classify_work_type`        | Heuristic `WorkType` from prompt + paths (`Feature` / `Bug Fix` / `Refactor` / `Performance` / `Security` / `Business Rule`) with Low/Medium/High confidence.                                                            |
+| `score_risk`                | Compute Low/Medium/High from boolean signals (auth, money, migration, files_count, new_module, api_change).                                                                                                              |
+| `select_squad`              | Select advisory agents for a work type. Combines matrix + path hints + content sniff. Returns evidence per file.                                                                                                         |
+| `slice_files_for_agent`     | Filter a file list to those owned by a single agent. Used to build sliced advisory prompts.                                                                                                                              |
+| `validate_plan_text`        | Advisory check for inviolable-rule violations in a plan (commit/push fences, emojis in code blocks, non-English identifiers, impl-before-approval).                                                                      |
+| `compose_squad_workflow`    | One-call pipeline: `detect_changed_files` → `classify_work_type` → `score_risk` → `select_squad`.                                                                                                                        |
+| `compose_advisory_bundle`   | One-call full bundle: `compose_squad_workflow` + `slice_files_for_agent` per selected agent + `validate_plan_text`.                                                                                                      |
+| `apply_consolidation_rules` | Aggregate advisory reports → final verdict (APPROVED / CHANGES_REQUIRED / REJECTED). Returns weighted rubric scorecard when reports carry per-dimension scores.                                                          |
+| `score_rubric`              | Pure rubric calculator. Takes per-agent scores (0-100) + optional weight overrides, returns weighted score, per-dimension breakdown, and pre-formatted ASCII scorecard.                                                  |
+| `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                                                                         |
+| `read_learnings`            | Load past accept/reject decisions from `.squad/learnings.jsonl`. Filters by agent / decision / changed-file scope. Returns entries plus a markdown block ready to inject into agent or consolidator prompts.             |
+| `record_learning`           | Append one accept/reject decision to `.squad/learnings.jsonl`. Side-effecting; the skill (or CLI) is responsible for per-finding user authorisation.                                                                     |
+| `compose_prd_parse`         | Build a prompt + JSON schema for the host LLM to decompose a PRD into atomic tasks. Pure-MCP: server does NO LLM calls. Caller (skill) feeds the prompt to its model, then calls `record_tasks` after user confirmation. |
+| `list_tasks`                | Read tasks from `.squad/tasks.json`. Filters: status, agent (matches `agent_hints`), changed_files (glob match against task `scope`).                                                                                    |
+| `next_task`                 | Pick the next ready task: candidate status (default pending), all dependencies done, optional agent / changed_files filter. Tiebreak priority then id. Returns null + reason when none ready.                            |
+| `record_tasks`              | Bulk-create tasks. Allocates ids sequentially, validates dependencies resolve (forward refs in batch ok), rejects duplicates and self-deps. Atomic write.                                                                |
+| `update_task_status`        | Flip a task or subtask status: pending / in-progress / review / done / blocked / cancelled.                                                                                                                              |
+| `expand_task`               | Append subtasks to an existing task. Mechanical only — caller (skill or LLM) supplies the subtask inputs.                                                                                                                |
+| `slice_files_for_task`      | Filter a file list to those matching a task's `scope` glob. Same glob primitive as `skip_paths` and learnings scope.                                                                                                     |
+| `list_agents`               | List configured agents with role, ownership, naming conventions.                                                                                                                                                         |
+| `get_agent_definition`      | Return the full markdown system prompt for an agent (local override → embedded default).                                                                                                                                 |
+| `init_local_config`         | Copy embedded defaults to the local override directory so they can be edited.                                                                                                                                            |
 
 ### Prompts
 
@@ -232,6 +239,105 @@ learnings:
 ```
 
 The store reader is mtime-cached. The journal is append-only by design — the skill never amends or deletes past entries; correcting a stale decision means appending a new one.
+
+## Tasks — PRD-decomposed atomic work units
+
+The biggest source of token bloat in a long-running squad session is the squad re-analysing the whole repo for every prompt. The tasks store fixes that by decomposing a PRD into atomic tasks up front, then running the squad on ONE task's narrowed scope at a time.
+
+```jsonc
+// .squad/tasks.json (excerpt)
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Add CSRF token to checkout flow",
+      "status": "done",
+      "dependencies": [],
+      "priority": "high",
+      "scope": "src/api/checkout/**",
+      "agent_hints": ["senior-dev-security", "senior-developer"],
+      "test_strategy": "POST without token → 403; POST with token → 200.",
+      "subtasks": [],
+      "created_at": "2026-05-08T12:00:00Z",
+      "updated_at": "2026-05-09T15:30:00Z"
+    },
+    {
+      "id": 2,
+      "title": "Wire CSRF middleware into refund endpoint",
+      "status": "pending",
+      "dependencies": [1],
+      "priority": "high",
+      "scope": "src/api/refund/**",
+      "subtasks": [],
+      ...
+    }
+  ]
+}
+```
+
+`scope` (glob) and `agent_hints` are squad-mcp-specific additions on top of the claude-task-master shape — they let `slice_files_for_task` and `compose_squad_workflow` narrow the advisory automatically.
+
+### Decomposing a PRD
+
+Inside Claude Code:
+
+```
+/squad-tasks docs/prd-payments-refactor.md
+```
+
+The skill (Phase 0.5):
+
+1. Calls `compose_prd_parse` with the PRD text.
+2. Receives a prompt + JSON schema and runs them through Claude.
+3. Shows you the parsed tasks — title, deps, priority, scope, agent_hints — for review.
+4. Calls `record_tasks` only after you say "record" / "go" / "yes".
+
+The parse is **pure-MCP**: the squad-mcp server never makes LLM calls. The host (Claude Code, Cursor, Warp) does the inference. No provider keys in the server, no surprises for non-Claude clients.
+
+### Working tasks
+
+```
+/squad-next                # picks the highest-priority ready task
+/squad-task 5              # explicit pick by id
+```
+
+For each task:
+
+- `slice_files_for_task` narrows the changed-files list to the task's `scope`.
+- `compose_squad_workflow` runs against that slice; if `agent_hints` is set, only those agents wake up.
+- Phase 1 onward proceeds normally, just with much less context.
+- When done, the skill flips status to `done` via `update_task_status`.
+
+### Configuration
+
+Override defaults via `.squad.yaml`:
+
+```yaml
+tasks:
+  path: .squad/tasks.json # default
+  enabled: true # set false to silence reads without deleting the file
+```
+
+Writes (`record_tasks`, `update_task_status`, `expand_task`) stay open even when reads are disabled — same policy as learnings. Disabling injection should not throw away the journal.
+
+### CLI for non-MCP environments
+
+Mirroring the post-review and record-learning helpers:
+
+```bash
+# decompose offline (you generate the JSON yourself or via another tool)
+echo '[{"title":"Add CSRF","scope":"src/api/**"}]' | node tools/record-tasks.mjs
+
+# inspect
+node tools/list-tasks.mjs --status pending
+node tools/next-task.mjs --json
+
+# flip status from CI
+node tools/update-task-status.mjs --task 5 --status done
+```
+
+The CLIs share `tools/_tasks-io.mjs` for read/write and require only node 18+. Schema validation is lighter than the MCP tool — production use should prefer the MCP path.
 
 ## Posting reviews to GitHub PRs
 
