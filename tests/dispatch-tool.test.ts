@@ -55,7 +55,15 @@ describe("dispatchTool error mapping", () => {
       user_prompt: "Review the changes in this diff",
       plan: "",
     })) as { content: { text: string }[]; isError?: boolean };
-    expect(r.isError).toBeUndefined();
+    // The point of this test is the Zod refine: a prompt with spaces must NOT
+    // be rejected as "NUL byte". The git step may still fail downstream when
+    // the runner is a shallow clone (no HEAD~1) — we only assert the schema
+    // accepted the input, not that git produced a useful diff.
+    if (r.isError) {
+      const body = JSON.parse(r.content[0]!.text);
+      expect(body.error.code).not.toBe("INVALID_INPUT");
+      expect(body.error.message).not.toContain("NUL byte");
+    }
   });
 
   it("compose_advisory_bundle rejects user_prompt containing a NUL byte", async () => {
