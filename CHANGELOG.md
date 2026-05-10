@@ -7,6 +7,60 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — `.squad.yaml` repo configuration
+
+Per-repo configuration file (versioned with the code) lets each project tune
+the rubric, thresholds, and scope without editing call sites.
+
+- `src/config/squad-yaml.ts` — reader with zod schema, mtime-keyed cache, and
+  the `applySkipPaths` / `applyDisableAgents` helpers. YAML-to-zod path uses
+  `js-yaml` (FAILSAFE_SCHEMA + numeric coercion for known fields). Looks up
+  `.squad.yaml` then `.squad.yml` at workspace_root; absent file falls back to
+  package defaults silently.
+- New tool `read_squad_config` — MCP wrapper for direct introspection by
+  non-Claude-Code clients or callers that build their own bundle.
+- `compose_squad_workflow` now reads `.squad.yaml` and: applies `skip_paths`
+  to changed_files BEFORE classification (skipped paths still count toward
+  risk signals — disabling a file from advisory does not make the change
+  less risky), then applies `disable_agents` to the selected squad. Returns
+  the resolved `config`, `skipped_paths`, and `disabled_agents` so callers
+  see why the slice list got narrower.
+- `compose_advisory_bundle` propagates `skip_paths` filtering through to
+  per-agent slices, so an agent never receives a path the composer hid.
+- New `CONFIG_READ_FAILED` error code.
+- New dep: `js-yaml` (^4.1) + `@types/js-yaml`. Battle-tested, MIT, ~70KB.
+- `force_agents` in tool calls still wins over `config.disable_agents` —
+  config is a default policy, not a veto over explicit caller intent.
+
+Validation: weights that don't sum to 100 across the listed agents → reject.
+Unknown agent names in `weights` or `disable_agents` → reject. Threshold or
+min_score outside 0-100 → reject. Errors carry `source` (file path) for
+diagnosability.
+
+Example `.squad.yaml`:
+
+```yaml
+weights:
+  senior-dev-security: 30 # PCI compliance
+  senior-dba: 22
+  senior-developer: 20
+  senior-architect: 15
+  senior-qa: 13
+threshold: 80
+min_score: 75
+skip_paths:
+  - "docs/**"
+  - "**/*.md"
+  - "**/generated/**"
+disable_agents:
+  - product-owner # internal tool, no PO involved
+```
+
+22 new tests cover reader (file presence, weights override, skip_paths,
+disable_agents, caching, mtime invalidation, glob matching). Backward
+compatible: callers that don't pass `workspace_root` to non-composer tools
+get the legacy behaviour (no config read).
+
 ### Added — weighted rubric scorecard
 
 Each advisory agent now represents a dimension of a multi-dimensional rubric
@@ -43,8 +97,8 @@ alongside the legacy verdict.
 
 Planned for a future minor:
 
-- `.squad.yaml` reader so weight overrides live with the repo.
 - Per-PR memory of accept/reject decisions feeding back into agent prompts.
+- Inline PR comments via `gh` (review verdict + scorecard posted as PR review).
 - Streaming SHA-256 over `fs.createReadStream` for any large bundled asset
   reads (avoids `readFileSync` doubling memory).
 - Property-based tests for severity/consolidation rules via `fast-check`.

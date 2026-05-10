@@ -9,6 +9,7 @@ import {
 } from "./agents.js";
 import { applyConsolidationRulesTool } from "./consolidate.js";
 import { scoreRubricTool } from "./score-rubric.js";
+import { readSquadConfigTool } from "./read-squad-config.js";
 import { classifyWorkTypeTool } from "./classify-work-type.js";
 import { detectChangedFilesTool } from "./detect-changed-files.js";
 import { validatePlanTextTool } from "./validate-plan-text.js";
@@ -39,6 +40,7 @@ export function registerTools(): void {
   register(initLocalConfigTool);
   register(applyConsolidationRulesTool);
   register(scoreRubricTool);
+  register(readSquadConfigTool);
   register(classifyWorkTypeTool);
   register(detectChangedFilesTool);
   register(validatePlanTextTool);
