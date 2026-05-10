@@ -2,7 +2,7 @@
   "mcpServers": {
     "squad": {
       "command": "npx",
-      "args": ["-y", "@gempack/squad-mcp@0.6.5"]
+      "args": ["-y", "@gempack/squad-mcp@0.7.0"]
     }
   }
 }

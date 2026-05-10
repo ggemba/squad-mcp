@@ -7,6 +7,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-10
+
+Six-phase response to the full-repo `/squad-review`. Verdict was REJECTED with 3 blockers + 20 majors; this release lands all of them.
+
+### Fixed
+
+- **`safeString` Zod refine was checking space (0x20), not NUL byte (0x00).** Across 7 tool schemas + `validateArg` in `exec/git.ts`, the refine source had a literal NUL byte embedded that the TypeScript compiler normalises to a space on emit. Every published tarball since this rule landed has rejected every realistic prompt with `must not contain NUL byte`. Replaced with the escape sequence `"\0"` (4 characters) which survives the build. `compose_advisory_bundle` and friends are now usable.
+- **Schema validation was bypassed by every unit test.** Tests called handlers directly instead of going through `dispatchTool`, which is how the bug above slipped through CI. Added round-trip `dispatchTool` tests so any future schema regression fails immediately.
+- **Path traversal via `.squad.yaml`.** `learnings.path` and `tasks.path` were `path.resolve`d against `workspaceRoot` without a containment check — a `.squad.yaml` with `learnings.path: ../../etc/whatever` gave the host LLM an arbitrary-write primitive (CWE-22). New `ensureRelativeInsideRoot` rejects absolute paths and `..` escapes in both the TS store and the `tools/*.mjs` CLIs.
+- **`validateCwd` rejected legitimate git worktrees.** Setting `GIT_CEILING_DIRECTORIES = path.dirname(realCwd)` blocked git from following the `.git` file pointer that worktrees use. Now detects `.git` as a file and skips the ceiling for that case.
+- **JSONL bad line bricked the entire learning store.** `readLearnings` threw on the first malformed line, making every read of `.squad/learnings.jsonl` fail forever after a hand-edit or partial write. Bad lines are now quarantined to `<file>.corrupt-<ts>.jsonl` and reading continues with the valid prefix.
+- **`tools/post-review.mjs` could truncate the PR body.** `proc.stdin.write(body)` did not await backpressure; large bodies on small pipe buffers were silently truncated (`gh` exits 0 with the prefix only). Now respects the `write` return value and waits for `drain` before `end`.
+
+### Added
+
+- **`/squad-tasks`, `/squad-next`, `/squad-task` slash commands.** Referenced throughout `README` / `INSTALL` / the skill, but missing from `.claude-plugin/plugin.json` — users typing them got `command not found`. Now registered.
+- **Cross-process file lock** (`src/util/file-lock.ts`). `O_EXCL`-based advisory lock with jittered backoff and stale-recovery after 30s. Wraps `recordTasks`, `updateTaskStatus`, `expandTask`, and `appendLearning` so multiple MCP server processes (e.g. two Claude clients open in the same repo) cannot race the read-modify-write cycle.
+- **`.prev` snapshot for `tasks.json`.** Every successful write moves the prior generation to `<file>.prev` before the rename, so a future corruption has one recoverable backup.
+- **JSONL entry truncation.** `appendLearning` truncates oversized `reason` / `finding` so the serialised line stays under `PIPE_BUF` (4096B) and `fs.appendFile` remains atomic w.r.t. concurrent appenders.
+- **Centralised input schemas** (`src/tools/_shared/schemas.ts`). All tools that previously redeclared `safeString` now import `SafeString` from one place. The `*ToolDef` ↔ `*Tool` naming inconsistency across 23 tool files is acknowledged as follow-up.
+- **Coverage threshold + smoke pipeline.** New `vitest.config.ts` with `lines>=80, statements>=80, functions>=75, branches>=70` thresholds on runtime modules. `tests/compose-prd-parse.test.ts` (was 202 LOC with zero tests). `tests/detect-changed-files.integration.test.ts` exercising real `git` against a tmpdir repo. `tests/smoke.mjs` wired into `ci.yml`. New post-publish smoke job in `release.yml` invokes `npx -y @gempack/squad-mcp@<TAG>` over stdio and asserts `tools/list`.
+- **ESLint + Prettier.** `eslint.config.js` (flat config, ESLint 9 + typescript-eslint), `.prettierrc`, `.prettierignore`. Scripts: `lint` (`tsc --noEmit && eslint .`), `typecheck` (pure `tsc`), `format`, `format:check`, `test:coverage`, `smoke`.
+- **README "Your first `/squad` in 60 seconds".** New post-install walkthrough with the expected scorecard shape and pointers to the other slash commands.
+- **`INSTALL.md` troubleshooting entry** for `Failed to reconnect to plugin:squad:squad` pointing at v0.6.5+ and the `npx --version` diagnostic.
+
+### Changed
+
+- `examples/client-config-{claude-desktop,cursor}.json` now pin `@0.7.0` instead of the floating tag.
+- `release.yml` adds a second job `smoke` that runs after `publish` and validates the published tarball boots over stdio.
+
 ## [0.6.5] - 2026-05-10
 
 ### Fixed
