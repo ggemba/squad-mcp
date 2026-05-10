@@ -7,6 +7,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — Tasks: PRD-decomposed atomic work units (anti-bloat for the squad)
+
+Borrows the core idea from claude-task-master and adapts it to squad-mcp's primitives. A PRD is decomposed by the host LLM into atomic tasks; each task carries optional `scope` (glob) and `agent_hints`; the squad runs against ONE task's scope at a time. Less context per pass, fewer tokens, less drift.
+
+- `src/tasks/store.ts` — mutable JSON store with mtime-keyed cache, atomic write (tmp + rename), stable id-sorted serialisation. Schema (zod): `{ id, title, description, status, dependencies, priority, details, test_strategy, scope?, agent_hints?, subtasks[], created_at, updated_at }`. Status: pending / in-progress / review / done / blocked / cancelled. Schema-versioned (`version: 1`) so future breaking changes can ship cleanly.
+- `src/tasks/select.ts` — pure helpers. `listTasks` filters by status / agent / scope. `nextTask` does topo-aware selection: candidate status (default pending), all deps in done_statuses, optional agent + changed_files filter; tiebreak priority then id; returns a structured result with `reason: no_candidates | all_blocked | ok` + the blocked list (so callers can show "X is next when Y completes").
+- 7 new MCP tools:
+  - `list_tasks`, `next_task`, `record_tasks`, `update_task_status`, `expand_task`, `slice_files_for_task` — the data-plane operations.
+  - `compose_prd_parse` — pure-MCP composer that builds a prompt + JSON schema for the host LLM to decompose a PRD. Server does NO LLM calls; the host already has provider keys and user consent. Includes existing tasks in the prompt so the LLM doesn't duplicate.
+- New `.squad.yaml` section `tasks`:
+  - `path` (default `.squad/tasks.json`)
+  - `enabled` (default true — turn off to silence reads without deleting the file; writes stay open, matching the learnings policy)
+- `tools/{list-tasks,next-task,record-tasks,update-task-status}.mjs` — non-MCP CLI helpers sharing a tiny `tools/_tasks-io.mjs` module. Run anywhere with node 18+.
+- `skills/squad/SKILL.md` adds:
+  - **Phase 0.5 — Decompose PRD into tasks** (task-mode only). Build prompt → run LLM → preview → user-confirm → `record_tasks`. Inviolable: never bulk-record without per-list confirmation, never invent dependencies, never alter ids the user reviewed.
+  - **Phase 0.6 — Pick a task** via `/squad-next` or `/squad-task <id>`. Slice files via `slice_files_for_task`, narrow squad via the task's `agent_hints`, run normal advisory. When done, flip status via `update_task_status`.
+- 38 new tests cover store (read / record / update / expand / cache invalidation / on-disk format) and select (filter / topo / priority tiebreak / blocked surfacing). Smoke test now verifies 23 tools (was 16).
+
 ### Added — Learning JSONL: persistent accept/reject memory
 
 Closes the squad's biggest UX gap: re-running review on the same repo no

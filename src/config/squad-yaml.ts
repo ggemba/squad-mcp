@@ -94,6 +94,22 @@ const squadYamlSchema = z.object({
       enabled: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * Optional `.squad/tasks.json` configuration. The store holds the task list
+   * decomposed from a PRD (or seeded manually); the squad workflow runs one
+   * task at a time with scope-narrowed context to avoid prompt bloat.
+   *
+   * - `path`: relative location of the JSON file (default `.squad/tasks.json`).
+   *   Override only if the repo already uses `.squad/` for something else.
+   * - `enabled`: master switch. Default true. Set false to silence task tools
+   *   without deleting the file.
+   */
+  tasks: z
+    .object({
+      path: z.string().min(1).max(512).optional(),
+      enabled: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export type SquadYamlConfig = z.infer<typeof squadYamlSchema>;
@@ -116,6 +132,13 @@ export interface LearningsConfig {
   enabled: boolean;
 }
 
+export interface TasksConfig {
+  /** Effective path relative to workspace_root. Default `.squad/tasks.json`. */
+  path: string;
+  /** Effective master switch. Default true. */
+  enabled: boolean;
+}
+
 export interface ResolvedSquadConfig {
   /** Effective weights with defaults merged in. Sum = 100 across all advisory agents. */
   weights: Record<AgentName, number>;
@@ -131,6 +154,8 @@ export interface ResolvedSquadConfig {
   pr_posting: PrPostingConfig;
   /** Learnings store policy — fully populated with defaults. */
   learnings: LearningsConfig;
+  /** Tasks store policy — fully populated with defaults. */
+  tasks: TasksConfig;
   /** Where the config was loaded from, or null if defaults only. */
   source: string | null;
 }
@@ -218,6 +243,11 @@ function applyDefaults(
     enabled: parsed.learnings?.enabled ?? true,
   };
 
+  const tasks: TasksConfig = {
+    path: parsed.tasks?.path ?? ".squad/tasks.json",
+    enabled: parsed.tasks?.enabled ?? true,
+  };
+
   return {
     weights,
     threshold: parsed.threshold ?? 75,
@@ -226,6 +256,7 @@ function applyDefaults(
     disable_agents: parsed.disable_agents ?? [],
     pr_posting,
     learnings,
+    tasks,
     source,
   };
 }
