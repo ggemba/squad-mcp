@@ -1,4 +1,4 @@
-import { AGENTS, type AgentName } from '../config/ownership-matrix.js';
+import { AGENTS, type AgentName } from "../config/ownership-matrix.js";
 
 interface PromptArg {
   name: string;
@@ -10,18 +10,30 @@ interface PromptDef {
   name: string;
   description: string;
   arguments: PromptArg[];
-  build: (args: Record<string, string>) => { description: string; messages: { role: 'user'; content: { type: 'text'; text: string } }[] };
+  build: (args: Record<string, string>) => {
+    description: string;
+    messages: { role: "user"; content: { type: "text"; text: string } }[];
+  };
 }
 
 const orchestration: PromptDef = {
-  name: 'squad_orchestration',
-  description: 'Full squad-dev flow guide. Walks the host LLM through Phase 0–12 of the squad workflow.',
+  name: "squad_orchestration",
+  description:
+    "Full squad-dev flow guide. Walks the host LLM through Phase 0–12 of the squad workflow.",
   arguments: [
-    { name: 'user_prompt', description: 'The user task description', required: true },
-    { name: 'codex', description: 'Whether Codex review is enabled (true/false)', required: false },
+    {
+      name: "user_prompt",
+      description: "The user task description",
+      required: true,
+    },
+    {
+      name: "codex",
+      description: "Whether Codex review is enabled (true/false)",
+      required: false,
+    },
   ],
   build: (args) => {
-    const codex = args.codex === 'true';
+    const codex = args.codex === "true";
     const text = `You are orchestrating the squad-dev workflow.
 
 User request:
@@ -53,7 +65,7 @@ Phase 4 — Gate 1: User Approval
 Phase 5 — Advisory Squad
 - Call \`select_squad\` with work_type and changed files.
 - For each selected agent, call \`slice_files_for_agent\` to get the relevant slice.
-- Spawn each advisory agent in parallel using its definition + sliced context.
+- **MANDATORY PARALLEL DISPATCH:** Spawn ALL advisory agents in ONE assistant message — emit N \`Task\` tool_use blocks together. The host (Claude Code, Cursor, …) runs same-message tool calls concurrently. Dispatching one agent, awaiting its result, then dispatching the next is a hard violation: it linearises a parallelisable workflow and multiplies wall time by N. After the single dispatch, wait for ALL results before Phase 6.
 
 Phase 6 — Gate 2: Blocker Halt
 - Any Blocker in any report → halt and ask user.
@@ -84,19 +96,32 @@ Inviolable rules:
 5. Method names in English. No emojis.
 6. Never run commit or push.`;
     return {
-      description: 'Squad-dev orchestration guide',
-      messages: [{ role: 'user', content: { type: 'text', text } }],
+      description: "Squad-dev orchestration guide",
+      messages: [{ role: "user", content: { type: "text", text } }],
     };
   },
 };
 
 const advisory: PromptDef = {
-  name: 'agent_advisory',
-  description: 'Sliced advisory prompt for one agent. Use after select_squad and slice_files_for_agent.',
+  name: "agent_advisory",
+  description:
+    "Sliced advisory prompt for one agent. Use after select_squad and slice_files_for_agent.",
   arguments: [
-    { name: 'agent', description: 'Agent name (po, senior-dba, etc.)', required: true },
-    { name: 'plan', description: 'The approved implementation plan', required: true },
-    { name: 'slice', description: 'Files and snippets relevant to the agent ownership', required: true },
+    {
+      name: "agent",
+      description: "Agent name (product-owner, senior-dba, etc.)",
+      required: true,
+    },
+    {
+      name: "plan",
+      description: "The approved implementation plan",
+      required: true,
+    },
+    {
+      name: "slice",
+      description: "Files and snippets relevant to the agent ownership",
+      required: true,
+    },
   ],
   build: (args) => {
     const agentName = args.agent as AgentName;
@@ -105,7 +130,7 @@ const advisory: PromptDef = {
     const text = `You are part of a squad-dev advisory round.
 
 Role: ${def.role}
-Ownership: ${def.owns.join(', ')}
+Ownership: ${def.owns.join(", ")}
 
 Approved Plan:
 ${args.plan}
@@ -129,18 +154,27 @@ Every report must end with:
 - Information that would need confirmation`;
     return {
       description: `Advisory prompt for ${def.role}`,
-      messages: [{ role: 'user', content: { type: 'text', text } }],
+      messages: [{ role: "user", content: { type: "text", text } }],
     };
   },
 };
 
 const consolidator: PromptDef = {
-  name: 'consolidator',
-  description: 'Consolidator prompt. Use after collecting all advisory reports.',
+  name: "consolidator",
+  description:
+    "Consolidator prompt. Use after collecting all advisory reports.",
   arguments: [
-    { name: 'reports', description: 'JSON array of advisory reports', required: true },
-    { name: 'rules_output', description: 'Output of apply_consolidation_rules tool', required: true },
-    { name: 'delta', description: 'Implemented diff summary', required: true },
+    {
+      name: "reports",
+      description: "JSON array of advisory reports",
+      required: true,
+    },
+    {
+      name: "rules_output",
+      description: "Output of apply_consolidation_rules tool",
+      required: true,
+    },
+    { name: "delta", description: "Implemented diff summary", required: true },
   ],
   build: (args) => {
     const text = `You are the TechLead-Consolidator.
@@ -167,8 +201,8 @@ Inviolable rules:
 - Conflicting advice → arbitrate and justify.
 - Agent that did not report → record as "Not evaluated" and assess gap risk.`;
     return {
-      description: 'Final verdict consolidation prompt',
-      messages: [{ role: 'user', content: { type: 'text', text } }],
+      description: "Final verdict consolidation prompt",
+      messages: [{ role: "user", content: { type: "text", text } }],
     };
   },
 };
