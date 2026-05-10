@@ -1,8 +1,8 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { SquadError } from '../errors.js';
-import { rejectIfMalformed, realpathOrSelf } from './path-internal.js';
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { SquadError } from "../errors.js";
+import { rejectIfMalformed, realpathOrSelf } from "./path-internal.js";
 
 /**
  * Validates that a directory chosen as the agent-override location lives under
@@ -21,14 +21,14 @@ import { rejectIfMalformed, realpathOrSelf } from './path-internal.js';
  */
 
 export type OverrideRejectionReason =
-  | 'malformed'
-  | 'not_absolute'
-  | 'unc_or_device_namespace'
-  | 'outside_allowlist'
-  | 'symlink_escape';
+  | "malformed"
+  | "not_absolute"
+  | "unc_or_device_namespace"
+  | "outside_allowlist"
+  | "symlink_escape";
 
 export interface AllowlistRoot {
-  source: 'home' | 'appdata' | 'localappdata' | 'xdg_config_home' | 'cwd';
+  source: "home" | "appdata" | "localappdata" | "xdg_config_home" | "cwd";
   lexical: string;
   real: string;
 }
@@ -36,7 +36,7 @@ export interface AllowlistRoot {
 export interface ValidationOk {
   ok: true;
   resolvedPath: string;
-  allowlistMatch: AllowlistRoot['source'] | 'unsafe_override';
+  allowlistMatch: AllowlistRoot["source"] | "unsafe_override";
   unsafeOverride: boolean;
 }
 
@@ -59,14 +59,14 @@ export function __resetOverrideAllowlistCache(): void {
 }
 
 function isUnsafeOverrideEnabled(): boolean {
-  return process.env.SQUAD_AGENTS_ALLOW_UNSAFE === '1';
+  return process.env.SQUAD_AGENTS_ALLOW_UNSAFE === "1";
 }
 
 function isUncOrDeviceNamespace(absolute: string): boolean {
-  if (process.platform !== 'win32') return false;
-  if (absolute.startsWith('\\\\?\\')) return true;
-  if (absolute.startsWith('\\\\.\\')) return true;
-  if (absolute.startsWith('\\\\')) return true;
+  if (process.platform !== "win32") return false;
+  if (absolute.startsWith("\\\\?\\")) return true;
+  if (absolute.startsWith("\\\\.\\")) return true;
+  if (absolute.startsWith("\\\\")) return true;
   return false;
 }
 
@@ -75,15 +75,15 @@ async function buildAllowlist(): Promise<AllowlistRoot[]> {
   const roots: AllowlistRoot[] = [];
   const seen = new Set<string>();
 
-  const candidates: { source: AllowlistRoot['source']; raw: string | undefined }[] = [
-    { source: 'home', raw: os.homedir() },
-    { source: 'cwd', raw: process.cwd() },
+  const candidates: { source: AllowlistRoot["source"]; raw: string | undefined }[] = [
+    { source: "home", raw: os.homedir() },
+    { source: "cwd", raw: process.cwd() },
   ];
-  if (process.platform === 'win32') {
-    candidates.push({ source: 'appdata', raw: process.env.APPDATA });
-    candidates.push({ source: 'localappdata', raw: process.env.LOCALAPPDATA });
+  if (process.platform === "win32") {
+    candidates.push({ source: "appdata", raw: process.env.APPDATA });
+    candidates.push({ source: "localappdata", raw: process.env.LOCALAPPDATA });
   } else {
-    candidates.push({ source: 'xdg_config_home', raw: process.env.XDG_CONFIG_HOME });
+    candidates.push({ source: "xdg_config_home", raw: process.env.XDG_CONFIG_HOME });
   }
 
   for (const c of candidates) {
@@ -110,10 +110,10 @@ async function buildAllowlist(): Promise<AllowlistRoot[]> {
 function isInsideRoot(candidate: string, root: string): boolean {
   if (candidate === root) return true;
   const rel = path.relative(root, candidate);
-  if (rel === '' || rel === '.') return true;
+  if (rel === "" || rel === ".") return true;
   if (path.isAbsolute(rel)) return false;
-  if (rel === '..') return false;
-  if (rel.startsWith('..' + path.sep)) return false;
+  if (rel === "..") return false;
+  if (rel.startsWith(".." + path.sep)) return false;
   return true;
 }
 
@@ -145,16 +145,16 @@ export async function validateOverrideDir(rawDir: string): Promise<ValidationRes
   // Hard rejections — never bypassed by the escape hatch.
   try {
     rejectIfMalformed(rawDir);
-  } catch (err) {
-    return { ok: false, reason: 'malformed', rejectedPath: rawDir };
+  } catch {
+    return { ok: false, reason: "malformed", rejectedPath: rawDir };
   }
 
   if (!path.isAbsolute(rawDir)) {
-    return { ok: false, reason: 'not_absolute', rejectedPath: rawDir };
+    return { ok: false, reason: "not_absolute", rejectedPath: rawDir };
   }
 
   if (isUncOrDeviceNamespace(rawDir)) {
-    return { ok: false, reason: 'unc_or_device_namespace', rejectedPath: rawDir };
+    return { ok: false, reason: "unc_or_device_namespace", rejectedPath: rawDir };
   }
 
   const lexical = path.normalize(rawDir);
@@ -177,10 +177,17 @@ export async function validateOverrideDir(rawDir: string): Promise<ValidationRes
       break;
     }
   }
-  const reason: OverrideRejectionReason = lexicalMatchExists ? 'symlink_escape' : 'outside_allowlist';
+  const reason: OverrideRejectionReason = lexicalMatchExists
+    ? "symlink_escape"
+    : "outside_allowlist";
 
   if (unsafe) {
-    return { ok: true, resolvedPath: real, allowlistMatch: 'unsafe_override', unsafeOverride: true };
+    return {
+      ok: true,
+      resolvedPath: real,
+      allowlistMatch: "unsafe_override",
+      unsafeOverride: true,
+    };
   }
 
   return { ok: false, reason, rejectedPath: rawDir };
@@ -191,7 +198,7 @@ export async function validateOverrideDir(rawDir: string): Promise<ValidationRes
  * Caller decides whether to throw or downgrade to a warn-and-fallback.
  */
 export function rejectionToError(fail: ValidationFail, allowlistSize: number): SquadError {
-  return new SquadError('OVERRIDE_REJECTED', `override directory rejected: ${fail.reason}`, {
+  return new SquadError("OVERRIDE_REJECTED", `override directory rejected: ${fail.reason}`, {
     reason: fail.reason,
     path: fail.rejectedPath,
     allowlist_size: allowlistSize,
@@ -211,7 +218,10 @@ export async function getAllowlistSize(): Promise<number> {
  * or escapes the directory. Per-file escape is NOT a policy-level error — the
  * caller falls back to embedded for that file only and continues.
  */
-export async function validateOverrideFile(validatedDirReal: string, fileName: string): Promise<string | null> {
+export async function validateOverrideFile(
+  validatedDirReal: string,
+  fileName: string,
+): Promise<string | null> {
   try {
     rejectIfMalformed(fileName);
   } catch {
@@ -221,7 +231,11 @@ export async function validateOverrideFile(validatedDirReal: string, fileName: s
   // Lexical: file name must not contain traversal segments.
   const normalized = path.normalize(fileName);
   if (path.isAbsolute(normalized)) return null;
-  if (normalized === '..' || normalized.startsWith('..' + path.sep) || normalized.includes(path.sep + '..' + path.sep)) {
+  if (
+    normalized === ".." ||
+    normalized.startsWith(".." + path.sep) ||
+    normalized.includes(path.sep + ".." + path.sep)
+  ) {
     return null;
   }
 

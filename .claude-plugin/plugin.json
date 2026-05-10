@@ -24,6 +24,9 @@
   "commands": [
     "./commands/squad.md",
     "./commands/squad-review.md",
+    "./commands/squad-tasks.md",
+    "./commands/squad-next.md",
+    "./commands/squad-task.md",
     "./commands/brainstorm.md",
     "./commands/commit-suggest.md"
   ],

@@ -75,11 +75,7 @@ function verdictHeader(consolidation: ConsolidationOutput): string {
   const v = consolidation.verdict;
   if (r) {
     const score = r.weighted_score.toFixed(1);
-    if (
-      v === "APPROVED" &&
-      r.passes_threshold &&
-      !consolidation.downgraded_by_score
-    ) {
+    if (v === "APPROVED" && r.passes_threshold && !consolidation.downgraded_by_score) {
       return `Squad Advisory: APPROVED (${score} / 100)`;
     }
     if (v === "APPROVED") {
@@ -137,8 +133,7 @@ function formatFindingsSection(consolidation: ConsolidationOutput): string {
   for (const agent of agentNames) {
     const findings = grouped.get(agent) ?? [];
     findings.sort(
-      (a, b) =>
-        SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
+      (a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity),
     );
     const lines = [`#### ${agent}`];
     for (const f of findings) {

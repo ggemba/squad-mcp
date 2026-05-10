@@ -26,9 +26,7 @@ export interface SliceFilesForTaskOutput {
  * `matchesGlob` primitive used by skip_paths and learnings scope filters —
  * single source of glob semantics across squad-mcp.
  */
-export async function sliceFilesForTaskTool(
-  input: Input,
-): Promise<SliceFilesForTaskOutput> {
+export async function sliceFilesForTaskTool(input: Input): Promise<SliceFilesForTaskOutput> {
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);
@@ -36,10 +34,7 @@ export async function sliceFilesForTaskTool(
   const file = await readTasks(safeRoot, { configuredPath: config.tasks.path });
   const task = file.tasks.find((t) => t.id === input.task_id);
   if (!task) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      `task ${input.task_id} not found in store`,
-    );
+    throw new SquadError("INVALID_INPUT", `task ${input.task_id} not found in store`);
   }
 
   if (!task.scope) {

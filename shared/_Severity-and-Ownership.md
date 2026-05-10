@@ -41,12 +41,12 @@ Shared reference for the squad. Each topic has a single primary owner. Other age
 
 Every finding carries a severity. Agents must use these labels consistently.
 
-| Level      | Meaning                                                                                    | Merge Impact                 |
-| ---------- | ------------------------------------------------------------------------------------------ | ---------------------------- |
-| Blocker    | Cannot ship: correctness break, security hole, data loss, production outage likely         | Halts merge                  |
-| Major      | Significant risk or violation with no reasonable justification                             | Halts merge unless justified |
-| Minor      | Quality issue, local smell, limited impact                                                 | Does not block               |
-| Suggestion | Improvement opportunity, nitpick, or stylistic preference                                  | Does not block               |
+| Level      | Meaning                                                                            | Merge Impact                 |
+| ---------- | ---------------------------------------------------------------------------------- | ---------------------------- |
+| Blocker    | Cannot ship: correctness break, security hole, data loss, production outage likely | Halts merge                  |
+| Major      | Significant risk or violation with no reasonable justification                     | Halts merge unless justified |
+| Minor      | Quality issue, local smell, limited impact                                         | Does not block               |
+| Suggestion | Improvement opportunity, nitpick, or stylistic preference                          | Does not block               |
 
 ## Standard Section: Assumptions and Limitations
 

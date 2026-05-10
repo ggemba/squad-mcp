@@ -15,9 +15,7 @@ function makeRubric(weighted: number, threshold = 75): RubricOutput {
   };
 }
 
-function makeConsolidation(
-  overrides: Partial<ConsolidationOutput> = {},
-): ConsolidationOutput {
+function makeConsolidation(overrides: Partial<ConsolidationOutput> = {}): ConsolidationOutput {
   return {
     verdict: "APPROVED",
     blockers: [],
@@ -35,29 +33,20 @@ function makeConsolidation(
 
 describe("chooseGhAction", () => {
   it("REJECTED → request-changes", () => {
-    expect(chooseGhAction(makeConsolidation({ verdict: "REJECTED" }), {})).toBe(
-      "request-changes",
-    );
+    expect(chooseGhAction(makeConsolidation({ verdict: "REJECTED" }), {})).toBe("request-changes");
   });
 
   it("CHANGES_REQUIRED → comment", () => {
-    expect(
-      chooseGhAction(makeConsolidation({ verdict: "CHANGES_REQUIRED" }), {}),
-    ).toBe("comment");
+    expect(chooseGhAction(makeConsolidation({ verdict: "CHANGES_REQUIRED" }), {})).toBe("comment");
   });
 
   it("APPROVED clean → approve", () => {
-    expect(chooseGhAction(makeConsolidation({ verdict: "APPROVED" }), {})).toBe(
-      "approve",
-    );
+    expect(chooseGhAction(makeConsolidation({ verdict: "APPROVED" }), {})).toBe("approve");
   });
 
   it("APPROVED downgraded by score → comment", () => {
     expect(
-      chooseGhAction(
-        makeConsolidation({ verdict: "APPROVED", downgraded_by_score: true }),
-        {},
-      ),
+      chooseGhAction(makeConsolidation({ verdict: "APPROVED", downgraded_by_score: true }), {}),
     ).toBe("comment");
   });
 
@@ -66,9 +55,7 @@ describe("chooseGhAction", () => {
       verdict: "APPROVED",
       rubric: makeRubric(40),
     });
-    expect(chooseGhAction(c, { requestChangesBelowScore: 60 })).toBe(
-      "request-changes",
-    );
+    expect(chooseGhAction(c, { requestChangesBelowScore: 60 })).toBe("request-changes");
   });
 
   it("APPROVED with score above requestChangesBelowScore → approve", () => {
@@ -112,9 +99,7 @@ describe("formatPrReview — header", () => {
       verdict: "CHANGES_REQUIRED",
       rubric: makeRubric(70),
       severity_counts: { Blocker: 0, Major: 1, Minor: 0, Suggestion: 0 },
-      majors_unjustified: [
-        { agent: "senior-dev-security", title: "missing CSRF" },
-      ],
+      majors_unjustified: [{ agent: "senior-dev-security", title: "missing CSRF" }],
     });
     const out = formatPrReview(c);
     expect(out.body).toContain("Squad Advisory: CHANGES_REQUIRED (70.0 / 100)");
@@ -188,9 +173,7 @@ describe("formatPrReview — findings section", () => {
         { agent: "senior-dev-security", title: "auth bypass" },
         { agent: "senior-dba", title: "lost update on race" },
       ],
-      majors_unjustified: [
-        { agent: "senior-architect", title: "cross-module coupling" },
-      ],
+      majors_unjustified: [{ agent: "senior-architect", title: "cross-module coupling" }],
       severity_counts: { Blocker: 2, Major: 1, Minor: 0, Suggestion: 0 },
     });
     const out = formatPrReview(c);
@@ -234,9 +217,7 @@ describe("formatPrReview — footer + summary", () => {
       severity_counts: { Blocker: 0, Major: 1, Minor: 2, Suggestion: 3 },
     });
     const out = formatPrReview(c);
-    expect(out.summary).toBe(
-      "Squad: CHANGES_REQUIRED | score 72.0/100 | 0B/1M/2m/3s",
-    );
+    expect(out.summary).toBe("Squad: CHANGES_REQUIRED | score 72.0/100 | 0B/1M/2m/3s");
   });
 
   it("summary works without rubric", () => {

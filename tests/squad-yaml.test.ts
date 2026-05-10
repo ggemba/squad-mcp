@@ -37,10 +37,7 @@ describe("readSquadYaml — file presence", () => {
   });
 
   it("reads .squad.yaml when present", async () => {
-    await fs.writeFile(
-      path.join(workspace, ".squad.yaml"),
-      "threshold: 80\nmin_score: 70\n",
-    );
+    await fs.writeFile(path.join(workspace, ".squad.yaml"), "threshold: 80\nmin_score: 70\n");
     const config = await readSquadYaml(workspace);
     expect(config.source).toContain(".squad.yaml");
     expect(config.threshold).toBe(80);

@@ -47,3 +47,76 @@ jobs:
       - run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  smoke:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: wait for tarball to propagate
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          for i in 1 2 3 4 5 6; do
+            if npm view "@gempack/squad-mcp@${TAG_VERSION}" version >/dev/null 2>&1; then
+              echo "version ${TAG_VERSION} is live on registry"
+              exit 0
+            fi
+            echo "attempt $i: version not yet visible; sleeping 10s"
+            sleep 10
+          done
+          echo "::error::tarball not visible on registry after 60s"
+          exit 1
+      - name: smoke the published tarball over stdio
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          # The smoke script in tests/smoke.mjs talks JSON-RPC over stdio to
+          # a freshly fetched copy. We rewrite it to point at the published
+          # tarball via npx rather than dist/.
+          cat > /tmp/smoke-published.mjs <<EOF
+          import { spawn } from "node:child_process";
+          const child = spawn("npx", ["-y", "@gempack/squad-mcp@${TAG_VERSION}"], {
+            stdio: ["pipe", "pipe", "inherit"],
+          });
+          let buf = "";
+          const messages = [];
+          child.stdout.on("data", (c) => {
+            buf += c.toString("utf8");
+            let idx;
+            while ((idx = buf.indexOf("\n")) !== -1) {
+              const line = buf.slice(0, idx).trim();
+              buf = buf.slice(idx + 1);
+              if (line) { try { messages.push(JSON.parse(line)); } catch {} }
+            }
+          });
+          const send = (req) => child.stdin.write(JSON.stringify(req) + "\n");
+          const waitFor = (id, timeoutMs = 30_000) => new Promise((resolve, reject) => {
+            const start = Date.now();
+            const t = setInterval(() => {
+              const m = messages.find((x) => x.id === id);
+              if (m) { clearInterval(t); resolve(m); }
+              else if (Date.now() - start > timeoutMs) { clearInterval(t); reject(new Error("timeout " + id)); }
+            }, 50);
+          });
+          try {
+            send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "release-smoke", version: "0.0" } } });
+            await waitFor(1);
+            send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+            const r = await waitFor(2);
+            const names = r.result.tools.map((t) => t.name);
+            if (!names.includes("compose_advisory_bundle")) throw new Error("missing compose_advisory_bundle in published tarball");
+            console.log("PUBLISHED SMOKE OK: " + names.length + " tools");
+            process.exit(0);
+          } catch (err) {
+            console.error("PUBLISHED SMOKE FAILED:", err.message);
+            process.exit(1);
+          } finally {
+            child.kill();
+          }
+          EOF
+          node /tmp/smoke-published.mjs

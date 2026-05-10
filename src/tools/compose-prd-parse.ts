@@ -92,9 +92,7 @@ function renderExisting(existing: Task[]): string {
  * Why pure-MCP: keeps squad-mcp deterministic and free of provider keys; the
  * host already pays for inference and has the user's consent to do so.
  */
-export async function composePrdParseTool(
-  input: Input,
-): Promise<ComposePrdParseOutput> {
+export async function composePrdParseTool(input: Input): Promise<ComposePrdParseOutput> {
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);

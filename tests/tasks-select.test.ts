@@ -45,11 +45,7 @@ describe("listTasks", () => {
 
   it("scope filter against changed_files", () => {
     const r = listTasks(
-      [
-        t({ id: 1 }),
-        t({ id: 2, scope: "src/auth/**" }),
-        t({ id: 3, scope: "src/billing/**" }),
-      ],
+      [t({ id: 1 }), t({ id: 2, scope: "src/auth/**" }), t({ id: 3, scope: "src/billing/**" })],
       { changed_files: ["src/auth/login.ts"] },
     );
     expect(r.map((x) => x.id)).toEqual([1, 2]);
@@ -111,10 +107,7 @@ describe("nextTask", () => {
   });
 
   it("falls back to id ascending when priority ties", () => {
-    const r = nextTask([
-      t({ id: 5, priority: "high" }),
-      t({ id: 3, priority: "high" }),
-    ]);
+    const r = nextTask([t({ id: 5, priority: "high" }), t({ id: 3, priority: "high" })]);
     expect(r.task?.id).toBe(3);
   });
 
@@ -132,10 +125,7 @@ describe("nextTask", () => {
 
   it("filters by changed_files (scope match)", () => {
     const r = nextTask(
-      [
-        t({ id: 1, scope: "src/auth/**" }),
-        t({ id: 2, scope: "src/billing/**" }),
-      ],
+      [t({ id: 1, scope: "src/auth/**" }), t({ id: 2, scope: "src/billing/**" })],
       { changed_files: ["src/billing/index.ts"] },
     );
     expect(r.task?.id).toBe(2);

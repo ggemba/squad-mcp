@@ -94,9 +94,7 @@ try {
     if (!toolNames.includes(e)) throw new Error(`missing tool: ${e}`);
   }
   if (toolNames.length !== expected.length) {
-    throw new Error(
-      `tool count mismatch: ${toolNames.length} vs ${expected.length}`,
-    );
+    throw new Error(`tool count mismatch: ${toolNames.length} vs ${expected.length}`);
   }
 
   send({
@@ -116,15 +114,13 @@ try {
   const callRes = await waitFor(3);
   const text = callRes.result.content[0].text;
   const parsed = JSON.parse(text);
-  if (parsed.level !== "High")
-    throw new Error(`expected High, got ${parsed.level}`);
+  if (parsed.level !== "High") throw new Error(`expected High, got ${parsed.level}`);
   console.log("score_risk High ok, score=", parsed.score);
 
   send({ jsonrpc: "2.0", id: 4, method: "resources/list" });
   const resRes = await waitFor(4);
   console.log("resources count:", resRes.result.resources.length);
-  if (resRes.result.resources.length < 9)
-    throw new Error("expected at least 9 agent resources");
+  if (resRes.result.resources.length < 9) throw new Error("expected at least 9 agent resources");
 
   send({ jsonrpc: "2.0", id: 5, method: "prompts/list" });
   const promptsRes = await waitFor(5);

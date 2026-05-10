@@ -3,6 +3,8 @@ import path from "node:path";
 import { z } from "zod";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
 import { SquadError } from "../errors.js";
+import { ensureRelativeInsideRoot } from "../util/path-safety.js";
+import { withFileLock } from "../util/file-lock.js";
 import { logger } from "../observability/logger.js";
 
 /**
@@ -62,10 +64,7 @@ const taskSchema = z.object({
    * to narrow the advisory squad. Optional — without hints, the task uses
    * the standard select_squad heuristic.
    */
-  agent_hints: z
-    .array(z.enum(AGENT_NAMES_TUPLE))
-    .max(AGENT_NAMES_TUPLE.length)
-    .optional(),
+  agent_hints: z.array(z.enum(AGENT_NAMES_TUPLE)).max(AGENT_NAMES_TUPLE.length).optional(),
   subtasks: z.array(subtaskSchema).max(50).default([]),
   /** ISO timestamp set on first record. */
   created_at: z.string().min(1).max(40),
@@ -94,11 +93,12 @@ export function __resetTasksStoreCacheForTests(): void {
   cache.clear();
 }
 
-function resolveTasksFile(
-  workspaceRoot: string,
-  configuredPath: string | undefined,
-): string {
-  return path.resolve(workspaceRoot, configuredPath ?? DEFAULT_TASKS_PATH);
+function resolveTasksFile(workspaceRoot: string, configuredPath: string | undefined): string {
+  const rel = configuredPath ?? DEFAULT_TASKS_PATH;
+  if (configuredPath !== undefined) {
+    ensureRelativeInsideRoot(workspaceRoot, rel, "tasks.path");
+  }
+  return path.resolve(workspaceRoot, rel);
 }
 
 const EMPTY_FILE: TasksFile = { version: 1, tasks: [] };
@@ -125,11 +125,7 @@ export async function readTasks(
   }
 
   const cached = cache.get(absRoot);
-  if (
-    cached &&
-    cached.filePath === filePath &&
-    cached.mtimeMs === stat.mtimeMs
-  ) {
+  if (cached && cached.filePath === filePath && cached.mtimeMs === stat.mtimeMs) {
     return cached.data;
   }
 
@@ -148,11 +144,9 @@ export async function readTasks(
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      `${filePath}: invalid JSON: ${(err as Error).message}`,
-      { source: filePath },
-    );
+    throw new SquadError("INVALID_INPUT", `${filePath}: invalid JSON: ${(err as Error).message}`, {
+      source: filePath,
+    });
   }
 
   const validated = tasksFileSchema.safeParse(parsed);
@@ -188,22 +182,43 @@ async function writeTasks(
 
   const validated = tasksFileSchema.safeParse(data);
   if (!validated.success) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      `tasks schema violation: ${validated.error.message}`,
-      { issues: validated.error.issues.length },
-    );
+    throw new SquadError("INVALID_INPUT", `tasks schema violation: ${validated.error.message}`, {
+      issues: validated.error.issues.length,
+    });
   }
 
   const ordered = orderTasksFile(validated.data);
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+  // tmp filename uses pid + ms + counter so two Promise.all writes inside the
+  // same process don't collide on the same millisecond.
+  writeCounter += 1;
+  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter}`;
   await fs.writeFile(tmp, JSON.stringify(ordered, null, 2) + "\n", "utf8");
+
+  // Snapshot the prior generation so a future corruption (or accidental edit)
+  // has at least one recoverable backup. Best-effort: if the original is
+  // missing or rename fails, swallow — the new write is still atomic.
+  try {
+    await fs.rename(filePath, `${filePath}.prev`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      // Non-fatal — log via stderr but proceed; the new file will land.
+      logger.warn("tasks .prev snapshot failed", {
+        details: {
+          file: filePath,
+          error: (err as Error).message,
+        },
+      });
+    }
+  }
+
   await fs.rename(tmp, filePath);
 
   // Invalidate cache.
   cache.delete(path.resolve(workspaceRoot));
   return filePath;
 }
+
+let writeCounter = 0;
 
 function orderTasksFile(data: TasksFile): TasksFile {
   return {
@@ -243,12 +258,18 @@ export async function recordTasks(
   options: { configuredPath?: string } = {},
 ): Promise<{ filePath: string; ids: number[] }> {
   if (inputs.length === 0) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      "recordTasks requires at least one task",
-    );
+    throw new SquadError("INVALID_INPUT", "recordTasks requires at least one task");
   }
 
+  const lockTarget = resolveTasksFile(workspaceRoot, options.configuredPath);
+  return withFileLock(lockTarget, () => recordTasksLocked(workspaceRoot, inputs, options));
+}
+
+async function recordTasksLocked(
+  workspaceRoot: string,
+  inputs: RecordTaskInput[],
+  options: { configuredPath?: string },
+): Promise<{ filePath: string; ids: number[] }> {
   const current = await readTasks(workspaceRoot, options);
   const existingIds = new Set(current.tasks.map((t) => t.id));
   const allIds = new Set(existingIds);
@@ -302,16 +323,10 @@ export async function recordTasks(
   for (const t of newTasks) {
     for (const dep of t.dependencies) {
       if (!allIds.has(dep)) {
-        throw new SquadError(
-          "INVALID_INPUT",
-          `task ${t.id} depends on unknown id ${dep}`,
-        );
+        throw new SquadError("INVALID_INPUT", `task ${t.id} depends on unknown id ${dep}`);
       }
       if (dep === t.id) {
-        throw new SquadError(
-          "INVALID_INPUT",
-          `task ${t.id} cannot depend on itself`,
-        );
+        throw new SquadError("INVALID_INPUT", `task ${t.id} cannot depend on itself`);
       }
     }
   }
@@ -320,11 +335,7 @@ export async function recordTasks(
     version: current.version,
     tasks: [...current.tasks, ...newTasks],
   };
-  const filePath = await writeTasks(
-    workspaceRoot,
-    next,
-    options.configuredPath,
-  );
+  const filePath = await writeTasks(workspaceRoot, next, options.configuredPath);
 
   logger.info("tasks recorded", {
     details: { count: newTasks.length, file: filePath },
@@ -342,6 +353,18 @@ export async function updateTaskStatus(
   taskId: number,
   status: TaskStatus,
   options: { subtaskId?: number; configuredPath?: string } = {},
+): Promise<{ filePath: string; task: Task }> {
+  const lockTarget = resolveTasksFile(workspaceRoot, options.configuredPath);
+  return withFileLock(lockTarget, () =>
+    updateTaskStatusLocked(workspaceRoot, taskId, status, options),
+  );
+}
+
+async function updateTaskStatusLocked(
+  workspaceRoot: string,
+  taskId: number,
+  status: TaskStatus,
+  options: { subtaskId?: number; configuredPath?: string },
 ): Promise<{ filePath: string; task: Task }> {
   const current = await readTasks(workspaceRoot, options);
   const idx = current.tasks.findIndex((t) => t.id === taskId);
@@ -406,12 +429,18 @@ export async function expandTask(
   options: { configuredPath?: string } = {},
 ): Promise<{ filePath: string; task: Task }> {
   if (subtasks.length === 0) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      "expandTask requires at least one subtask",
-    );
+    throw new SquadError("INVALID_INPUT", "expandTask requires at least one subtask");
   }
+  const lockTarget = resolveTasksFile(workspaceRoot, options.configuredPath);
+  return withFileLock(lockTarget, () => expandTaskLocked(workspaceRoot, taskId, subtasks, options));
+}
 
+async function expandTaskLocked(
+  workspaceRoot: string,
+  taskId: number,
+  subtasks: SubtaskInput[],
+  options: { configuredPath?: string },
+): Promise<{ filePath: string; task: Task }> {
   const current = await readTasks(workspaceRoot, options);
   const idx = current.tasks.findIndex((t) => t.id === taskId);
   if (idx < 0) {
@@ -444,10 +473,7 @@ export async function expandTask(
   for (const s of newSubs) {
     for (const dep of s.dependencies) {
       if (!siblingIds.has(dep)) {
-        throw new SquadError(
-          "INVALID_INPUT",
-          `subtask ${s.id} depends on unknown sibling ${dep}`,
-        );
+        throw new SquadError("INVALID_INPUT", `subtask ${s.id} depends on unknown sibling ${dep}`);
       }
     }
   }

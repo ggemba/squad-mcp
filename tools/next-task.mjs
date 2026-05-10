@@ -57,16 +57,11 @@ function parseArgs(argv) {
 }
 
 function pickNext(tasks, opts) {
-  const doneIds = new Set(
-    tasks.filter((t) => t.status === "done").map((t) => t.id),
-  );
+  const doneIds = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
   let candidates = tasks.filter((t) => t.status === "pending");
   if (opts.agent) {
     candidates = candidates.filter(
-      (t) =>
-        !t.agent_hints ||
-        t.agent_hints.length === 0 ||
-        t.agent_hints.includes(opts.agent),
+      (t) => !t.agent_hints || t.agent_hints.length === 0 || t.agent_hints.includes(opts.agent),
     );
   }
   if (candidates.length === 0) {
@@ -86,9 +81,7 @@ function pickNext(tasks, opts) {
     return { task: null, reason: "all_blocked", blocked };
   }
   ready.sort((a, b) => {
-    const p =
-      PRIORITY_RANK[a.priority ?? "medium"] -
-      PRIORITY_RANK[b.priority ?? "medium"];
+    const p = PRIORITY_RANK[a.priority ?? "medium"] - PRIORITY_RANK[b.priority ?? "medium"];
     if (p !== 0) return p;
     return a.id - b.id;
   });
@@ -120,9 +113,7 @@ async function main() {
   } else {
     process.stderr.write("all candidates blocked:\n");
     for (const b of result.blocked) {
-      process.stderr.write(
-        `  #${b.id} ${b.title} (missing deps: ${b.missing_deps.join(", ")})\n`,
-      );
+      process.stderr.write(`  #${b.id} ${b.title} (missing deps: ${b.missing_deps.join(", ")})\n`);
     }
   }
   process.exit(1);

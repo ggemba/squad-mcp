@@ -35,9 +35,7 @@ const schema = z.object({
    * Optional weight overrides for the rubric (sum must be 100). Forwarded to
    * `score_rubric`. Ignored when no report carries a score.
    */
-  weights: z
-    .record(z.enum(AGENT_NAMES_TUPLE), z.number().min(0).max(100))
-    .optional(),
+  weights: z.record(z.enum(AGENT_NAMES_TUPLE), z.number().min(0).max(100)).optional(),
   /**
    * Per-dimension threshold for flagging individual scores. Defaults to 75.
    */
@@ -101,12 +99,10 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
     }
     for (const f of r.findings) {
       counts[f.severity] += 1;
-      if (f.severity === "Blocker")
-        blockers.push({ agent: r.agent, title: f.title });
+      if (f.severity === "Blocker") blockers.push({ agent: r.agent, title: f.title });
       if (f.severity === "Major" && !f.justified)
         majorsUnjustified.push({ agent: r.agent, title: f.title });
-      if (f.forwarded_to)
-        forwarded.push({ from: r.agent, to: f.forwarded_to, title: f.title });
+      if (f.forwarded_to) forwarded.push({ from: r.agent, to: f.forwarded_to, title: f.title });
     }
   }
 

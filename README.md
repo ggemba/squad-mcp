@@ -71,6 +71,38 @@ npm run build
 node dist/index.js
 ```
 
+## Your first `/squad` in 60 seconds
+
+After install, the plugin is silent until you invoke it. Drop into a repo with at least one staged or recently committed change and run:
+
+```text
+/squad add a /health endpoint that returns {"status":"ok"}
+```
+
+What happens, in order:
+
+1. **Classification.** `compose_squad_workflow` looks at your prompt + changed files and prints something like `work_type: Feature, risk: Low, agents: [senior-developer, senior-qa]`.
+2. **Plan.** The skill drafts an implementation plan and sends it to `tech-lead-planner` for review. You see the plan in chat.
+3. **Gate 1.** The skill **stops** and asks you to approve. Reply `approved`, `go`, or equivalent to proceed; anything else cancels.
+4. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
+5. **Consolidation.** `tech-lead-consolidator` produces a verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus a scorecard like:
+   ```
+   SQUAD RUBRIC — weighted 82 / 100 (threshold 75)
+   Application Code     ████████████████░░░░   82  ×18%  senior-developer
+   Testing & QA         ███████████████░░░░░   78  ×14%  senior-qa
+   ```
+6. **Implementation.** If approved, the skill writes code. **Never** commits or pushes — that's your call.
+
+Other commands to try once `/squad` works:
+
+- `/squad-review` — same agents, but on an existing diff or PR (no implementation).
+- `/squad-tasks docs/prd.md` — decompose a PRD into atomic tasks with confirmation before they land in `.squad/tasks.json`.
+- `/squad-next` — pick the next ready task; `/squad-task 3` — work on a specific one.
+- `/brainstorm <topic>` — exploratory Q&A, no code.
+- `/commit-suggest` — generate a Conventional Commits message for staged changes.
+
+Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed to reconnect to plugin:squad:squad`, marketplace cache, SSH key) all have entries.
+
 ## What it provides
 
 ### Tools (deterministic, pure functions)

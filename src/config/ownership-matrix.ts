@@ -74,12 +74,7 @@ export const AGENTS: Record<AgentName, AgentDef> = {
   "tech-lead-consolidator": {
     name: "tech-lead-consolidator",
     role: "Post-implementation final verdict",
-    owns: [
-      "Final merge verdict",
-      "Design trade-offs",
-      "CI/CD and deploy",
-      "Technical debt",
-    ],
+    owns: ["Final merge verdict", "Design trade-offs", "CI/CD and deploy", "Technical debt"],
     conventions: [],
     weight: 0,
     dimension: "",
@@ -139,11 +134,7 @@ export const AGENTS: Record<AgentName, AgentDef> = {
   "senior-dev-reviewer": {
     name: "senior-dev-reviewer",
     role: "Readability, idioms, naming",
-    owns: [
-      "Readability and code smells",
-      "C#/.NET best practices",
-      "Naming conventions",
-    ],
+    owns: ["Readability and code smells", "C#/.NET best practices", "Naming conventions"],
     conventions: [],
     weight: 10,
     dimension: "Code Quality",
@@ -151,11 +142,7 @@ export const AGENTS: Record<AgentName, AgentDef> = {
   "senior-dev-security": {
     name: "senior-dev-security",
     role: "OWASP, authz, sensitive data",
-    owns: [
-      "OWASP Top 10",
-      "Authentication and authorization",
-      "Sensitive data protection",
-    ],
+    owns: ["OWASP Top 10", "Authentication and authorization", "Sensitive data protection"],
     conventions: ["*Controller.cs (with [ApiController])", "Auth*.cs"],
     weight: 18,
     dimension: "Security",
@@ -175,13 +162,9 @@ export const AGENTS: Record<AgentName, AgentDef> = {
  * Exposed as a separate constant so `.squad.yaml` overrides have a clean baseline
  * to merge against without rebuilding from AGENTS.
  */
-export const DEFAULT_RUBRIC_WEIGHTS: Record<AgentName, number> =
-  Object.fromEntries(
-    (Object.entries(AGENTS) as [AgentName, AgentDef][]).map(([name, def]) => [
-      name,
-      def.weight,
-    ]),
-  ) as Record<AgentName, number>;
+export const DEFAULT_RUBRIC_WEIGHTS: Record<AgentName, number> = Object.fromEntries(
+  (Object.entries(AGENTS) as [AgentName, AgentDef][]).map(([name, def]) => [name, def.weight]),
+) as Record<AgentName, number>;
 
 export const SQUAD_BY_TYPE: Record<
   WorkType,
@@ -402,8 +385,7 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
   },
   {
     agent: "senior-dba",
-    pattern:
-      /\bprisma\.\w+\.(findFirst|findMany|findUnique|create|update|delete|upsert)\b/,
+    pattern: /\bprisma\.\w+\.(findFirst|findMany|findUnique|create|update|delete|upsert)\b/,
     description: "Prisma client query",
     ext_filter: TS_EXT,
   },

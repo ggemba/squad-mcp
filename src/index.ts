@@ -44,9 +44,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) =>
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({
   resources: await listResources(),
 }));
-server.setRequestHandler(ReadResourceRequestSchema, async (req) =>
-  readResource(req.params.uri),
-);
+server.setRequestHandler(ReadResourceRequestSchema, async (req) => readResource(req.params.uri));
 
 server.setRequestHandler(ListPromptsRequestSchema, async () => ({
   prompts: listPrompts(),

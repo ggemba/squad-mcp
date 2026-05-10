@@ -1,24 +1,26 @@
 # Skill: Squad Dev
 
 ## Objective
+
 Development skill that takes a user prompt, builds an implementation plan, runs gated advisory with specialized agents, implements, and consolidates via TechLead-Consolidator. Codex is optional (`/squad --codex`) and may be auto-suggested when the plan is high-risk.
 
 ## Skill Name
+
 `/squad`
 
 ## Agent Registry
 
-| subagent_type              | Purpose                                     |
-| -------------------------- | ------------------------------------------- |
-| `po`                       | Business value, UX, requirements fit        |
-| `tech-lead-planner`        | Pre-implementation trade-offs and viability |
-| `tech-lead-consolidator`   | Post-implementation final verdict           |
-| `senior-architect`         | Boundaries, DI, scalability                 |
-| `senior-dba`               | Queries, migrations, EF, cache              |
-| `senior-developer`         | Correctness, robustness, APIs, observability|
-| `senior-dev-reviewer`      | Readability, idioms, naming                 |
-| `senior-dev-security`      | OWASP, authz, sensitive data                |
-| `senior-qa`                | Test coverage, strategy, reliability        |
+| subagent_type            | Purpose                                      |
+| ------------------------ | -------------------------------------------- |
+| `po`                     | Business value, UX, requirements fit         |
+| `tech-lead-planner`      | Pre-implementation trade-offs and viability  |
+| `tech-lead-consolidator` | Post-implementation final verdict            |
+| `senior-architect`       | Boundaries, DI, scalability                  |
+| `senior-dba`             | Queries, migrations, EF, cache               |
+| `senior-developer`       | Correctness, robustness, APIs, observability |
+| `senior-dev-reviewer`    | Readability, idioms, naming                  |
+| `senior-dev-security`    | OWASP, authz, sensitive data                 |
+| `senior-qa`              | Test coverage, strategy, reliability         |
 
 ## General Flow
 
@@ -86,11 +88,13 @@ Summary + modified files + tests + validations + rollback plan + next steps.
 ## Phase Details
 
 ### Phase 0 — Pre-Check
+
 1. Run `git status`; capture current branch.
 2. If uncommitted, unrelated changes are present, warn and ask the user before proceeding.
 3. Record starting SHA for the delivery report.
 
 ### Phase 1 — Understanding and Risk
+
 - Read `$ARGUMENTS`; detect `--codex`.
 - Classify type: Feature / Bug Fix / Refactor / Performance / Security / Business Rule.
 - Explore the codebase (Glob, Grep, Read) to locate the affected area and patterns.
@@ -188,6 +192,7 @@ Be direct. If the plan is good, say so. Do not invent problems.
 Absorb relevant suggestions and show an adjusted-plan diff summary.
 
 ### Phase 4 — Gate 1: User Approval
+
 Present the final plan and wait for explicit approval. Do not proceed without it.
 
 ### Phase 5 — Advisory Squad
@@ -204,6 +209,7 @@ Present the final plan and wait for explicit approval. Do not proceed without it
 | Business Rule | po, senior-developer, senior-qa                  | +senior-dba if data-bound                                                              |
 
 **Hard conditionals based on touched files:**
+
 - Query / Migration / EF / Cache → `senior-dba` required
 - DI / Boundaries / new project or module → `senior-architect` required
 - Endpoint / Auth / Middleware → `senior-dev-security` required
@@ -237,13 +243,16 @@ Stay inside your ownership. Forward anything outside your scope.
 Send all selected agents in a single message with multiple tool calls so they run in parallel.
 
 ### Phase 6 — Gate 2: Blocker Halt
+
 - Any advisory Blocker → HALT. Surface blockers and ask the user how to proceed (revise plan, accept risk, abort).
 - Major/Minor → proceed, capturing them as acceptance criteria for implementation.
 
 ### Phase 7 — Escalation Round (optional)
+
 If an advisory agent forwarded a Blocker/Major to an agent that was not selected, spawn that missing agent with only that forwarded item (not a full review).
 
 ### Phase 8 — Implementation
+
 - Follow the plan and advisory acceptance criteria.
 - Read → Edit/Write each file. Respect project patterns.
 - Method names in English. No emojis.
@@ -285,6 +294,7 @@ Be direct. If it is good, say so. Do not request cosmetic refactors.
 Spawn `tech-lead-consolidator` with every advisory report and the delivered delta. Consolidator produces the final verdict and rollback plan.
 
 ### Phase 11 — Gate 3: Reject Loop (max 2 iterations)
+
 - APPROVED / CHANGES REQUIRED (non-blocker) → apply fixes, then deliver.
 - REJECTED → apply the fix list, re-run affected agents on the delta, re-consolidate.
 - After 2 iterations, stop and hand the situation to the user.
@@ -338,13 +348,13 @@ Spawn `tech-lead-consolidator` with every advisory report and the delivered delt
 
 ## Skill Parameters
 
-| Parameter | Type   | Default | Description |
-|-----------|--------|---------|-------------|
-| --codex   | flag   | off     | Enable Codex for plan validation and implementation review |
+| Parameter | Type   | Default | Description                                                                        |
+| --------- | ------ | ------- | ---------------------------------------------------------------------------------- |
+| --codex   | flag   | off     | Enable Codex for plan validation and implementation review                         |
 | --quick   | flag   | off     | Quick mode (see below). Trades depth for speed. Mutually exclusive with `--codex`. |
-| squad     | string | auto    | Specific squad or "auto" for detection |
-| plan-only | bool   | false   | Build the plan only, do not execute |
-| verbose   | bool   | false   | Show individual agent reports inline |
+| squad     | string | auto    | Specific squad or "auto" for detection                                             |
+| plan-only | bool   | false   | Build the plan only, do not execute                                                |
+| verbose   | bool   | false   | Show individual agent reports inline                                               |
 
 ## Quick Mode (`--quick`)
 
@@ -352,16 +362,16 @@ Reduced agent set, terse prompts, condensed delivery. Suitable for small fixes, 
 
 Phase deltas vs. normal mode:
 
-| Phase | Normal | Quick |
-|-------|--------|-------|
-| Plan | Full plan with risks/decisions/tests | Condensed: objective, files, top 1-2 risks. Skip alternatives table. |
-| Codex plan validation | Opt-in via `--codex` | Force-disabled. `--quick --codex` is rejected. |
-| User approval gate | Always required | Auto-proceed when risk Low AND scope ≤3 files AND no security/data path. Otherwise still gates. |
-| Squad | Auto-detect 3-7 specialists + tech-lead | Hard cap: 1 specialist + tech-lead. Specialist = work-type primary. |
-| Agent prompts | Full template | "Flag only Blocker/Major. ≤200 words. No long template. If clean, reply 'No issues in scope.'" |
-| Codex review | Opt-in | Skipped (force-disabled with `--quick`) |
-| Tech-lead consolidator | Always | Skipped when zero Blocker/Major from specialist |
-| Delivery | Full report | Condensed: objective, files, tests, residual risks |
+| Phase                  | Normal                                  | Quick                                                                                           |
+| ---------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Plan                   | Full plan with risks/decisions/tests    | Condensed: objective, files, top 1-2 risks. Skip alternatives table.                            |
+| Codex plan validation  | Opt-in via `--codex`                    | Force-disabled. `--quick --codex` is rejected.                                                  |
+| User approval gate     | Always required                         | Auto-proceed when risk Low AND scope ≤3 files AND no security/data path. Otherwise still gates. |
+| Squad                  | Auto-detect 3-7 specialists + tech-lead | Hard cap: 1 specialist + tech-lead. Specialist = work-type primary.                             |
+| Agent prompts          | Full template                           | "Flag only Blocker/Major. ≤200 words. No long template. If clean, reply 'No issues in scope.'"  |
+| Codex review           | Opt-in                                  | Skipped (force-disabled with `--quick`)                                                         |
+| Tech-lead consolidator | Always                                  | Skipped when zero Blocker/Major from specialist                                                 |
+| Delivery               | Full report                             | Condensed: objective, files, tests, residual risks                                              |
 
 Critical-change auto-fallback: if scope touches `auth`, `crypto`, `permissions`, `Program.cs`, `Startup.cs`, migrations, EF mappings, or `appsettings`, fall back to normal mode with warning `Quick mode disabled — change touches security/data layer. Running full workflow.`.
 
@@ -387,6 +397,7 @@ Critical-change auto-fallback: if scope touches `auth`, `crypto`, `permissions`,
 ```
 
 ## Inviolable Rules
+
 1. Every implementation starts from a plan (approved explicitly, or auto-proceeded under `--quick` when risk Low).
 2. Codex only runs with user consent (flag or confirmed auto-suggestion). Never combined with `--quick`.
 3. TechLead-Consolidator always delivers the final verdict in normal mode. Under `--quick`, skipped only when the specialist reports zero Blocker/Major findings.

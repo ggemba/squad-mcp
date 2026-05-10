@@ -1,13 +1,18 @@
-import { z } from 'zod';
-import type { ToolDef } from './registry.js';
-import { AGENTS, type AgentName } from '../config/ownership-matrix.js';
-import { listAvailableAgents, readAgentDefinition, initLocalConfig, getLocalDir } from '../resources/agent-loader.js';
+import { z } from "zod";
+import type { ToolDef } from "./registry.js";
+import { AGENTS, type AgentName } from "../config/ownership-matrix.js";
+import {
+  listAvailableAgents,
+  readAgentDefinition,
+  initLocalConfig,
+  getLocalDir,
+} from "../resources/agent-loader.js";
 
 const listSchema = z.object({});
 
 export const listAgentsTool: ToolDef<typeof listSchema> = {
-  name: 'list_agents',
-  description: 'List all configured agents with their roles, ownership, and naming conventions.',
+  name: "list_agents",
+  description: "List all configured agents with their roles, ownership, and naming conventions.",
   schema: listSchema,
   handler: async () => {
     const { rawDir, explicit } = getLocalDir();
@@ -20,8 +25,9 @@ const getSchema = z.object({
 });
 
 export const getAgentDefinitionTool: ToolDef<typeof getSchema> = {
-  name: 'get_agent_definition',
-  description: 'Return the full markdown system prompt for a given agent. Resolves from local override → embedded default.',
+  name: "get_agent_definition",
+  description:
+    "Return the full markdown system prompt for a given agent. Resolves from local override → embedded default.",
   schema: getSchema,
   handler: async ({ name }) => ({
     name,
@@ -34,9 +40,9 @@ const initSchema = z.object({
 });
 
 export const initLocalConfigTool: ToolDef<typeof initSchema> = {
-  name: 'init_local_config',
+  name: "init_local_config",
   description:
-    'Copy embedded agent defaults to the local override directory ($SQUAD_AGENTS_DIR or %APPDATA%/squad-mcp/agents). Files locally edited override the bundled versions.',
+    "Copy embedded agent defaults to the local override directory ($SQUAD_AGENTS_DIR or %APPDATA%/squad-mcp/agents). Files locally edited override the bundled versions.",
   schema: initSchema,
   handler: async ({ force }) => initLocalConfig(force),
 };

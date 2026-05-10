@@ -16,12 +16,7 @@
 //   0 success
 //   2 invalid input or task/subtask not found
 
-import {
-  readTasksFile,
-  writeTasksFile,
-  VALID_STATUSES,
-  fail,
-} from "./_tasks-io.mjs";
+import { readTasksFile, writeTasksFile, VALID_STATUSES, fail } from "./_tasks-io.mjs";
 
 const args = process.argv.slice(2);
 const PROG = "update-task-status";
@@ -87,9 +82,7 @@ async function main() {
   const original = data.tasks[idx];
 
   if (opts.subtask !== null) {
-    const sIdx = (original.subtasks ?? []).findIndex(
-      (s) => s.id === opts.subtask,
-    );
+    const sIdx = (original.subtasks ?? []).findIndex((s) => s.id === opts.subtask);
     if (sIdx < 0) {
       fail(PROG, 2, `subtask ${opts.subtask} not found on task ${opts.task}`);
     }

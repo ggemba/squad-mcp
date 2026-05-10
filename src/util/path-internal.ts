@@ -1,5 +1,5 @@
-import { promises as fs } from 'node:fs';
-import { SquadError } from '../errors.js';
+import { promises as fs } from "node:fs";
+import { SquadError } from "../errors.js";
 
 /**
  * Internal helpers shared between path-safety.ts and override-allowlist.ts.
@@ -7,15 +7,21 @@ import { SquadError } from '../errors.js';
  */
 
 export function rejectIfMalformed(file: string): void {
-  if (file.includes('\0')) {
-    throw new SquadError('PATH_INVALID', 'file path contains NUL byte', { file });
+  if (file.includes("\0")) {
+    throw new SquadError("PATH_INVALID", "file path contains NUL byte", { file });
   }
-  if (file.startsWith('~')) {
-    throw new SquadError('PATH_INVALID', 'file path starts with ~ (tilde expansion not supported)', { file });
+  if (file.startsWith("~")) {
+    throw new SquadError(
+      "PATH_INVALID",
+      "file path starts with ~ (tilde expansion not supported)",
+      { file },
+    );
   }
-  const adsIndex = file.indexOf(':', 2);
+  const adsIndex = file.indexOf(":", 2);
   if (adsIndex !== -1) {
-    throw new SquadError('PATH_INVALID', 'file path contains ADS marker (:) after drive letter', { file });
+    throw new SquadError("PATH_INVALID", "file path contains ADS marker (:) after drive letter", {
+      file,
+    });
   }
 }
 

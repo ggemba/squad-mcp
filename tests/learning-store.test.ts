@@ -53,14 +53,23 @@ describe("readLearnings — file presence", () => {
       finding: "coupling",
       decision: "accept",
     };
-    await fs.writeFile(
-      file,
-      JSON.stringify(a) + "\n" + JSON.stringify(b) + "\n",
-    );
+    await fs.writeFile(file, JSON.stringify(a) + "\n" + JSON.stringify(b) + "\n");
     const entries = await readLearnings(workspace);
     expect(entries).toHaveLength(2);
     expect(entries[0]!.agent).toBe("senior-dev-security");
     expect(entries[1]!.agent).toBe("senior-architect");
+  });
+
+  it("rejects configuredPath that escapes workspaceRoot via .. (CWE-22)", async () => {
+    await expect(readLearnings(workspace, { configuredPath: "../escape.jsonl" })).rejects.toThrow(
+      /PATH_TRAVERSAL_DENIED|escapes workspace_root/,
+    );
+  });
+
+  it("rejects absolute configuredPath (CWE-22)", async () => {
+    await expect(readLearnings(workspace, { configuredPath: "/etc/passwd" })).rejects.toThrow(
+      /PATH_TRAVERSAL_DENIED|must be a workspace-relative/,
+    );
   });
 
   it("honors a custom configuredPath", async () => {
@@ -94,25 +103,26 @@ describe("readLearnings — file presence", () => {
   });
 });
 
-describe("readLearnings — invalid input", () => {
-  it("throws on invalid JSON line", async () => {
+describe("readLearnings — invalid input (quarantine)", () => {
+  it("quarantines invalid JSON line and continues with valid entries", async () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, "{not json\n");
-    let caught: unknown;
-    try {
-      await readLearnings(workspace);
-    } catch (e) {
-      caught = e;
-    }
-    expect(isSquadError(caught)).toBe(true);
-    if (isSquadError(caught)) {
-      expect(caught.code).toBe("INVALID_INPUT");
-      expect(caught.message).toMatch(/invalid JSON/);
-    }
+    const good = {
+      ts: "2026-01-01T00:00:00Z",
+      agent: "senior-dba",
+      finding: "survives quarantine",
+      decision: "accept",
+    };
+    await fs.writeFile(file, "{not json\n" + JSON.stringify(good) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.finding).toBe("survives quarantine");
+    // A quarantine file is created alongside the source.
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(true);
   });
 
-  it("throws on schema violation (unknown agent)", async () => {
+  it("quarantines schema violations (unknown agent) and keeps reading", async () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const bad = {
@@ -121,20 +131,19 @@ describe("readLearnings — invalid input", () => {
       finding: "x",
       decision: "reject",
     };
-    await fs.writeFile(file, JSON.stringify(bad) + "\n");
-    let caught: unknown;
-    try {
-      await readLearnings(workspace);
-    } catch (e) {
-      caught = e;
-    }
-    expect(isSquadError(caught)).toBe(true);
-    if (isSquadError(caught)) {
-      expect(caught.code).toBe("INVALID_INPUT");
-    }
+    const good = {
+      ts: "2026-01-01T00:00:01Z",
+      agent: "senior-qa",
+      finding: "after bad",
+      decision: "accept",
+    };
+    await fs.writeFile(file, JSON.stringify(bad) + "\n" + JSON.stringify(good) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.agent).toBe("senior-qa");
   });
 
-  it("throws on missing required field (no decision)", async () => {
+  it("quarantines entries missing required fields (no decision)", async () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const bad = {
@@ -143,13 +152,10 @@ describe("readLearnings — invalid input", () => {
       finding: "x",
     };
     await fs.writeFile(file, JSON.stringify(bad) + "\n");
-    let caught: unknown;
-    try {
-      await readLearnings(workspace);
-    } catch (e) {
-      caught = e;
-    }
-    expect(isSquadError(caught)).toBe(true);
+    const entries = await readLearnings(workspace);
+    expect(entries).toEqual([]);
+    // isSquadError import kept for symmetry with original test file shape
+    expect(isSquadError(null)).toBe(false);
   });
 });
 
@@ -188,16 +194,48 @@ describe("readLearnings — caching", () => {
       finding: "second",
       decision: "reject",
     };
-    await fs.writeFile(
-      file,
-      JSON.stringify(e1) + "\n" + JSON.stringify(e2) + "\n",
-    );
+    await fs.writeFile(file, JSON.stringify(e1) + "\n" + JSON.stringify(e2) + "\n");
     const future = new Date(Date.now() + 10_000);
     await fs.utimes(file, future, future);
 
     const b = await readLearnings(workspace);
     expect(b).toHaveLength(2);
     expect(b).not.toBe(a);
+  });
+});
+
+describe("appendLearning — concurrency & sizing", () => {
+  it("serialises concurrent appends and preserves every entry (no torn lines)", async () => {
+    const writers = Array.from({ length: 30 }, (_, i) =>
+      appendLearning(workspace, {
+        agent: "senior-dba",
+        finding: `parallel-${i}`,
+        decision: "accept",
+      }),
+    );
+    await Promise.all(writers);
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(30);
+    const findings = new Set(entries.map((e) => e.finding));
+    expect(findings.size).toBe(30);
+  });
+
+  it("truncates oversized entries to keep the JSONL line under the PIPE_BUF cap (~4KiB)", async () => {
+    // Within the schema cap (4096) but above MAX_ENTRY_BYTES (4000); the
+    // append-time truncator must shrink it further to keep the line atomic.
+    const big = "x".repeat(4_096);
+    const result = await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "header",
+      decision: "accept",
+      reason: big,
+    });
+    expect(result.entry.reason).toMatch(/\[truncated\]$/);
+    const raw = await fs.readFile(path.join(workspace, DEFAULT_LEARNING_PATH), "utf8");
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThanOrEqual(4_000);
+    // The line still parses.
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
   });
 });
 

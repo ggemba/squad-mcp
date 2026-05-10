@@ -1,9 +1,11 @@
 # Skill: Squad Review
 
 ## Objective
+
 Skill that takes a user prompt, interprets intent, selects the relevant agents, distributes tasks in parallel, and consolidates the results through TechLead-Consolidator.
 
 ## Skill Name
+
 `/squad-review`
 
 ## How It Works
@@ -56,32 +58,44 @@ User -> /squad-review {prompt}
 The user can request a generic review or target a focus area. The skill maps the intent to the correct squad.
 
 #### Full Squad (default for PR review)
+
 All specialized agents + TechLead-Consolidator.
+
 - **When**: Complete PR review, branch ready to merge
 - **Triggers**: `/squad-review`, `/squad-review PR`, `/squad-review branch`
 
 #### Code Squad
+
 `senior-dev-reviewer` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
+
 - **When**: Focused review on code quality and correctness
 - **Triggers**: `/squad-review code`
 
 #### Data Squad
+
 `senior-dba` + `senior-developer` + `tech-lead-consolidator`
+
 - **When**: Changes to queries, migrations, cache, EF
 - **Triggers**: `/squad-review data`
 
 #### Security Squad
+
 `senior-dev-security` + `senior-developer` + `senior-dev-reviewer` + `tech-lead-consolidator`
+
 - **When**: Focused security review
 - **Triggers**: `/squad-review security`
 
 #### Architecture Squad
+
 `senior-architect` + `senior-developer` + `senior-dba` + `tech-lead-consolidator`
+
 - **When**: Structural changes, new modules, large refactors
 - **Triggers**: `/squad-review arch`
 
 #### Business Squad
+
 `po` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
+
 - **When**: New feature, business-rule change
 - **Triggers**: `/squad-review business`
 
@@ -89,18 +103,18 @@ All specialized agents + TechLead-Consolidator.
 
 When the user does not specify a squad, the skill analyzes the modified files to infer it:
 
-| Modified Files | Selected Agents |
-|----------------|-----------------|
-| Controllers, DTOs, Requests, Responses | senior-developer, senior-dev-security, po |
-| Services (business logic) | senior-developer, senior-dev-reviewer, po, senior-qa |
-| Repositories, Queries | senior-dba, senior-developer |
-| Migrations, Schema | senior-dba, senior-architect |
-| Startup, Program.cs, DI | senior-architect, senior-dev-security |
-| appsettings, configs | senior-dev-security, senior-architect |
-| Tests | senior-qa, senior-dev-reviewer |
-| Middlewares, Filters | senior-dev-security, senior-architect, senior-developer |
-| Dockerfile, pipeline, CI/CD | tech-lead-consolidator |
-| Multiple layers | Full Squad |
+| Modified Files                         | Selected Agents                                         |
+| -------------------------------------- | ------------------------------------------------------- |
+| Controllers, DTOs, Requests, Responses | senior-developer, senior-dev-security, po               |
+| Services (business logic)              | senior-developer, senior-dev-reviewer, po, senior-qa    |
+| Repositories, Queries                  | senior-dba, senior-developer                            |
+| Migrations, Schema                     | senior-dba, senior-architect                            |
+| Startup, Program.cs, DI                | senior-architect, senior-dev-security                   |
+| appsettings, configs                   | senior-dev-security, senior-architect                   |
+| Tests                                  | senior-qa, senior-dev-reviewer                          |
+| Middlewares, Filters                   | senior-dev-security, senior-architect, senior-developer |
+| Dockerfile, pipeline, CI/CD            | tech-lead-consolidator                                  |
+| Multiple layers                        | Full Squad                                              |
 
 TechLead-Consolidator is mandatory in any squad.
 
@@ -156,6 +170,7 @@ If an agent did not participate, mark as "Not evaluated".
 ## Implementation
 
 ### Step 1: Collect Context
+
 ```
 - git status
 - git diff master...HEAD (or specified branch)
@@ -164,6 +179,7 @@ If an agent did not participate, mark as "Not evaluated".
 ```
 
 ### Step 2: Determine Squad
+
 ```
 - If the user specified one, use it
 - Otherwise, analyze modified files and infer the squad
@@ -171,6 +187,7 @@ If an agent did not participate, mark as "Not evaluated".
 ```
 
 ### Step 3: Spawn Agents in Parallel
+
 ```
 - Use the Agent tool with subagent_type for each agent
 - All in parallel (single message with multiple tool calls)
@@ -178,18 +195,21 @@ If an agent did not participate, mark as "Not evaluated".
 ```
 
 ### Step 4: Collect Results
+
 ```
 - Wait for all agents to finish
 - Gather every report
 ```
 
 ### Step 5: Consolidate via TechLead-Consolidator
+
 ```
 - Spawn tech-lead-consolidator with every report
 - Consolidator produces the final verdict
 ```
 
 ### Step 6: Present to the User
+
 ```
 - Display the consolidated report
 - If any agent raised a Blocker, highlight it at the top
@@ -226,12 +246,12 @@ If an agent did not participate, mark as "Not evaluated".
 
 ## Skill Parameters
 
-| Parameter | Type   | Default | Description |
-|-----------|--------|---------|-------------|
-| squad     | string | auto    | Specific squad or "auto" for automatic detection |
-| scope     | string | branch  | "branch" (branch diff), "file:path" (specific file), "commit:hash" |
-| base      | string | master  | Base branch for the diff |
-| verbose   | bool   | false   | If true, show full individual reports; if false, only the consolidated one |
+| Parameter | Type   | Default | Description                                                                        |
+| --------- | ------ | ------- | ---------------------------------------------------------------------------------- |
+| squad     | string | auto    | Specific squad or "auto" for automatic detection                                   |
+| scope     | string | branch  | "branch" (branch diff), "file:path" (specific file), "commit:hash"                 |
+| base      | string | master  | Base branch for the diff                                                           |
+| verbose   | bool   | false   | If true, show full individual reports; if false, only the consolidated one         |
 | --quick   | flag   | off     | Quick mode (see below). Trades depth for speed. Mutually exclusive with `--codex`. |
 
 ## Quick Mode (`--quick`)
@@ -240,14 +260,14 @@ Reduced agent set, terse prompts, condensed output. Goal: usable verdict in roug
 
 Phase deltas vs. normal mode:
 
-| Aspect | Normal | Quick |
-|--------|--------|-------|
-| Agents | Auto-detect 3-7 specialists + tech-lead | Hard cap: 1 specialist + tech-lead. Specialist defaults to `senior-dev-reviewer` (or focus mode primary) |
-| Per-agent prompt | Full template | "Flag only Blocker/Major in your domain. ≤200 words. No scorecard. No comments-by-file table. If clean: 'No issues in scope.'" |
-| Tech-lead consolidator | Always runs | Skipped when zero Blocker/Major reported by specialist |
-| Codex | Opt-in via `--codex` | Force-disabled. `--quick --codex` rejected. |
-| Critical-change auto-fallback | N/A | Diff touching `auth`, `crypto`, `permissions`, `Program.cs`, `Startup.cs`, migrations, `appsettings` falls back to normal mode with warning |
-| Output | Full Markdown with scorecard, per-file comments, individual reports | Condensed: verdict + top 3 issues + "run without --quick for full review" hint |
+| Aspect                        | Normal                                                              | Quick                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agents                        | Auto-detect 3-7 specialists + tech-lead                             | Hard cap: 1 specialist + tech-lead. Specialist defaults to `senior-dev-reviewer` (or focus mode primary)                                    |
+| Per-agent prompt              | Full template                                                       | "Flag only Blocker/Major in your domain. ≤200 words. No scorecard. No comments-by-file table. If clean: 'No issues in scope.'"              |
+| Tech-lead consolidator        | Always runs                                                         | Skipped when zero Blocker/Major reported by specialist                                                                                      |
+| Codex                         | Opt-in via `--codex`                                                | Force-disabled. `--quick --codex` rejected.                                                                                                 |
+| Critical-change auto-fallback | N/A                                                                 | Diff touching `auth`, `crypto`, `permissions`, `Program.cs`, `Startup.cs`, migrations, `appsettings` falls back to normal mode with warning |
+| Output                        | Full Markdown with scorecard, per-file comments, individual reports | Condensed: verdict + top 3 issues + "run without --quick for full review" hint                                                              |
 
 Quick agent prompt:
 
@@ -322,16 +342,19 @@ Verdict: APPROVED — no Blocker or Major findings.
 ## Considerations
 
 ### Performance
+
 - Parallel agents minimize total time
 - TechLead-Consolidator runs sequentially after the others (needs their reports)
 - For large reviews, consider splitting by area or module
 
 ### Cost
+
 - Each agent consumes tokens independently
 - Full squad = 7 specialist agents + TechLead-Consolidator = 8 calls
 - For small changes, auto-selection avoids unnecessary agents
 
 ### Limitations
+
 - Agents do not talk to each other (only through TechLead-Consolidator)
 - Forwarded items are informational — they do not trigger new executions in this skill
 - TechLead-Consolidator consolidates but does not re-execute agents

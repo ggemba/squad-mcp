@@ -1,12 +1,18 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import {
-  AGENT_NAMES_TUPLE,
-  type AgentName,
-} from "../config/ownership-matrix.js";
+import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js";
 import { SquadError } from "../errors.js";
+import { ensureRelativeInsideRoot } from "../util/path-safety.js";
+import { withFileLock } from "../util/file-lock.js";
 import { logger } from "../observability/logger.js";
+
+/**
+ * Hard cap per JSONL entry so a single line fits in POSIX PIPE_BUF
+ * (4096 bytes) and `fs.appendFile` remains atomic w.r.t. concurrent
+ * appenders. Length includes serialised JSON + trailing newline.
+ */
+const MAX_ENTRY_BYTES = 4_000;
 
 /**
  * One row in `.squad/learnings.jsonl`. Append-only — entries are never
@@ -61,11 +67,11 @@ export function __resetLearningStoreCacheForTests(): void {
   cache.clear();
 }
 
-function resolveLearningFile(
-  workspaceRoot: string,
-  configuredPath: string | undefined,
-): string {
+function resolveLearningFile(workspaceRoot: string, configuredPath: string | undefined): string {
   const rel = configuredPath ?? DEFAULT_LEARNING_PATH;
+  if (configuredPath !== undefined) {
+    ensureRelativeInsideRoot(workspaceRoot, rel, "learnings.path");
+  }
   return path.resolve(workspaceRoot, rel);
 }
 
@@ -94,11 +100,7 @@ export async function readLearnings(
   }
 
   const cached = cache.get(absRoot);
-  if (
-    cached &&
-    cached.filePath === filePath &&
-    cached.mtimeMs === stat.mtimeMs
-  ) {
+  if (cached && cached.filePath === filePath && cached.mtimeMs === stat.mtimeMs) {
     return cached.entries;
   }
 
@@ -115,6 +117,7 @@ export async function readLearnings(
 
   const lines = raw.split(/\r?\n/);
   const entries: LearningEntry[] = [];
+  const corruptLines: { line: number; raw: string; reason: string }[] = [];
   let lineNo = 0;
   for (const line of lines) {
     lineNo++;
@@ -124,25 +127,47 @@ export async function readLearnings(
     try {
       parsed = JSON.parse(trimmed);
     } catch (err) {
-      throw new SquadError(
-        "INVALID_INPUT",
-        `${filePath}:${lineNo}: invalid JSON: ${(err as Error).message}`,
-        { source: filePath, line: lineNo },
-      );
+      // Quarantine bad line, keep reading. Earlier behaviour threw and bricked
+      // the whole store for one bad line — a hand-edit or partial write would
+      // make every read fail. Now we move the line aside and continue.
+      corruptLines.push({
+        line: lineNo,
+        raw: trimmed,
+        reason: `invalid JSON: ${(err as Error).message}`,
+      });
+      continue;
     }
     const validated = learningEntrySchema.safeParse(parsed);
     if (!validated.success) {
-      throw new SquadError(
-        "INVALID_INPUT",
-        `${filePath}:${lineNo}: schema violation: ${validated.error.message}`,
-        {
-          source: filePath,
-          line: lineNo,
-          issues: validated.error.issues.length,
-        },
-      );
+      corruptLines.push({
+        line: lineNo,
+        raw: trimmed,
+        reason: `schema violation: ${validated.error.message}`,
+      });
+      continue;
     }
     entries.push(validated.data);
+  }
+
+  if (corruptLines.length > 0) {
+    // Move corrupt lines to a timestamped quarantine file alongside the source.
+    // Best-effort: if the write fails we still surface the warning so the
+    // operator notices. The original file is left untouched.
+    const quarantinePath = `${filePath}.corrupt-${Date.now()}.jsonl`;
+    try {
+      const body = corruptLines.map((c) => `# line ${c.line}: ${c.reason}\n${c.raw}\n`).join("");
+      await fs.writeFile(quarantinePath, body, "utf8");
+    } catch {
+      // Swallow — quarantine write is diagnostic, not load-bearing.
+    }
+    logger.warn("learnings: corrupt lines quarantined", {
+      details: {
+        file: filePath,
+        quarantine: quarantinePath,
+        count: corruptLines.length,
+        lines: corruptLines.map((c) => c.line),
+      },
+    });
   }
 
   cache.set(absRoot, { mtimeMs: stat.mtimeMs, filePath, entries });
@@ -179,11 +204,42 @@ export async function appendLearning(
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
 
-  // One JSON object per line, no pretty-print — keeps the file grep-friendly
-  // and minimises diff churn when entries get re-ordered (which they don't,
-  // but defensive).
-  const line = JSON.stringify(validated.data) + "\n";
-  await fs.appendFile(filePath, line, "utf8");
+  // Cap the serialised line at MAX_ENTRY_BYTES so `fs.appendFile` stays atomic
+  // w.r.t. concurrent appenders (POSIX guarantees atomicity for writes <=
+  // PIPE_BUF, typically 4096B). When the entry exceeds the cap we truncate
+  // `reason` first, then `finding`, until it fits.
+  let toWrite = { ...validated.data };
+  let line = JSON.stringify(toWrite) + "\n";
+  for (const field of ["reason", "finding"] as const) {
+    if (Buffer.byteLength(line, "utf8") <= MAX_ENTRY_BYTES) break;
+    const v = toWrite[field];
+    if (typeof v !== "string" || v.length === 0) continue;
+    let lo = 0;
+    let hi = v.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi + 1) / 2);
+      const candidate = {
+        ...toWrite,
+        [field]: v.slice(0, mid) + "…[truncated]",
+      };
+      const candidateLine = JSON.stringify(candidate) + "\n";
+      if (Buffer.byteLength(candidateLine, "utf8") <= MAX_ENTRY_BYTES) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    toWrite = { ...toWrite, [field]: v.slice(0, lo) + "…[truncated]" };
+    line = JSON.stringify(toWrite) + "\n";
+  }
+
+  // Cross-process lock around the append. Even though appendFile is atomic
+  // for writes <= PIPE_BUF, two processes hitting the same file simultaneously
+  // can still produce interleaved bytes near the boundary on some filesystems.
+  // The lock makes that race impossible at a cheap cost.
+  await withFileLock(filePath, async () => {
+    await fs.appendFile(filePath, line, "utf8");
+  });
 
   // Invalidate cache so next readLearnings reflects the append.
   const absRoot = path.resolve(workspaceRoot);
@@ -192,12 +248,12 @@ export async function appendLearning(
   logger.info("learning appended", {
     details: {
       file: filePath,
-      agent: validated.data.agent,
-      decision: validated.data.decision,
+      agent: toWrite.agent,
+      decision: toWrite.decision,
     },
   });
 
-  return { filePath, entry: validated.data };
+  return { filePath, entry: toWrite };
 }
 
 /**

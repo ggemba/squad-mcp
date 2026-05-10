@@ -18,11 +18,7 @@ export class SquadError extends Error {
   readonly code: SquadErrorCode;
   readonly details?: Record<string, unknown>;
 
-  constructor(
-    code: SquadErrorCode,
-    message: string,
-    details?: Record<string, unknown>,
-  ) {
+  constructor(code: SquadErrorCode, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "SquadError";
     this.code = code;

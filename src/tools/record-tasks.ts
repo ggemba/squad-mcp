@@ -30,9 +30,7 @@ export interface RecordTasksOutput {
   ids: number[];
 }
 
-export async function recordTasksTool(
-  input: Input,
-): Promise<RecordTasksOutput> {
+export async function recordTasksTool(input: Input): Promise<RecordTasksOutput> {
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);

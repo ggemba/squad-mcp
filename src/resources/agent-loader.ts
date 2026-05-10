@@ -36,8 +36,7 @@ export const SHARED_FILES = [
 
 function defaultLocalDir(): string {
   if (process.platform === "win32") {
-    const appdata =
-      process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
+    const appdata = process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
     return path.join(appdata, "squad-mcp", "agents");
   }
   const xdg = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config");
@@ -167,10 +166,7 @@ async function ensureEmbeddedDir(): Promise<void> {
   if (embeddedAsserted) return;
   const dir = getEmbeddedDir();
   if (!(await exists(dir))) {
-    throw new SquadError(
-      "AGENT_DIR_MISSING",
-      `embedded agents directory missing at ${dir}`,
-    );
+    throw new SquadError("AGENT_DIR_MISSING", `embedded agents directory missing at ${dir}`);
   }
   embeddedAsserted = true;
 }
@@ -269,10 +265,7 @@ export async function resolveAgentFile(name: AgentName): Promise<string> {
   const file = AGENT_FILE_MAP[name];
   const override = await resolveOverride();
   if (override) {
-    const overrideFile = await validateOverrideFile(
-      override.resolvedPath,
-      file,
-    );
+    const overrideFile = await validateOverrideFile(override.resolvedPath, file);
     if (overrideFile) return overrideFile;
     // File missing or per-file escape — silent fallback to embedded for this file.
   }

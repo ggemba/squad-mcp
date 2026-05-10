@@ -32,6 +32,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { ensureRelativeInsideRoot } from "./_tasks-io.mjs";
 
 const args = process.argv.slice(2);
 
@@ -57,13 +58,11 @@ function parseArgs(argv) {
     const a = argv[i];
     switch (a) {
       case "--accept":
-        if (out.decision)
-          fail(2, "--accept and --reject are mutually exclusive");
+        if (out.decision) fail(2, "--accept and --reject are mutually exclusive");
         out.decision = "accept";
         break;
       case "--reject":
-        if (out.decision)
-          fail(2, "--accept and --reject are mutually exclusive");
+        if (out.decision) fail(2, "--accept and --reject are mutually exclusive");
         out.decision = "reject";
         break;
       case "--agent":
@@ -127,16 +126,14 @@ async function main() {
   if (opts.branch) entry.branch = opts.branch;
   if (opts.scope) entry.scope = opts.scope;
 
-  const target = path.resolve(
-    opts.workspace,
-    opts.file ?? ".squad/learnings.jsonl",
-  );
+  if (opts.file !== undefined) {
+    ensureRelativeInsideRoot(opts.workspace, opts.file, "learnings.path");
+  }
+  const target = path.resolve(opts.workspace, opts.file ?? ".squad/learnings.jsonl");
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.appendFile(target, JSON.stringify(entry) + "\n", "utf8");
 
-  process.stdout.write(
-    `recorded: ${opts.decision} on ${opts.agent} — "${opts.finding}"\n`,
-  );
+  process.stdout.write(`recorded: ${opts.decision} on ${opts.agent} — "${opts.finding}"\n`);
   process.stdout.write(`file:     ${target}\n`);
 }
 

@@ -2,11 +2,7 @@ import { z, ZodTypeAny } from "zod";
 import { scoreRiskTool } from "./score-risk.js";
 import { selectSquadTool } from "./select-squad.js";
 import { sliceFilesForAgentTool } from "./slice-files.js";
-import {
-  listAgentsTool,
-  getAgentDefinitionTool,
-  initLocalConfigTool,
-} from "./agents.js";
+import { listAgentsTool, getAgentDefinitionTool, initLocalConfigTool } from "./agents.js";
 import { applyConsolidationRulesTool } from "./consolidate.js";
 import { scoreRubricTool } from "./score-rubric.js";
 import { readSquadConfigTool } from "./read-squad-config.js";
@@ -153,9 +149,7 @@ export async function dispatchTool(name: string, args: unknown) {
       duration_ms: Date.now() - started,
     });
     return {
-      content: [
-        { type: "text" as const, text: JSON.stringify(result, null, 2) },
-      ],
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
   } catch (err) {
     const duration_ms = Date.now() - started;
@@ -205,12 +199,9 @@ function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
   if (schema instanceof z.ZodBoolean) return { type: "boolean" };
   if (schema instanceof z.ZodArray)
     return { type: "array", items: zodToJsonSchema(schema.element) };
-  if (schema instanceof z.ZodEnum)
-    return { type: "string", enum: schema.options };
+  if (schema instanceof z.ZodEnum) return { type: "string", enum: schema.options };
   if (schema instanceof z.ZodOptional) return zodToJsonSchema(schema.unwrap());
-  if (schema instanceof z.ZodDefault)
-    return zodToJsonSchema(schema.removeDefault());
-  if (schema instanceof z.ZodEffects)
-    return zodToJsonSchema(schema.innerType());
+  if (schema instanceof z.ZodDefault) return zodToJsonSchema(schema.removeDefault());
+  if (schema instanceof z.ZodEffects) return zodToJsonSchema(schema.innerType());
   return {};
 }

@@ -9,14 +9,7 @@ const schema = z.object({
   task_id: z.number().int().positive(),
   /** When set, update that subtask's status instead of the parent task's. */
   subtask_id: z.number().int().positive().optional(),
-  status: z.enum([
-    "pending",
-    "in-progress",
-    "review",
-    "done",
-    "blocked",
-    "cancelled",
-  ]),
+  status: z.enum(["pending", "in-progress", "review", "done", "blocked", "cancelled"]),
 });
 
 type Input = z.infer<typeof schema>;
@@ -27,9 +20,7 @@ export interface UpdateTaskStatusOutput {
   task: Task;
 }
 
-export async function updateTaskStatusTool(
-  input: Input,
-): Promise<UpdateTaskStatusOutput> {
+export async function updateTaskStatusTool(input: Input): Promise<UpdateTaskStatusOutput> {
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);

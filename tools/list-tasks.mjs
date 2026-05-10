@@ -72,10 +72,7 @@ function filter(tasks, opts) {
   }
   if (opts.agent) {
     out = out.filter(
-      (t) =>
-        !t.agent_hints ||
-        t.agent_hints.length === 0 ||
-        t.agent_hints.includes(opts.agent),
+      (t) => !t.agent_hints || t.agent_hints.length === 0 || t.agent_hints.includes(opts.agent),
     );
   }
   return out;

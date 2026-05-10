@@ -67,17 +67,11 @@ export function formatLearningsForPrompt(
   lines.push("");
 
   ordered.forEach((e, i) => {
-    const ref = e.pr
-      ? `PR #${e.pr}`
-      : e.branch
-        ? `branch ${e.branch}`
-        : e.ts.slice(0, 10);
+    const ref = e.pr ? `PR #${e.pr}` : e.branch ? `branch ${e.branch}` : e.ts.slice(0, 10);
     const verdict = e.decision === "reject" ? "REJECTED" : "ACCEPTED";
     const sev = e.severity ? ` [${e.severity}]` : "";
     const scope = e.scope ? ` (scope: \`${e.scope}\`)` : "";
-    lines.push(
-      `${i + 1}. **${verdict}** at ${ref}${scope} — ${e.agent}${sev}: "${e.finding}"`,
-    );
+    lines.push(`${i + 1}. **${verdict}** at ${ref}${scope} — ${e.agent}${sev}: "${e.finding}"`);
     if (e.reason) {
       lines.push(`   Reason: ${e.reason}`);
     }

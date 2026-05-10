@@ -25,6 +25,18 @@ afterEach(async () => {
 });
 
 describe("readTasks — empty", () => {
+  it("rejects configuredPath that escapes workspaceRoot via .. (CWE-22)", async () => {
+    await expect(readTasks(workspace, { configuredPath: "../escape.json" })).rejects.toThrow(
+      /PATH_TRAVERSAL_DENIED|escapes workspace_root/,
+    );
+  });
+
+  it("rejects absolute configuredPath (CWE-22)", async () => {
+    await expect(readTasks(workspace, { configuredPath: "/etc/passwd" })).rejects.toThrow(
+      /PATH_TRAVERSAL_DENIED|must be a workspace-relative/,
+    );
+  });
+
   it("returns empty file when no tasks.json exists", async () => {
     const f = await readTasks(workspace);
     expect(f.tasks).toEqual([]);
@@ -40,12 +52,37 @@ describe("readTasks — empty", () => {
   });
 });
 
+describe("recordTasks — concurrency", () => {
+  it("serialises concurrent writes via file lock: 20 parallel recordTasks produce unique ids", async () => {
+    const writers = Array.from({ length: 20 }, (_, i) =>
+      recordTasks(workspace, [{ title: `parallel-${i}` }]),
+    );
+    const results = await Promise.all(writers);
+    const allIds = results.flatMap((r) => r.ids);
+    const unique = new Set(allIds);
+    expect(unique.size).toBe(20);
+    const final = await readTasks(workspace);
+    expect(final.tasks).toHaveLength(20);
+  });
+
+  it("keeps a .prev snapshot of the prior generation after write", async () => {
+    await recordTasks(workspace, [{ title: "first" }]);
+    await recordTasks(workspace, [{ title: "second" }]);
+    const file = path.join(workspace, DEFAULT_TASKS_PATH);
+    const prevExists = await fs
+      .access(`${file}.prev`)
+      .then(() => true)
+      .catch(() => false);
+    expect(prevExists).toBe(true);
+    const prevBody = await fs.readFile(`${file}.prev`, "utf8");
+    expect(prevBody).toContain("first");
+    expect(prevBody).not.toContain("second");
+  });
+});
+
 describe("recordTasks", () => {
   it("creates the file and allocates ids when omitted", async () => {
-    const r = await recordTasks(workspace, [
-      { title: "first" },
-      { title: "second" },
-    ]);
+    const r = await recordTasks(workspace, [{ title: "first" }, { title: "second" }]);
     expect(r.ids).toEqual([1, 2]);
     const f = await readTasks(workspace);
     expect(f.tasks).toHaveLength(2);
@@ -101,9 +138,7 @@ describe("recordTasks", () => {
   it("rejects self-dependencies", async () => {
     let caught: unknown;
     try {
-      await recordTasks(workspace, [
-        { id: 1, title: "self", dependencies: [1] },
-      ]);
+      await recordTasks(workspace, [{ id: 1, title: "self", dependencies: [1] }]);
     } catch (e) {
       caught = e;
     }
@@ -120,10 +155,7 @@ describe("recordTasks", () => {
     ]);
     const f = await readTasks(workspace);
     expect(f.tasks[0]!.scope).toBe("src/auth/**");
-    expect(f.tasks[0]!.agent_hints).toEqual([
-      "senior-dev-security",
-      "senior-developer",
-    ]);
+    expect(f.tasks[0]!.agent_hints).toEqual(["senior-dev-security", "senior-developer"]);
   });
 
   it("rejects empty input", async () => {
@@ -239,10 +271,7 @@ describe("on-disk format", () => {
       { id: 1, title: "first" },
       { id: 2, title: "second" },
     ]);
-    const raw = await fs.readFile(
-      path.join(workspace, DEFAULT_TASKS_PATH),
-      "utf8",
-    );
+    const raw = await fs.readFile(path.join(workspace, DEFAULT_TASKS_PATH), "utf8");
     const idx1 = raw.indexOf('"id": 1');
     const idx2 = raw.indexOf('"id": 2');
     const idx3 = raw.indexOf('"id": 3');
@@ -252,10 +281,7 @@ describe("on-disk format", () => {
 
   it("ends with a trailing newline", async () => {
     await recordTasks(workspace, [{ title: "a" }]);
-    const raw = await fs.readFile(
-      path.join(workspace, DEFAULT_TASKS_PATH),
-      "utf8",
-    );
+    const raw = await fs.readFile(path.join(workspace, DEFAULT_TASKS_PATH), "utf8");
     expect(raw.endsWith("\n")).toBe(true);
   });
 });

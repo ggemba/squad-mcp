@@ -1,5 +1,5 @@
-import { z } from 'zod';
-import type { ToolDef } from './registry.js';
+import { z } from "zod";
+import type { ToolDef } from "./registry.js";
 
 const schema = z.object({
   touches_auth: z.boolean().optional().default(false),
@@ -12,7 +12,7 @@ const schema = z.object({
 
 type Input = z.infer<typeof schema>;
 
-export type RiskLevel = 'Low' | 'Medium' | 'High';
+export type RiskLevel = "Low" | "Medium" | "High";
 
 export interface RiskOutput {
   level: RiskLevel;
@@ -23,28 +23,28 @@ export interface RiskOutput {
 
 export function scoreRisk(input: Input): RiskOutput {
   const checks = [
-    { name: 'touches_auth', matched: input.touches_auth },
-    { name: 'touches_money', matched: input.touches_money },
-    { name: 'touches_migration', matched: input.touches_migration },
-    { name: 'files_count_gt_8', matched: input.files_count > 8 },
-    { name: 'new_module', matched: input.new_module },
-    { name: 'api_contract_change', matched: input.api_contract_change },
+    { name: "touches_auth", matched: input.touches_auth },
+    { name: "touches_money", matched: input.touches_money },
+    { name: "touches_migration", matched: input.touches_migration },
+    { name: "files_count_gt_8", matched: input.files_count > 8 },
+    { name: "new_module", matched: input.new_module },
+    { name: "api_contract_change", matched: input.api_contract_change },
   ];
   const score = checks.filter((c) => c.matched).length;
-  const level: RiskLevel = score >= 4 ? 'High' : score >= 2 ? 'Medium' : 'Low';
+  const level: RiskLevel = score >= 4 ? "High" : score >= 2 ? "Medium" : "Low";
   const recommendation =
-    level === 'High'
-      ? 'High risk: suggest Codex plan review (--codex). Halt implementation if any Blocker.'
-      : level === 'Medium'
-        ? 'Medium risk: standard advisory squad. Consider Codex if user requests.'
-        : 'Low risk: minimal squad selection acceptable.';
+    level === "High"
+      ? "High risk: suggest Codex plan review (--codex). Halt implementation if any Blocker."
+      : level === "Medium"
+        ? "Medium risk: standard advisory squad. Consider Codex if user requests."
+        : "Low risk: minimal squad selection acceptable.";
   return { level, score, signals: checks, recommendation };
 }
 
 export const scoreRiskTool: ToolDef<typeof schema> = {
-  name: 'score_risk',
+  name: "score_risk",
   description:
-    'Compute risk level (Low/Medium/High) from boolean signals. Pure function. 0-1=Low, 2-3=Medium, 4+=High.',
+    "Compute risk level (Low/Medium/High) from boolean signals. Pure function. 0-1=Low, 2-3=Medium, 4+=High.",
   schema,
   handler: scoreRisk,
 };

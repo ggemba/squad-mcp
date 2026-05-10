@@ -2,11 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
 import { z } from "zod";
-import {
-  AGENT_NAMES_TUPLE,
-  type AgentName,
-  DEFAULT_RUBRIC_WEIGHTS,
-} from "./ownership-matrix.js";
+import { AGENT_NAMES_TUPLE, type AgentName, DEFAULT_RUBRIC_WEIGHTS } from "./ownership-matrix.js";
 import { SquadError } from "../errors.js";
 import { logger } from "../observability/logger.js";
 
@@ -26,9 +22,7 @@ const squadYamlSchema = z.object({
    * of supplied keys MUST sum to 100 across the agents you list. Agents not
    * listed fall back to the package default. Use weight 0 to ignore a dimension.
    */
-  weights: z
-    .record(z.enum(AGENT_NAMES_TUPLE), z.number().min(0).max(100))
-    .optional(),
+  weights: z.record(z.enum(AGENT_NAMES_TUPLE), z.number().min(0).max(100)).optional(),
   /**
    * Per-dimension threshold (0-100). Below this, the dimension is flagged in the
    * scorecard. Default 75 (in code, not duplicated here).
@@ -199,10 +193,7 @@ async function locate(
   return null;
 }
 
-function applyDefaults(
-  parsed: SquadYamlConfig,
-  source: string | null,
-): ResolvedSquadConfig {
+function applyDefaults(parsed: SquadYamlConfig, source: string | null): ResolvedSquadConfig {
   // Merge weights: parsed override sums to 100 across its keys (validated below);
   // missing keys take the default. Returning a fully-populated map keeps the
   // downstream score_rubric simple (no fallback chain in math).
@@ -233,8 +224,7 @@ function applyDefaults(
   const pr_posting: PrPostingConfig = {
     auto_post: parsed.pr_posting?.auto_post ?? false,
     request_changes_below_score: parsed.pr_posting?.request_changes_below_score,
-    omit_attribution_footer:
-      parsed.pr_posting?.omit_attribution_footer ?? false,
+    omit_attribution_footer: parsed.pr_posting?.omit_attribution_footer ?? false,
   };
 
   const learnings: LearningsConfig = {
@@ -270,9 +260,7 @@ function applyDefaults(
  * (e.g. weights not summing to 100). Missing-file and partial config are NOT
  * errors — they fall back gracefully.
  */
-export async function readSquadYaml(
-  workspaceRoot: string,
-): Promise<ResolvedSquadConfig> {
+export async function readSquadYaml(workspaceRoot: string): Promise<ResolvedSquadConfig> {
   const absRoot = path.resolve(workspaceRoot);
   const located = await locate(absRoot);
 
@@ -288,11 +276,7 @@ export async function readSquadYaml(
   }
 
   const cached = cache.get(absRoot);
-  if (
-    cached &&
-    cached.filePath === located.filePath &&
-    cached.mtimeMs === located.mtimeMs
-  ) {
+  if (cached && cached.filePath === located.filePath && cached.mtimeMs === located.mtimeMs) {
     return cached.resolved;
   }
 
@@ -360,11 +344,7 @@ export async function readSquadYaml(
     if (o.learnings && typeof o.learnings === "object") {
       const l = o.learnings as Record<string, unknown>;
       if (l.max_recent !== undefined) {
-        l.max_recent = coerceNumber(
-          l.max_recent,
-          "learnings.max_recent",
-          located.filePath,
-        );
+        l.max_recent = coerceNumber(l.max_recent, "learnings.max_recent", located.filePath);
       }
       if (typeof l.enabled === "string") {
         l.enabled = l.enabled === "true";
@@ -377,14 +357,10 @@ export async function readSquadYaml(
 
   const parsed = squadYamlSchema.safeParse(doc);
   if (!parsed.success) {
-    throw new SquadError(
-      "INVALID_INPUT",
-      `${located.filePath}: ${parsed.error.message}`,
-      {
-        source: located.filePath,
-        issues: parsed.error.issues.length,
-      },
-    );
+    throw new SquadError("INVALID_INPUT", `${located.filePath}: ${parsed.error.message}`, {
+      source: located.filePath,
+      issues: parsed.error.issues.length,
+    });
   }
 
   const resolved = applyDefaults(parsed.data, located.filePath);
@@ -420,11 +396,7 @@ function coerceNumber(value: unknown, field: string, source: string): number {
     }
     return n;
   }
-  throw new SquadError(
-    "INVALID_INPUT",
-    `${source}: ${field} must be a number`,
-    { source },
-  );
+  throw new SquadError("INVALID_INPUT", `${source}: ${field} must be a number`, { source });
 }
 
 /**
@@ -513,10 +485,7 @@ export function applySkipPaths(
  * Filter a selected squad against `disable_agents`. Returns the agents that
  * remain. Logs a warning if every agent was disabled (likely a misconfig).
  */
-export function applyDisableAgents(
-  squad: AgentName[],
-  disableAgents: AgentName[],
-): AgentName[] {
+export function applyDisableAgents(squad: AgentName[], disableAgents: AgentName[]): AgentName[] {
   if (disableAgents.length === 0) return squad;
   const disabled = new Set(disableAgents);
   const remaining = squad.filter((a) => !disabled.has(a));

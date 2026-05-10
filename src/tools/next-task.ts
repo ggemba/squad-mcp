@@ -6,14 +6,7 @@ import { readSquadYaml } from "../config/squad-yaml.js";
 import { resolveSafePath, createSafePathContext } from "../util/path-safety.js";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
 
-const taskStatusEnum = z.enum([
-  "pending",
-  "in-progress",
-  "review",
-  "done",
-  "blocked",
-  "cancelled",
-]);
+const taskStatusEnum = z.enum(["pending", "in-progress", "review", "done", "blocked", "cancelled"]);
 
 const schema = z.object({
   workspace_root: z.string().min(1).max(4096),

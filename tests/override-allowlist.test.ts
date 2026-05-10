@@ -114,21 +114,16 @@ describe("validateOverrideDir — malformed input rejection", () => {
 });
 
 describe("validateOverrideDir — UNC/device-namespace rejection (Windows)", () => {
-  it.runIf(process.platform === "win32")(
-    "rejects UNC \\\\server\\share",
-    async () => {
-      const result = await validateOverrideDir("\\\\server\\share\\agents");
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.reason).toBe("unc_or_device_namespace");
-    },
-  );
+  it.runIf(process.platform === "win32")("rejects UNC \\\\server\\share", async () => {
+    const result = await validateOverrideDir("\\\\server\\share\\agents");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("unc_or_device_namespace");
+  });
 
   it.runIf(process.platform === "win32")(
     "rejects long-path UNC \\\\?\\UNC\\server\\share",
     async () => {
-      const result = await validateOverrideDir(
-        "\\\\?\\UNC\\server\\share\\agents",
-      );
+      const result = await validateOverrideDir("\\\\?\\UNC\\server\\share\\agents");
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.reason).toBe("unc_or_device_namespace");
     },
@@ -237,9 +232,7 @@ describe("validateOverrideFile", () => {
     const dir = await insideHome("vof-abs-");
     const real = await fs.realpath(dir);
     const target =
-      process.platform === "win32"
-        ? "C:\\Windows\\System32\\drivers\\etc\\hosts"
-        : "/etc/passwd";
+      process.platform === "win32" ? "C:\\Windows\\System32\\drivers\\etc\\hosts" : "/etc/passwd";
     const result = await validateOverrideFile(real, target);
     expect(result).toBeNull();
   });

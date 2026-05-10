@@ -25,12 +25,7 @@
 // validates the full zod schema.
 
 import { promises as fs } from "node:fs";
-import {
-  readTasksFile,
-  writeTasksFile,
-  VALID_PRIORITIES,
-  fail,
-} from "./_tasks-io.mjs";
+import { readTasksFile, writeTasksFile, VALID_PRIORITIES, fail } from "./_tasks-io.mjs";
 
 const args = process.argv.slice(2);
 const PROG = "record-tasks";
@@ -101,9 +96,7 @@ function validateInputs(inputs) {
 
 async function main() {
   const opts = parseArgs(args);
-  const raw = opts.input
-    ? await fs.readFile(opts.input, "utf8")
-    : await readStdin();
+  const raw = opts.input ? await fs.readFile(opts.input, "utf8") : await readStdin();
 
   let inputs;
   try {

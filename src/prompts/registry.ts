@@ -161,8 +161,7 @@ Every report must end with:
 
 const consolidator: PromptDef = {
   name: "consolidator",
-  description:
-    "Consolidator prompt. Use after collecting all advisory reports.",
+  description: "Consolidator prompt. Use after collecting all advisory reports.",
   arguments: [
     {
       name: "reports",

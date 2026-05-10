@@ -563,6 +563,21 @@ Plugin-author issue (will not affect users on a published release). The `agents`
 **Plugin installed but `/squad` does not appear.**
 Restart Claude Code. The slash command registry is populated at startup. If still missing, run `/plugin list` and confirm `squad@gempack` is listed and enabled.
 
+**`Failed to reconnect to plugin:squad:squad` after `/plugin install`.**
+You're on a plugin release older than v0.6.5. Pre-0.6.5 manifests pointed the MCP runtime at `${CLAUDE_PLUGIN_ROOT}/dist/index.js`, but Claude Code's plugin install does only a `git clone` — it never runs `npm install` / `npm run build`, so `dist/` (which is gitignored) does not exist on disk and the server has nothing to run. Fix:
+
+```text
+/plugin update squad@gempack
+```
+
+If `update` says "already up to date" but the version is still pre-0.6.5, the marketplace cache is stale — use the `remove`+`add` cycle from the cache section above. Verify the published npm tarball is healthy from a terminal:
+
+```bash
+npx -y @gempack/squad-mcp --version
+```
+
+If that succeeds but the plugin still fails, wait 5 minutes for the GitHub raw CDN to invalidate and retry the install.
+
 **MCP server shows as failed / disconnected.**
 Check the host's MCP log:
 

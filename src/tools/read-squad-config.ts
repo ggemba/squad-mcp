@@ -1,9 +1,6 @@
 import { z } from "zod";
 import type { ToolDef } from "./registry.js";
-import {
-  readSquadYaml,
-  type ResolvedSquadConfig,
-} from "../config/squad-yaml.js";
+import { readSquadYaml, type ResolvedSquadConfig } from "../config/squad-yaml.js";
 import { resolveSafePath, createSafePathContext } from "../util/path-safety.js";
 
 const schema = z.object({
@@ -21,9 +18,7 @@ type Input = z.infer<typeof schema>;
  * concrete values down. This tool is for direct introspection and for clients
  * that want to construct a tailored bundle themselves.
  */
-export async function readSquadConfig(
-  input: Input,
-): Promise<ResolvedSquadConfig> {
+export async function readSquadConfig(input: Input): Promise<ResolvedSquadConfig> {
   // Containment check — canonicalise the workspace root via the same machinery
   // every other path-receiving tool uses. resolveSafePath returns the realpath
   // of `<root>/.` which is the root itself.

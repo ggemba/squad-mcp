@@ -7,7 +7,29 @@ import path from "node:path";
 
 export const DEFAULT_TASKS_PATH = ".squad/tasks.json";
 
+/**
+ * Lexical-only containment check. Mirrors ensureRelativeInsideRoot in
+ * src/util/path-safety.ts so the CLIs reject .squad.yaml-supplied paths
+ * that escape the workspace (CWE-22) without depending on dist/.
+ */
+export function ensureRelativeInsideRoot(workspace, configuredPath, settingName) {
+  if (path.isAbsolute(configuredPath)) {
+    throw new Error(
+      `${settingName} must be a workspace-relative path, not absolute (got ${configuredPath})`,
+    );
+  }
+  const rootAbs = path.resolve(workspace);
+  const candidateAbs = path.resolve(rootAbs, configuredPath);
+  const rel = path.relative(rootAbs, candidateAbs);
+  if (path.isAbsolute(rel) || rel === ".." || rel.startsWith(".." + path.sep)) {
+    throw new Error(`${settingName} escapes workspace_root (got ${configuredPath})`);
+  }
+}
+
 export async function readTasksFile(workspace, file) {
+  if (file !== undefined) {
+    ensureRelativeInsideRoot(workspace, file, "tasks.path");
+  }
   const filePath = path.resolve(workspace, file ?? DEFAULT_TASKS_PATH);
   let raw;
   try {
@@ -24,11 +46,7 @@ export async function readTasksFile(workspace, file) {
   } catch (err) {
     throw new Error(`${filePath}: invalid JSON: ${err.message}`);
   }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !Array.isArray(parsed.tasks)
-  ) {
+  if (typeof parsed !== "object" || parsed === null || !Array.isArray(parsed.tasks)) {
     throw new Error(`${filePath}: missing tasks array`);
   }
   return { filePath, data: parsed };
@@ -42,9 +60,7 @@ export async function writeTasksFile(filePath, data) {
       .sort((a, b) => a.id - b.id)
       .map((t) => ({
         ...t,
-        subtasks: Array.isArray(t.subtasks)
-          ? [...t.subtasks].sort((a, b) => a.id - b.id)
-          : [],
+        subtasks: Array.isArray(t.subtasks) ? [...t.subtasks].sort((a, b) => a.id - b.id) : [],
       })),
   };
   const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
@@ -52,14 +68,7 @@ export async function writeTasksFile(filePath, data) {
   await fs.rename(tmp, filePath);
 }
 
-export const VALID_STATUSES = [
-  "pending",
-  "in-progress",
-  "review",
-  "done",
-  "blocked",
-  "cancelled",
-];
+export const VALID_STATUSES = ["pending", "in-progress", "review", "done", "blocked", "cancelled"];
 
 export const VALID_PRIORITIES = ["low", "medium", "high"];
 

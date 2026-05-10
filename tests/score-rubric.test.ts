@@ -71,9 +71,7 @@ describe("score_rubric — defaults", () => {
     });
     expect(out.weighted_score).toBe(80);
     expect(out.ignored_agents).toContain("tech-lead-consolidator");
-    expect(
-      out.dimensions.find((d) => d.agent === "tech-lead-consolidator"),
-    ).toBeUndefined();
+    expect(out.dimensions.find((d) => d.agent === "tech-lead-consolidator")).toBeUndefined();
   });
 
   it("produces zero-score output when all supplied scores are meta-agents", () => {
@@ -150,10 +148,7 @@ describe("score_rubric — weights override", () => {
 
 describe("score_rubric — defaults sanity", () => {
   it("default weights sum to 100 across advisory agents", () => {
-    const sum = Object.values(DEFAULT_RUBRIC_WEIGHTS).reduce(
-      (a, b) => a + b,
-      0,
-    );
+    const sum = Object.values(DEFAULT_RUBRIC_WEIGHTS).reduce((a, b) => a + b, 0);
     expect(sum).toBe(100);
   });
 

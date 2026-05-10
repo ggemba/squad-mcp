@@ -74,9 +74,7 @@ function formatScorecard(out: Omit<RubricOutput, "scorecard_text">): string {
     const weight = `×${d.weight.toString().padStart(2)}%`;
     return `${dim} ${bar}  ${score}  ${weight}  ${d.agent}${flag}`;
   });
-  return [header, "─".repeat(70), ...lines, "─".repeat(70), verdictLine].join(
-    "\n",
-  );
+  return [header, "─".repeat(70), ...lines, "─".repeat(70), verdictLine].join("\n");
 }
 
 /**
@@ -107,10 +105,7 @@ export function scoreRubric(input: Input): RubricOutput {
         `weights override must sum to 100, got ${overrideSum}. Supplied: ${JSON.stringify(overrides)}`,
       );
     }
-    weights = { ...DEFAULT_RUBRIC_WEIGHTS, ...overrides } as Record<
-      AgentName,
-      number
-    >;
+    weights = { ...DEFAULT_RUBRIC_WEIGHTS, ...overrides } as Record<AgentName, number>;
     weightsSource = "override";
   } else {
     weights = { ...DEFAULT_RUBRIC_WEIGHTS };

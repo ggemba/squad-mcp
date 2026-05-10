@@ -99,24 +99,18 @@ export interface NextTaskResult {
  * Returns the task plus a structured result so the caller can distinguish
  * "no candidates" from "all blocked by deps" (different UX).
  */
-export function nextTask(
-  tasks: Task[],
-  opts: NextTaskOptions = {},
-): NextTaskResult {
+export function nextTask(tasks: Task[], opts: NextTaskOptions = {}): NextTaskResult {
   const doneSet = new Set<TaskStatus>(opts.done_statuses ?? ["done"]);
   const candidateStatuses = opts.candidate_statuses ?? ["pending"];
 
   // Build done-id index over the FULL task list — deps may point at any task,
   // not just ones passing the filters.
-  const doneIds = new Set(
-    tasks.filter((t) => doneSet.has(t.status)).map((t) => t.id),
-  );
+  const doneIds = new Set(tasks.filter((t) => doneSet.has(t.status)).map((t) => t.id));
 
   // Filter to candidates (status + agent + scope).
   const filterOpts: ListTasksOptions = { status: candidateStatuses };
   if (opts.agent !== undefined) filterOpts.agent = opts.agent;
-  if (opts.changed_files !== undefined)
-    filterOpts.changed_files = opts.changed_files;
+  if (opts.changed_files !== undefined) filterOpts.changed_files = opts.changed_files;
   const candidates = listTasks(tasks, filterOpts);
 
   if (candidates.length === 0) {

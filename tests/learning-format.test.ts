@@ -61,23 +61,17 @@ describe("formatLearningsForPrompt — content", () => {
   });
 
   it("renders severity tag when present", () => {
-    const out = formatLearningsForPrompt([
-      e({ severity: "Major", finding: "x" }),
-    ]);
+    const out = formatLearningsForPrompt([e({ severity: "Major", finding: "x" })]);
     expect(out).toContain("[Major]");
   });
 
   it("renders scope inline when present", () => {
-    const out = formatLearningsForPrompt([
-      e({ scope: "src/auth/**", finding: "x" }),
-    ]);
+    const out = formatLearningsForPrompt([e({ scope: "src/auth/**", finding: "x" })]);
     expect(out).toContain("(scope: `src/auth/**`)");
   });
 
   it("renders the reason on its own indented line when present", () => {
-    const out = formatLearningsForPrompt([
-      e({ reason: "CSRF terminated at gateway" }),
-    ]);
+    const out = formatLearningsForPrompt([e({ reason: "CSRF terminated at gateway" })]);
     expect(out).toContain("Reason: CSRF terminated at gateway");
   });
 
@@ -144,18 +138,16 @@ describe("formatLearningsForPrompt — scope filter via changedFiles", () => {
   });
 
   it("includes scoped entries when at least one changed file matches", () => {
-    const out = formatLearningsForPrompt(
-      [e({ scope: "src/auth/**", finding: "auth-scoped" })],
-      { changedFiles: ["src/auth/login.ts", "src/billing/index.ts"] },
-    );
+    const out = formatLearningsForPrompt([e({ scope: "src/auth/**", finding: "auth-scoped" })], {
+      changedFiles: ["src/auth/login.ts", "src/billing/index.ts"],
+    });
     expect(out).toContain("auth-scoped");
   });
 
   it("excludes scoped entries when no changed file matches", () => {
-    const out = formatLearningsForPrompt(
-      [e({ scope: "src/auth/**", finding: "auth-scoped" })],
-      { changedFiles: ["src/billing/index.ts"] },
-    );
+    const out = formatLearningsForPrompt([e({ scope: "src/auth/**", finding: "auth-scoped" })], {
+      changedFiles: ["src/billing/index.ts"],
+    });
     expect(out).toBe("");
   });
 
@@ -174,10 +166,9 @@ describe("formatLearningsForPrompt — scope filter via changedFiles", () => {
   });
 
   it("treats empty changedFiles as no filter", () => {
-    const out = formatLearningsForPrompt(
-      [e({ scope: "src/auth/**", finding: "auth-scoped" })],
-      { changedFiles: [] },
-    );
+    const out = formatLearningsForPrompt([e({ scope: "src/auth/**", finding: "auth-scoped" })], {
+      changedFiles: [],
+    });
     expect(out).toContain("auth-scoped");
   });
 });

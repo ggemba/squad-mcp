@@ -23,9 +23,7 @@ describe("apply_consolidation_rules — backward compat (no scores)", () => {
       reports: [
         {
           agent: "senior-dev-security",
-          findings: [
-            { severity: "Blocker", title: "auth bypass", justified: false },
-          ],
+          findings: [{ severity: "Blocker", title: "auth bypass", justified: false }],
           not_evaluated: false,
         },
       ],
@@ -101,9 +99,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
       reports: [
         {
           agent: "senior-architect",
-          findings: [
-            { severity: "Major", title: "tight coupling", justified: false },
-          ],
+          findings: [{ severity: "Major", title: "tight coupling", justified: false }],
           not_evaluated: false,
           score: 40,
         },

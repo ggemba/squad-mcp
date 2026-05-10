@@ -1,10 +1,6 @@
 import { z } from "zod";
 import type { ToolDef } from "./registry.js";
-import {
-  readLearnings,
-  tailRecent,
-  type LearningEntry,
-} from "../learning/store.js";
+import { readLearnings, tailRecent, type LearningEntry } from "../learning/store.js";
 import { formatLearningsForPrompt } from "../learning/format.js";
 import { readSquadYaml } from "../config/squad-yaml.js";
 import { resolveSafePath, createSafePathContext } from "../util/path-safety.js";
@@ -46,9 +42,7 @@ export interface ReadLearningsOutput {
  * pre-rendered markdown block ready to inject into an agent / consolidator
  * prompt. Pure-ish — reads filesystem, no writes.
  */
-export async function readLearningsTool(
-  input: Input,
-): Promise<ReadLearningsOutput> {
+export async function readLearningsTool(input: Input): Promise<ReadLearningsOutput> {
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);
@@ -77,9 +71,7 @@ export async function readLearningsTool(
     total_in_store: allEntries.length,
     rendered,
     source:
-      allEntries.length > 0
-        ? `${safeRoot}/${configuredPath ?? ".squad/learnings.jsonl"}`
-        : null,
+      allEntries.length > 0 ? `${safeRoot}/${configuredPath ?? ".squad/learnings.jsonl"}` : null,
   };
 }
 

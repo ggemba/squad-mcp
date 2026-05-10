@@ -6,14 +6,17 @@ description: Collaborative brainstorm and research skill. Takes a problem, decis
 # Skill: Brainstorm
 
 ## Objective
+
 Help the user think through a problem, decision, or implementation idea by running parallel web research (market patterns, best practices, pitfalls, examples) and gathering specialist agent perspectives, then synthesizing the findings into a structured options matrix with a recommendation. This skill is exploratory — it does not write code, run tests, or modify the repo.
 
 Position in the workflow:
+
 - **`/brainstorm`** → decide what to build (this skill)
 - **`/squad`** → implement what was decided
 - **`/squad-review`** → review what was implemented
 
 ## Skill Name
+
 `/brainstorm`
 
 ## Inviolable Rules
@@ -29,17 +32,18 @@ Position in the workflow:
 
 The skill takes one required argument (the topic) and optional flags:
 
-| Param | Default | Description |
-|-------|---------|-------------|
-| `<topic>` | required | Free-form text describing the problem, decision, or idea to brainstorm |
-| `--depth <level>` | `medium` | `quick` (3 web queries, 1 agent), `medium` (6 queries, 2-3 agents), `deep` (10+ queries, 4 agents + tech-lead) |
-| `--no-web` | off | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase. |
-| `--focus <domain>` | auto | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords. |
-| `--sources <N>` | 5 | Cap on web sources cited per section. Avoids dump of every result. |
+| Param              | Default  | Description                                                                                                                                      |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `<topic>`          | required | Free-form text describing the problem, decision, or idea to brainstorm                                                                           |
+| `--depth <level>`  | `medium` | `quick` (3 web queries, 1 agent), `medium` (6 queries, 2-3 agents), `deep` (10+ queries, 4 agents + tech-lead)                                   |
+| `--no-web`         | off      | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase.                                    |
+| `--focus <domain>` | auto     | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords. |
+| `--sources <N>`    | 5        | Cap on web sources cited per section. Avoids dump of every result.                                                                               |
 
 ## Step 1: Topic Understanding
 
 Read the user's prompt and extract:
+
 - **Problem/decision**: what is being decided? Phrase it as a question.
 - **Constraints**: tech stack, team size, scale, budget, timeline (if mentioned or inferable from `git log` / `package.json` / `README`).
 - **Existing context**: scan the current repo for related code, prior decisions in `CHANGELOG.md` or ADRs (`docs/adr/`, `architecture/`).
@@ -66,6 +70,7 @@ Construct 3-10 targeted queries (count from `--depth`). Use the **current year**
 - `{topic} vs {known_alternative}` (if a comparison is implicit)
 
 Avoid:
+
 - Generic queries like "{topic}" alone (returns marketing pages).
 - Queries that the user can find better via their internal docs (e.g., proprietary product internals).
 
@@ -73,22 +78,23 @@ Avoid:
 
 Pick agents based on detected domains. For `--depth quick`: pick the single most relevant. For `medium`: 2-3. For `deep`: 4 + tech-lead. Mapping:
 
-| Domain | Primary agent |
-|--------|---------------|
-| frontend | senior-developer (UX/perf perspective) |
-| backend | senior-developer + senior-architect |
-| infra | senior-architect + senior-dev-security |
-| data | senior-dba + senior-architect |
-| security | senior-dev-security + senior-architect |
-| business | product-owner |
-| testing | senior-qa |
-| code quality | senior-dev-reviewer |
+| Domain       | Primary agent                          |
+| ------------ | -------------------------------------- |
+| frontend     | senior-developer (UX/perf perspective) |
+| backend      | senior-developer + senior-architect    |
+| infra        | senior-architect + senior-dev-security |
+| data         | senior-dba + senior-architect          |
+| security     | senior-dev-security + senior-architect |
+| business     | product-owner                          |
+| testing      | senior-qa                              |
+| code quality | senior-dev-reviewer                    |
 
 `tech-lead` is included only at `--depth deep` (or whenever 3+ agents participate, to consolidate).
 
 ## Step 3: Parallel Research and Agent Spawn
 
 Run web queries and agent invocations **in parallel** in a single message:
+
 - One `WebSearch` tool call per query.
 - One `Agent` tool call per specialist.
 
@@ -120,6 +126,7 @@ If you do not have enough context to contribute meaningfully, say so explicitly.
 Aggregate web findings and agent perspectives into:
 
 ### Market research section
+
 Group findings by category. **Cite every claim.** Example:
 
 ```
@@ -138,8 +145,8 @@ Group findings by category. **Cite every claim.** Example:
 
 Build a table of **3-5 alternatives**. Columns:
 
-| # | Approach | How it works | Pros | Cons | Risk | Best when |
-|---|----------|--------------|------|------|------|-----------|
+| #   | Approach | How it works | Pros | Cons | Risk | Best when |
+| --- | -------- | ------------ | ---- | ---- | ---- | --------- |
 
 Each row is one viable path. "Approach" is short (3-6 words). "How it works" is one sentence. Pros/cons are bullet-style condensed.
 
@@ -267,18 +274,22 @@ If the user passed `--depth quick`, output is condensed: skip "Agent perspective
 ## Considerations
 
 ### Cost vs depth
+
 - `quick`: ~3 web queries + 1 agent. Roughly 5-10K tokens. Useful for quick reality-checks.
 - `medium` (default): ~6 queries + 2-3 agents. ~20-40K tokens. Useful for genuine option exploration.
 - `deep`: ~10+ queries + 4 agents + tech-lead. ~60-100K tokens. Useful for high-stakes decisions where multiple stakeholders need to align.
 
 ### When to use vs alternatives
-- Use `/brainstorm` when: deciding *what* to build, comparing approaches, scanning industry, exploring a problem space.
+
+- Use `/brainstorm` when: deciding _what_ to build, comparing approaches, scanning industry, exploring a problem space.
 - Use `/squad` when: you've decided and want to implement.
 - Use `/squad-review` when: implementation is done and you want a multi-perspective review.
 - Use `WebSearch` directly when: you need one specific answer, not a brainstorm framing.
 
 ### Sources reliability
+
 Prefer (in this order): official docs, recognized engineering blogs (e.g., Stripe, AWS, Cloudflare, Google Cloud, Microsoft, Netflix Tech Blog), academic / standards bodies, recognized newsletters (Pragmatic Engineer, Increment), GitHub READMEs of widely-adopted libraries, conference talks. Avoid: SEO listicles, vendor-marketing pieces masquerading as articles, AI-generated content farms.
 
 ### Output format consistency
+
 Always close with a "Next steps" block and a flat list of all sources used. The Next steps block is the bridge from brainstorm to action — never omit it.

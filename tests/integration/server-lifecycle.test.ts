@@ -13,9 +13,7 @@ describe("server lifecycle", () => {
     handle = await spawnServer();
     const initRes = await initialize(handle, 1);
     expect(initRes.id).toBe(1);
-    expect(
-      (initRes.result as { protocolVersion?: string }).protocolVersion,
-    ).toBeTruthy();
+    expect((initRes.result as { protocolVersion?: string }).protocolVersion).toBeTruthy();
 
     handle.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const toolsRes = await handle.recv(2);
@@ -64,8 +62,7 @@ describe("server lifecycle", () => {
       },
     });
     const callRes = await handle.recv(3);
-    const text = (callRes.result as { content: { text: string }[] }).content[0]!
-      .text;
+    const text = (callRes.result as { content: { text: string }[] }).content[0]!.text;
     const parsed = JSON.parse(text) as { level: string };
     expect(parsed.level).toBe("High");
   }, 15_000);
@@ -81,14 +78,9 @@ describe("server lifecycle", () => {
 
     handle.send({ jsonrpc: "2.0", id: 3, method: "prompts/list" });
     const promptsRes = await handle.recv(3);
-    const prompts = (promptsRes.result as { prompts: { name: string }[] })
-      .prompts;
+    const prompts = (promptsRes.result as { prompts: { name: string }[] }).prompts;
     const promptNames = prompts.map((p) => p.name).sort();
-    expect(promptNames).toEqual([
-      "agent_advisory",
-      "consolidator",
-      "squad_orchestration",
-    ]);
+    expect(promptNames).toEqual(["agent_advisory", "consolidator", "squad_orchestration"]);
   }, 15_000);
 
   it("select_squad with cross-stack fixtures emits expected agents", async () => {
@@ -114,8 +106,7 @@ describe("server lifecycle", () => {
       },
     });
     const callRes = await handle.recv(2);
-    const text = (callRes.result as { content: { text: string }[] }).content[0]!
-      .text;
+    const text = (callRes.result as { content: { text: string }[] }).content[0]!.text;
     const parsed = JSON.parse(text) as { agents: string[] };
     expect(parsed.agents).toContain("senior-dev-security");
     expect(parsed.agents).toContain("senior-dba");

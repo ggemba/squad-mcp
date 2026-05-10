@@ -77,8 +77,7 @@ function parseArgs(argv) {
     }
   }
   if (!out.pr) fail(2, "--pr <number> is required");
-  if (!/^\d+$/.test(out.pr))
-    fail(2, `--pr must be a positive integer, got "${out.pr}"`);
+  if (!/^\d+$/.test(out.pr)) fail(2, `--pr must be a positive integer, got "${out.pr}"`);
   return out;
 }
 
@@ -100,10 +99,7 @@ function ensureGh() {
   const r = spawnSync("gh", ["--version"], { encoding: "utf8" });
   if (r.error) {
     if (r.error.code === "ENOENT") {
-      fail(
-        3,
-        "gh CLI not found in PATH. Install: https://cli.github.com/manual/installation",
-      );
+      fail(3, "gh CLI not found in PATH. Install: https://cli.github.com/manual/installation");
     }
     fail(3, `gh check failed: ${r.error.message}`);
   }
@@ -121,8 +117,19 @@ function runGh(args, body) {
     proc.stderr.on("data", (d) => (stderr += d));
     proc.on("error", reject);
     proc.on("close", (code) => resolve({ code, stdout, stderr }));
-    proc.stdin.write(body);
-    proc.stdin.end();
+    proc.stdin.on("error", reject);
+    // Respect backpressure: if the kernel pipe is full, write() returns false
+    // and we must wait for "drain" before continuing. Pre-fix this code wrote
+    // a large body without awaiting drain, which on small pipe buffers
+    // truncated the body silently (gh exits 0 with the prefix only).
+    const ok = proc.stdin.write(body, (err) => {
+      if (err) reject(err);
+    });
+    if (ok) {
+      proc.stdin.end();
+    } else {
+      proc.stdin.once("drain", () => proc.stdin.end());
+    }
   });
 }
 
@@ -145,11 +152,7 @@ async function main() {
   } catch (err) {
     fail(2, `invalid JSON on stdin: ${err.message}`);
   }
-  if (
-    !consolidation ||
-    typeof consolidation !== "object" ||
-    !consolidation.verdict
-  ) {
+  if (!consolidation || typeof consolidation !== "object" || !consolidation.verdict) {
     fail(
       2,
       "stdin JSON missing required `verdict` field — expected output of apply_consolidation_rules",
@@ -169,14 +172,7 @@ async function main() {
     body = body.replace(/\n\n---\n[\s\S]*$/, "\n");
   }
 
-  const ghArgs = [
-    "pr",
-    "review",
-    opts.pr,
-    `--${payload.action}`,
-    "--body-file",
-    "-",
-  ];
+  const ghArgs = ["pr", "review", opts.pr, `--${payload.action}`, "--body-file", "-"];
   if (opts.repo) ghArgs.push("--repo", opts.repo);
 
   if (opts.dryRun) {
@@ -186,25 +182,19 @@ async function main() {
     );
     process.stdout.write(body);
     process.stdout.write(`EOF\n`);
-    process.stdout.write(
-      `\n# Action: ${payload.action}\n# Summary: ${payload.summary}\n`,
-    );
+    process.stdout.write(`\n# Action: ${payload.action}\n# Summary: ${payload.summary}\n`);
     process.exit(0);
   }
 
   ensureGh();
   const r = await runGh(ghArgs, body);
   if (r.code !== 0) {
-    process.stderr.write(
-      `gh ${payload.action} failed (exit ${r.code}):\n${r.stderr}`,
-    );
+    process.stderr.write(`gh ${payload.action} failed (exit ${r.code}):\n${r.stderr}`);
     process.exit(4);
   }
   // gh prints the review URL on success; surface it to the caller.
   if (r.stdout) process.stdout.write(r.stdout);
-  process.stdout.write(
-    `\nposted: ${payload.action} on PR #${opts.pr} | ${payload.summary}\n`,
-  );
+  process.stdout.write(`\nposted: ${payload.action} on PR #${opts.pr} | ${payload.summary}\n`);
 }
 
 main().catch((err) => {
