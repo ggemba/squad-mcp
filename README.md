@@ -178,6 +178,42 @@ All keys are optional; partial files merge with package defaults. `force_agents`
 
 The reader is cached by mtime — long-running MCP servers automatically pick up edits without a restart.
 
+## Posting reviews to GitHub PRs
+
+Once the squad runs, you can post the verdict + scorecard as a `gh pr review` directly. The skill `/squad-review #42` runs the advisory and offers to post the result; default behaviour is **dry-run + confirmation** — Claude shows the exact `gh` command and the markdown body, then waits for your "go" before posting.
+
+```bash
+# manual usage (outside the skill)
+echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42 --dry-run
+# prints: gh pr review 42 --approve --body-file - <<'EOF' ... EOF
+
+# actually post
+echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42
+```
+
+The CLI maps verdict → `gh` action deterministically:
+
+| Verdict                                            | Score signal           | `gh` action                        |
+| -------------------------------------------------- | ---------------------- | ---------------------------------- |
+| `REJECTED`                                         | —                      | `--request-changes` (blocks merge) |
+| `CHANGES_REQUIRED`                                 | —                      | `--comment` (advisory)             |
+| `APPROVED` + `downgraded_by_score: true`           | weighted < `min_score` | `--comment`                        |
+| `APPROVED` + score < `request_changes_below_score` | (opt-in floor)         | `--request-changes`                |
+| `APPROVED` otherwise                               | passes threshold       | `--approve`                        |
+
+### Auto-post (opt-in)
+
+If `.squad.yaml` has `pr_posting.auto_post: true`, the skill posts without the second confirmation prompt — but **always shows the body first**. Auto-post means "skip the second yes/no", not "skip the preview".
+
+```yaml
+pr_posting:
+  auto_post: true # default false — always asks
+  request_changes_below_score: 50 # below this, post --request-changes instead of --approve
+  omit_attribution_footer: false # default false — footer present
+```
+
+Requires `gh` CLI in PATH and authenticated (`gh auth login`). The CLI exits 3 with a clear message if `gh` is missing.
+
 ## Detection strategy (`select_squad` / `slice_files_for_agent`)
 
 Three layers, in order of strength:

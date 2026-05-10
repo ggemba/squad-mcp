@@ -7,6 +7,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — Post `/squad-review` results as a GitHub PR review
+
+Closes the loop from "advisory in your terminal" to "advisory on the PR
+where the team works". The verdict + scorecard go up as a `gh pr review`
+with the appropriate action (`--approve` / `--comment` / `--request-changes`)
+chosen deterministically from verdict + score.
+
+- `src/format/pr-review.ts` — pure formatter taking `ConsolidationOutput`
+  plus options, returning markdown body, chosen `gh` action, and summary
+  line. Header, fenced rubric scorecard, per-agent finding sections
+  (sorted), severity totals, footer. Verdict-to-action mapping in
+  `chooseGhAction` (exported separately for testability).
+- `tools/post-review.mjs` — CLI helper that lives outside the MCP server
+  (alongside the commit-msg hook). Reads consolidation JSON from stdin,
+  formats, invokes `gh pr review --<action> --body-file -`. Supports
+  `--dry-run`, `--repo owner/name`, `--request-changes-below N`,
+  `--no-footer`, `--pr <n>` (required). Exit codes:
+  `2` invalid input, `3` gh missing/unauthenticated, `4` gh failed.
+- New `.squad.yaml` section `pr_posting`:
+  - `auto_post: bool` (default false — skill always confirms)
+  - `request_changes_below_score: number` (opt-in floor)
+  - `omit_attribution_footer: bool` (default false)
+- `skills/squad/SKILL.md` adds **Phase 13 — Post to PR** (review mode,
+  opt-in). Inviolable rules: never post without showing the body first,
+  never post `--request-changes` on someone else's PR without explicit
+  user instruction, never amend or delete a posted review.
+
+23 new tests cover the formatter (header variants, rubric block, findings
+section, footer, summary, action mapping). The action mapping never
+promotes a verdict (low-severity can't become approve) and only demotes
+APPROVED — never downgrades CHANGES_REQUIRED further.
+
 ### Added — `.squad.yaml` repo configuration
 
 Per-repo configuration file (versioned with the code) lets each project tune
@@ -98,7 +130,8 @@ alongside the legacy verdict.
 Planned for a future minor:
 
 - Per-PR memory of accept/reject decisions feeding back into agent prompts.
-- Inline PR comments via `gh` (review verdict + scorecard posted as PR review).
+- Inline line-by-line annotations on the diff (one `gh` review comment per finding with file:line links).
+- GitHub Action wrapper for PR posting in CI.
 - Streaming SHA-256 over `fs.createReadStream` for any large bundled asset
   reads (avoids `readFileSync` doubling memory).
 - Property-based tests for severity/consolidation rules via `fast-check`.
