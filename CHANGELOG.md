@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed — Plugin manifest `agents` and `commands` shape (Claude Code rejected v0.6.2)
+
+`/plugin install squad@gempack` failed v0.6.2 with `Validation errors: agents: Invalid input` because `.claude-plugin/plugin.json` declared `"agents": "./agents/"` (string) and `"commands": "./commands/"` (string). Per the Claude Code plugin reference, those fields must be **arrays of explicit file paths** — only `skills` accepts a directory string.
+
+- `.claude-plugin/plugin.json`: `agents` is now a 9-entry array listing each subagent's `.md` path; `commands` is a 4-entry array. `skills` stays as `./skills/`.
+- Bumped to `0.6.3` across all four version pins (the release-yml guard added in v0.6.2 catches future drift).
+
 ### Fixed — Marketplace version pin missed in v0.6.1
 
 `.claude-plugin/marketplace.json` was still pinned to `0.6.0` after v0.6.1 shipped, so `/plugin install squad@gempack` kept resolving to the broken v0.6.0 build. Bumped to `0.6.2` and added a release-workflow check that verifies all four version pins (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `src/index.ts SERVER_VERSION`) match the git tag. Future bumps fail loudly if any pin is forgotten.
