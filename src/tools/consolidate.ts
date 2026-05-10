@@ -1,8 +1,8 @@
-import { z } from 'zod';
-import type { ToolDef } from './registry.js';
-import { AGENT_NAMES_TUPLE } from '../config/ownership-matrix.js';
+import { z } from "zod";
+import type { ToolDef } from "./registry.js";
+import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
 
-const severity = z.enum(['Blocker', 'Major', 'Minor', 'Suggestion']);
+const severity = z.enum(["Blocker", "Major", "Minor", "Suggestion"]);
 
 const reportSchema = z.object({
   agent: z.enum(AGENT_NAMES_TUPLE),
@@ -26,9 +26,9 @@ const schema = z.object({
 
 type Input = z.infer<typeof schema>;
 
-export type Verdict = 'APPROVED' | 'CHANGES_REQUIRED' | 'REJECTED';
+export type Verdict = "APPROVED" | "CHANGES_REQUIRED" | "REJECTED";
 
-export type Severity = 'Blocker' | 'Major' | 'Minor' | 'Suggestion';
+export type Severity = "Blocker" | "Major" | "Minor" | "Suggestion";
 
 export interface ConsolidationOutput {
   verdict: Verdict;
@@ -47,7 +47,12 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
   const forwarded: { from: string; to: string; title: string }[] = [];
   const notEvaluated: string[] = [];
   const agentsInvolved = new Set<string>();
-  const counts: Record<Severity, number> = { Blocker: 0, Major: 0, Minor: 0, Suggestion: 0 };
+  const counts: Record<Severity, number> = {
+    Blocker: 0,
+    Major: 0,
+    Minor: 0,
+    Suggestion: 0,
+  };
 
   for (const r of input.reports) {
     agentsInvolved.add(r.agent);
@@ -57,17 +62,20 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
     }
     for (const f of r.findings) {
       counts[f.severity] += 1;
-      if (f.severity === 'Blocker') blockers.push({ agent: r.agent, title: f.title });
-      if (f.severity === 'Major' && !f.justified) majorsUnjustified.push({ agent: r.agent, title: f.title });
-      if (f.forwarded_to) forwarded.push({ from: r.agent, to: f.forwarded_to, title: f.title });
+      if (f.severity === "Blocker")
+        blockers.push({ agent: r.agent, title: f.title });
+      if (f.severity === "Major" && !f.justified)
+        majorsUnjustified.push({ agent: r.agent, title: f.title });
+      if (f.forwarded_to)
+        forwarded.push({ from: r.agent, to: f.forwarded_to, title: f.title });
     }
   }
 
   let verdict: Verdict;
-  if (blockers.length) verdict = 'REJECTED';
-  else if (majorsUnjustified.length) verdict = 'REJECTED';
-  else if (counts.Major + counts.Minor > 0) verdict = 'CHANGES_REQUIRED';
-  else verdict = 'APPROVED';
+  if (blockers.length) verdict = "REJECTED";
+  else if (majorsUnjustified.length) verdict = "REJECTED";
+  else if (counts.Major + counts.Minor > 0) verdict = "CHANGES_REQUIRED";
+  else verdict = "APPROVED";
 
   const summary =
     `Verdict: ${verdict}. ` +
@@ -88,11 +96,11 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
 }
 
 export const applyConsolidationRulesTool: ToolDef<typeof schema> = {
-  name: 'apply_consolidation_rules',
+  name: "apply_consolidation_rules",
   description:
-    'Aggregate advisory reports and emit a verdict per the rules in _Severity-and-Ownership.md. ' +
-    'Blocker -> REJECTED. Unjustified Major -> REJECTED. Otherwise CHANGES_REQUIRED or APPROVED. ' +
-    'Includes severity_counts and agents_involved for downstream summarization.',
+    "Aggregate advisory reports and emit a verdict per the rules in _shared/_Severity-and-Ownership.md. " +
+    "Blocker -> REJECTED. Unjustified Major -> REJECTED. Otherwise CHANGES_REQUIRED or APPROVED. " +
+    "Includes severity_counts and agents_involved for downstream summarization.",
   schema,
   handler: applyConsolidationRules,
 };

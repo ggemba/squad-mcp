@@ -1,5 +1,5 @@
 export type AgentName =
-  | 'po'
+  | 'product-owner'
   | 'tech-lead-planner'
   | 'tech-lead-consolidator'
   | 'senior-architect'
@@ -10,7 +10,7 @@ export type AgentName =
   | 'senior-qa';
 
 export const AGENT_NAMES: AgentName[] = [
-  'po',
+  'product-owner',
   'tech-lead-planner',
   'tech-lead-consolidator',
   'senior-architect',
@@ -39,8 +39,8 @@ export interface AgentDef {
 }
 
 export const AGENTS: Record<AgentName, AgentDef> = {
-  po: {
-    name: 'po',
+  'product-owner': {
+    name: 'product-owner',
     role: 'Business value, UX, requirements fit',
     owns: ['Business value and requirements', 'User experience'],
     conventions: [],
@@ -107,7 +107,7 @@ export const AGENTS: Record<AgentName, AgentDef> = {
 
 export const SQUAD_BY_TYPE: Record<WorkType, { core: AgentName[]; conditional: { agent: AgentName; when: string }[] }> = {
   Feature: {
-    core: ['po', 'senior-developer', 'senior-qa'],
+    core: ['product-owner', 'senior-developer', 'senior-qa'],
     conditional: [
       { agent: 'senior-dba', when: 'data touched' },
       { agent: 'senior-architect', when: 'new module' },
@@ -134,7 +134,7 @@ export const SQUAD_BY_TYPE: Record<WorkType, { core: AgentName[]; conditional: {
     conditional: [{ agent: 'senior-dev-reviewer', when: 'large code change' }],
   },
   'Business Rule': {
-    core: ['po', 'senior-developer', 'senior-qa'],
+    core: ['product-owner', 'senior-developer', 'senior-qa'],
     conditional: [{ agent: 'senior-dba', when: 'data-bound' }],
   },
 };

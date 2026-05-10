@@ -36,7 +36,7 @@ describe('applyConsolidationRules', () => {
 
   it('APPROVED when no findings', () => {
     const r = applyConsolidationRules({
-      reports: [{ agent: 'po', findings: [], not_evaluated: false }],
+      reports: [{ agent: 'product-owner', findings: [], not_evaluated: false }],
     });
     expect(r.verdict).toBe('APPROVED');
   });

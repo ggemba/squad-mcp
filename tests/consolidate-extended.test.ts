@@ -6,7 +6,7 @@ describe('applyConsolidationRules — extended output', () => {
     const r = applyConsolidationRules({
       reports: [
         {
-          agent: 'po',
+          agent: 'product-owner',
           findings: [
             { severity: 'Major', title: 'a', justified: true },
             { severity: 'Minor', title: 'b' },
@@ -21,25 +21,25 @@ describe('applyConsolidationRules — extended output', () => {
       ],
     });
     expect(r.severity_counts).toEqual({ Blocker: 0, Major: 1, Minor: 1, Suggestion: 1 });
-    expect(r.agents_involved).toEqual(['po', 'senior-developer']);
+    expect(r.agents_involved).toEqual(['product-owner', 'senior-developer']);
   });
 
   it('agents_involved sorted deterministically', () => {
     const r = applyConsolidationRules({
       reports: [
         { agent: 'senior-qa', findings: [], not_evaluated: false },
-        { agent: 'po', findings: [], not_evaluated: false },
+        { agent: 'product-owner', findings: [], not_evaluated: false },
         { agent: 'senior-developer', findings: [], not_evaluated: false },
       ],
     });
-    expect(r.agents_involved).toEqual(['po', 'senior-developer', 'senior-qa']);
+    expect(r.agents_involved).toEqual(['product-owner', 'senior-developer', 'senior-qa']);
   });
 
   it('idempotent: same input -> same output', () => {
     const input = {
       reports: [
         {
-          agent: 'po' as const,
+          agent: 'product-owner' as const,
           findings: [{ severity: 'Major' as const, title: 'x', justified: true }],
           not_evaluated: false,
         },

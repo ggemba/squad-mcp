@@ -9,18 +9,78 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 Planned for a future minor:
 
-- Promote bundled agent markdowns to Claude Code native plugin agents (rename to
-  kebab-case + add YAML frontmatter), with a migration path for existing
-  `%APPDATA%\squad-mcp\agents` overrides.
-- Retire the legacy `/squad` and `/squad-review` skills now that the plugin
-  ships them as slash commands.
-- Extract `tools/sync-agents.mjs` helpers into a `tools/sync/` module
-  (`baseline-store.mjs`, `safe-copy.mjs`, `agents.mjs`, `skills.mjs`) once a
-  third sync target lands.
-- Streaming SHA-256 over `fs.createReadStream` for skill files larger than a
-  threshold (avoids `readFileSync` doubling memory on large bundled assets).
-- Property-based tests for `hasPathSeparator` and the tri-state baseline
-  policy state machine via `fast-check`.
+- Streaming SHA-256 over `fs.createReadStream` for any large bundled asset reads
+  (avoids `readFileSync` doubling memory).
+- Property-based tests for severity/consolidation rules via `fast-check`.
+
+## [0.6.0] - 2026-05-10
+
+### Architectural cleanup — separation of concerns
+
+This release rationalizes the role of each layer of the project. The MCP server
+owns deterministic primitives + agent definitions. The Claude Code plugin owns
+packaging (skill, commands, native subagents, MCP wiring). One skill (`squad`)
+hosts both `implement` and `review` modes — no client bifurcation, no skill
+fragmentation. Agent markdowns live in **one** place per install: the plugin's
+`agents/` directory at install time, exposed both as native Claude Code
+subagents and as MCP `agent://…` resources for non-Claude-Code clients.
+
+### Changed (BREAKING)
+
+- **Agent markdown filenames renamed to kebab-case** with YAML frontmatter so
+  Claude Code registers them as native subagents. Old (PascalCase) filenames
+  no longer exist:
+  - `agents/PO.md` → `agents/product-owner.md`
+  - `agents/Senior-Architect.md` → `agents/senior-architect.md`
+  - `agents/Senior-DBA.md` → `agents/senior-dba.md`
+  - `agents/Senior-Developer.md` → `agents/senior-developer.md`
+  - `agents/Senior-Dev-Reviewer.md` → `agents/senior-dev-reviewer.md`
+  - `agents/Senior-Dev-Security.md` → `agents/senior-dev-security.md`
+  - `agents/Senior-QA.md` → `agents/senior-qa.md`
+  - `agents/TechLead-Planner.md` → `agents/tech-lead-planner.md`
+  - `agents/TechLead-Consolidator.md` → `agents/tech-lead-consolidator.md`
+- **Shared docs moved to `agents/_shared/`**: `_Severity-and-Ownership.md`,
+  `Skill-Squad-Dev.md`, `Skill-Squad-Review.md`. They are not registered as
+  subagents; they're reference material. Cross-references inside agent files
+  updated accordingly.
+- **AgentName `'po'` renamed to `'product-owner'`** across the type, AGENTS
+  registry, AGENT_FILE_MAP, ownership matrix entries, MCP resource URI, and
+  tests — full consistency with the file/frontmatter name. MCP resource URI
+  changes from `agent://po` to `agent://product-owner`.
+- **Plugin manifest declares `agents/`**: `.claude-plugin/plugin.json` now
+  includes `"agents": "./agents/"`, registering the nine subagents natively
+  in Claude Code.
+- **Single `squad` skill replaces the two command-only entries.** Both
+  `/squad` and `/squad-review` invoke `skills/squad/SKILL.md`; the entry
+  command selects mode (`implement` vs `review`). Phases 2/4/8/9/11 only run
+  in implement mode.
+
+### Removed (BREAKING)
+
+- **`tools/sync-agents.mjs` deleted.** The plugin install path is the canonical
+  Claude Code distribution; non-Claude-Code MCP clients consume agent
+  definitions over MCP. Users on the previous "npm install + sync to
+  `~/.claude/`" flow should migrate to the plugin install (Path A in
+  INSTALL.md).
+- **`tests/sync-agents.test.ts` deleted** alongside the script.
+
+### Migration
+
+If you had `%APPDATA%\squad-mcp\agents` (Windows) or
+`$XDG_CONFIG_HOME/squad-mcp/agents` (Unix) overrides for the old PascalCase
+filenames, rename them to the new kebab-case names. The override allowlist and
+loader semantics are unchanged. Shared-doc overrides moved into a `_shared/`
+subdirectory under the same override root.
+
+If you depended on `~/.claude/agents/` being populated by the sync script,
+install the plugin (`/plugin install squad@gempack`) — Claude Code now
+registers the agents directly from the plugin's bundled `agents/` directory.
+
+### Added
+
+- `initLocalConfig` ensures the `_shared/` subdirectory exists before copying
+  shared docs (previously a latent bug on first init when the override root
+  did not yet contain a subdirectory).
 
 ## [0.5.0] - 2026-05-04
 
@@ -39,11 +99,11 @@ Planned for a future minor:
   (market patterns, best practices, pitfalls, examples); spawns specialist
   agents for multi-domain perspectives; synthesizes findings into a sourced
   options matrix with a recommendation. Exploratory only — produces no code or
-  file changes. Position in the workflow: `/brainstorm` decides *what* to
+  file changes. Position in the workflow: `/brainstorm` decides _what_ to
   build; `/squad` implements; `/squad-review` reviews. Triggered via
   `/brainstorm` or natural-language asks ("brainstorm", "research approaches",
   "explore options", "what does the industry use"). Supports `--depth
-  quick|medium|deep`, `--no-web`, `--focus <domain>`, and `--sources <N>`.
+quick|medium|deep`, `--no-web`, `--focus <domain>`, and `--sources <N>`.
 - **`commit-suggest` skill.** Read-only Conventional Commits message suggester.
   Runs only an allowlist of git commands (`status`, `diff`, `log`, `rev-parse`,
   `config --get`, `ls-files`, `show <ref>:<path>`); never executes any
@@ -55,8 +115,8 @@ Planned for a future minor:
   enabled in Claude Code.
 - **`tools/git-hooks/commit-msg`**. Optional opt-in hook that rejects commits
   whose messages contain AI-attribution trailers (`Co-Authored-By: Claude /
-  Anthropic / GPT / OpenAI / Gemini / Copilot / AI`, `Generated with [Claude
-  Code]`, `Made by AI`, `<noreply@anthropic.com>`). Install via `cp` to
+Anthropic / GPT / OpenAI / Gemini / Copilot / AI`, `Generated with [Claude
+Code]`, `Made by AI`, `<noreply@anthropic.com>`). Install via `cp` to
   `.git/hooks/` or repo-wide via `git config core.hooksPath tools/git-hooks`.
 - **`tools/sync-agents.mjs` skills sync.** Mirrors bundled skills to
   `~/.claude/skills/` for non-plugin clients (Claude Desktop, Cursor, Warp).
@@ -291,7 +351,7 @@ content signals). No `0.2.0` git tag was created; that scope ships as part of
   - **CWD validation**: must be absolute, must exist, must be a directory,
     must contain a `.git` entry. Resolved via `realpath`.
   - **Hardening prefix**: every invocation prepends `-c core.fsmonitor=false
-    -c diff.external= -c core.hooksPath=NUL` (or `/dev/null`).
+-c diff.external= -c core.hooksPath=NUL` (or `/dev/null`).
   - **Environment scrub**: drops user env, sets `GIT_TERMINAL_PROMPT=0`,
     `GIT_OPTIONAL_LOCKS=0`, `GIT_CONFIG_NOSYSTEM=1`,
     `GIT_CEILING_DIRECTORIES=<parent of cwd>`.

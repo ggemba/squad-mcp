@@ -44,7 +44,6 @@ The plugin bundles the MCP server, the slash commands, and the agent definitions
 3. **Restart Claude Code** (close and reopen). The slash-command registry is populated at startup, so the new `/squad` and `/squad-review` commands and the `squad` MCP server only become available after a restart.
 
 4. **Verify the install.** In a fresh prompt:
-
    - Type `/squad ` (with the trailing space) — the autocomplete should suggest `/squad <task description>`.
    - Type `/squad-review` — same check.
    - Open Settings → MCP. You should see `squad` listed and connected.
@@ -80,16 +79,9 @@ Then restart Claude Code.
 
 Use this path for hosts that don't have a plugin marketplace (Claude Desktop, Cursor, Warp, Continue, etc.) or when you want the MCP server only without the slash commands.
 
-> **Path B vs Path A — what gets installed:** the npm package ships **only the MCP server** (`dist/index.js`). The bundled agents (`agents/*.md`), shared docs (`agents/_squad-shared/`), and skills (`skills/*/SKILL.md`) are **not** auto-mirrored to `~/.claude/` by `npx`. Path A (Claude Code plugin) registers them via the manifest; Path B users who want the slash commands and skills materialized in `~/.claude/agents/` and `~/.claude/skills/` must run the bundled sync script after installing:
+> **Path B vs Path A — what each path provides:** Path A (Claude Code plugin) registers agents, skills, slash commands, and the MCP server via the plugin manifest. Path B (npm package) ships **only the MCP server** (`dist/index.js`); slash commands and native subagents are Claude Code-specific concepts and don't apply to non-Claude-Code MCP clients. Those clients access the same agent definitions via MCP `agent://…` resources or the `get_agent_definition` tool exposed by the server.
 >
-> ```bash
-> # From a checkout of https://github.com/ggemba/squad-mcp at the matching tag:
-> node tools/sync-agents.mjs
-> ```
->
-> The sync is idempotent. Re-running it preserves any skill files you have edited locally (skip-with-warning policy). Delete a skill file under `~/.claude/skills/<name>/` (losing your edits) to receive the next bundled update.
->
-> The script maintains a `~/.claude/skills/.bundle-hashes.json` baseline file that records the hash of the last bundled version of each skill file. It distinguishes "unmodified prior bundle" (overwrite on update) from "user-modified" (preserve with warning). Do **not** edit or delete this file manually — deleting it forces all existing skills to be classified as user-modified until they happen to match a future bundle.
+> If you're running Claude Code, **always prefer Path A**. Path B exists for clients without a Claude-Code plugin layer (Claude Desktop, Cursor, Warp, Continue).
 
 The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package/@gempack/squad-mcp). You don't need to install it globally — `npx` will fetch and cache it on first run.
 
@@ -345,12 +337,13 @@ Both layers compose: prompt rule, `permissions.deny`, and the `commit-msg` hook.
 
 ## Bundled skills
 
-The plugin ships these skills under `skills/` (auto-registered when the plugin is enabled, or mirrored to `~/.claude/skills/` via `node tools/sync-agents.mjs` for non-plugin clients):
+The plugin ships these skills under `skills/` (auto-registered when the plugin is enabled):
 
-| Skill | Trigger | Purpose |
-|-------|---------|---------|
-| `commit-suggest` | `/commit-suggest` | Read-only Conventional Commits message suggester. No AI co-author trailers. |
-| `brainstorm` | `/brainstorm <topic>` | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code. |
+| Skill            | Trigger                                  | Purpose                                                                                                                                                                                |
+| ---------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `squad`          | `/squad <task>` or `/squad-review [tgt]` | Single skill, two modes. Implement runs the full squad-dev orchestration; review runs the advisory portion only against an existing diff/branch/PR. Mode is selected by entry command. |
+| `commit-suggest` | `/commit-suggest`                        | Read-only Conventional Commits message suggester. No AI co-author trailers.                                                                                                            |
+| `brainstorm`     | `/brainstorm <topic>`                    | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code.                                                         |
 
 Workflow positioning:
 
