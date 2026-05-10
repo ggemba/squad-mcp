@@ -7,6 +7,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed — Marketplace version pin missed in v0.6.1
+
+`.claude-plugin/marketplace.json` was still pinned to `0.6.0` after v0.6.1 shipped, so `/plugin install squad@gempack` kept resolving to the broken v0.6.0 build. Bumped to `0.6.2` and added a release-workflow check that verifies all four version pins (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `src/index.ts SERVER_VERSION`) match the git tag. Future bumps fail loudly if any pin is forgotten.
+
 ### Fixed — Plugin manifest validation: shared docs lifted out of `agents/`
 
 Claude Code's `/plugin install` rejected the v0.6.0 plugin with `Validation errors: agents: Invalid input`. The plugin manifest's `agents: "./agents/"` directive iterated every `.md` file under `agents/`, including the three `_shared/*.md` reference docs (severity matrix + skill specs) — they lack subagent frontmatter and fail validation.
