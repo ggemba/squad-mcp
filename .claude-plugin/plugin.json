@@ -1,7 +1,7 @@
 {
   "name": "squad",
-  "version": "0.5.0",
-  "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server and the /squad and /squad-review slash commands.",
+  "version": "0.6.0",
+  "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server, native subagents, and the /squad and /squad-review slash commands.",
   "license": "Apache-2.0",
   "author": {
     "name": "Gustavo",
@@ -10,6 +10,7 @@
   "homepage": "https://github.com/ggemba/squad-mcp#readme",
   "repository": "https://github.com/ggemba/squad-mcp",
   "keywords": ["mcp", "squad-dev", "code-review", "advisory", "agent"],
+  "agents": "./agents/",
   "commands": "./commands/",
   "skills": "./skills/",
   "mcpServers": {

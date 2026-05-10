@@ -1,10 +1,10 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-import { AGENTS, type AgentName } from '../config/ownership-matrix.js';
-import { SquadError } from '../errors.js';
-import { logger } from '../observability/logger.js';
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+import { AGENTS, type AgentName } from "../config/ownership-matrix.js";
+import { SquadError } from "../errors.js";
+import { logger } from "../observability/logger.js";
 import {
   validateOverrideDir,
   validateOverrideFile,
@@ -12,31 +12,36 @@ import {
   getAllowlistSize,
   __resetOverrideAllowlistCache,
   type ValidationOk,
-} from '../util/override-allowlist.js';
+} from "../util/override-allowlist.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const AGENT_FILE_MAP: Record<AgentName, string> = {
-  po: 'PO.md',
-  'tech-lead-planner': 'TechLead-Planner.md',
-  'tech-lead-consolidator': 'TechLead-Consolidator.md',
-  'senior-architect': 'Senior-Architect.md',
-  'senior-dba': 'Senior-DBA.md',
-  'senior-developer': 'Senior-Developer.md',
-  'senior-dev-reviewer': 'Senior-Dev-Reviewer.md',
-  'senior-dev-security': 'Senior-Dev-Security.md',
-  'senior-qa': 'Senior-QA.md',
+  'product-owner': "product-owner.md",
+  "tech-lead-planner": "tech-lead-planner.md",
+  "tech-lead-consolidator": "tech-lead-consolidator.md",
+  "senior-architect": "senior-architect.md",
+  "senior-dba": "senior-dba.md",
+  "senior-developer": "senior-developer.md",
+  "senior-dev-reviewer": "senior-dev-reviewer.md",
+  "senior-dev-security": "senior-dev-security.md",
+  "senior-qa": "senior-qa.md",
 };
 
-export const SHARED_FILES = ['_Severity-and-Ownership.md', 'Skill-Squad-Dev.md', 'Skill-Squad-Review.md'];
+export const SHARED_FILES = [
+  "_shared/_Severity-and-Ownership.md",
+  "_shared/Skill-Squad-Dev.md",
+  "_shared/Skill-Squad-Review.md",
+];
 
 function defaultLocalDir(): string {
-  if (process.platform === 'win32') {
-    const appdata = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming');
-    return path.join(appdata, 'squad-mcp', 'agents');
+  if (process.platform === "win32") {
+    const appdata =
+      process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(appdata, "squad-mcp", "agents");
   }
-  const xdg = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
-  return path.join(xdg, 'squad-mcp', 'agents');
+  const xdg = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config");
+  return path.join(xdg, "squad-mcp", "agents");
 }
 
 /**
@@ -45,14 +50,14 @@ function defaultLocalDir(): string {
  */
 export function getLocalDir(): { rawDir: string; explicit: boolean } {
   const env = process.env.SQUAD_AGENTS_DIR;
-  if (env !== undefined && env !== '') {
+  if (env !== undefined && env !== "") {
     return { rawDir: env, explicit: true };
   }
   return { rawDir: defaultLocalDir(), explicit: false };
 }
 
 export function getEmbeddedDir(): string {
-  return path.resolve(__dirname, '..', '..', 'agents');
+  return path.resolve(__dirname, "..", "..", "agents");
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -102,7 +107,7 @@ export function __resetAgentLoaderForTests(): void {
  */
 async function createSecureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-  if (process.platform !== 'win32') {
+  if (process.platform !== "win32") {
     await fs.chmod(dir, 0o700);
   }
 }
@@ -115,7 +120,7 @@ async function createSecureDir(dir: string): Promise<void> {
  */
 async function copyFileSecure(src: string, dst: string): Promise<void> {
   await fs.copyFile(src, dst);
-  if (process.platform !== 'win32') {
+  if (process.platform !== "win32") {
     await fs.chmod(dst, 0o600);
   }
 }
@@ -129,16 +134,16 @@ async function copyFileSecure(src: string, dst: string): Promise<void> {
  * not produce duplicate warnings.
  */
 async function checkOverrideDirPerms(dir: string): Promise<void> {
-  if (process.platform === 'win32') return;
+  if (process.platform === "win32") return;
   if (permWarnEmitted) return;
   permWarnEmitted = true;
   try {
     const s = await fs.stat(dir);
     if ((s.mode & 0o002) !== 0) {
-      logger.warn('override directory is world-writable', {
+      logger.warn("override directory is world-writable", {
         details: {
           configured_path: dir,
-          mode: '0o' + (s.mode & 0o777).toString(8),
+          mode: "0o" + (s.mode & 0o777).toString(8),
           recommendation: `chmod 700 ${dir}`,
         },
       });
@@ -152,7 +157,10 @@ async function ensureEmbeddedDir(): Promise<void> {
   if (embeddedAsserted) return;
   const dir = getEmbeddedDir();
   if (!(await exists(dir))) {
-    throw new SquadError('AGENT_DIR_MISSING', `embedded agents directory missing at ${dir}`);
+    throw new SquadError(
+      "AGENT_DIR_MISSING",
+      `embedded agents directory missing at ${dir}`,
+    );
   }
   embeddedAsserted = true;
 }
@@ -181,9 +189,12 @@ async function resolveOverride(): Promise<ValidationOk | null> {
   if (!(await isDirectory(rawDir))) {
     if (explicit && !overrideMissingWarnEmitted) {
       overrideMissingWarnEmitted = true;
-      logger.warn('SQUAD_AGENTS_DIR set but directory not found; falling back to embedded defaults', {
-        details: { configured_path: rawDir },
-      });
+      logger.warn(
+        "SQUAD_AGENTS_DIR set but directory not found; falling back to embedded defaults",
+        {
+          details: { configured_path: rawDir },
+        },
+      );
     }
     overrideValidationCache.set(rawDir, null);
     return null;
@@ -195,14 +206,14 @@ async function resolveOverride(): Promise<ValidationOk | null> {
     if (explicit) {
       const size = await getAllowlistSize();
       const err = rejectionToError(result, size);
-      logger.warn('SQUAD_AGENTS_DIR rejected', {
+      logger.warn("SQUAD_AGENTS_DIR rejected", {
         error_code: err.code,
         details: { reason: result.reason, configured_path: rawDir },
       });
       throw err;
     }
     // Platform-default rejection: log warn, fall back silently. Rare.
-    logger.warn('platform default agent directory failed validation', {
+    logger.warn("platform default agent directory failed validation", {
       details: { reason: result.reason, configured_path: rawDir },
     });
     overrideValidationCache.set(rawDir, null);
@@ -215,12 +226,14 @@ async function resolveOverride(): Promise<ValidationOk | null> {
       resolved_path: result.resolvedPath,
       allowlist_match: result.allowlistMatch,
       has_unsafe_override: result.unsafeOverride,
-      source: explicit ? 'env' : 'platform_default',
+      source: explicit ? "env" : "platform_default",
     };
     if (result.unsafeOverride) {
-      logger.warn('agent override active (unsafe escape hatch)', { details: fields });
+      logger.warn("agent override active (unsafe escape hatch)", {
+        details: fields,
+      });
     } else {
-      logger.info('agent override active', { details: fields });
+      logger.info("agent override active", { details: fields });
     }
   }
 
@@ -236,7 +249,7 @@ async function resolveOverride(): Promise<ValidationOk | null> {
  */
 function assertKnownAgent(name: string): asserts name is AgentName {
   if (!Object.prototype.hasOwnProperty.call(AGENT_FILE_MAP, name)) {
-    throw new SquadError('UNKNOWN_AGENT', `unknown agent: ${name}`, { name });
+    throw new SquadError("UNKNOWN_AGENT", `unknown agent: ${name}`, { name });
   }
 }
 
@@ -246,7 +259,10 @@ export async function resolveAgentFile(name: AgentName): Promise<string> {
   const file = AGENT_FILE_MAP[name];
   const override = await resolveOverride();
   if (override) {
-    const overrideFile = await validateOverrideFile(override.resolvedPath, file);
+    const overrideFile = await validateOverrideFile(
+      override.resolvedPath,
+      file,
+    );
     if (overrideFile) return overrideFile;
     // File missing or per-file escape — silent fallback to embedded for this file.
   }
@@ -256,11 +272,16 @@ export async function resolveAgentFile(name: AgentName): Promise<string> {
 export async function resolveSharedFile(file: string): Promise<string> {
   await ensureEmbeddedDir();
   if (!SHARED_FILES.includes(file)) {
-    throw new SquadError('INVALID_INPUT', `shared file not allowed: ${file}`, { file });
+    throw new SquadError("INVALID_INPUT", `shared file not allowed: ${file}`, {
+      file,
+    });
   }
   const override = await resolveOverride();
   if (override) {
-    const overrideFile = await validateOverrideFile(override.resolvedPath, file);
+    const overrideFile = await validateOverrideFile(
+      override.resolvedPath,
+      file,
+    );
     if (overrideFile) return overrideFile;
   }
   return path.join(getEmbeddedDir(), file);
@@ -268,7 +289,7 @@ export async function resolveSharedFile(file: string): Promise<string> {
 
 export async function readAgentDefinition(name: AgentName): Promise<string> {
   const filePath = await resolveAgentFile(name);
-  return fs.readFile(filePath, 'utf8');
+  return fs.readFile(filePath, "utf8");
 }
 
 export async function listAvailableAgents() {
@@ -292,7 +313,9 @@ export async function listAvailableAgents() {
   }));
 }
 
-export async function initLocalConfig(force = false): Promise<{ created: string[]; skipped: string[]; dir: string }> {
+export async function initLocalConfig(
+  force = false,
+): Promise<{ created: string[]; skipped: string[]; dir: string }> {
   await ensureEmbeddedDir();
   const { rawDir } = getLocalDir();
   await createSecureDir(rawDir);
@@ -305,6 +328,11 @@ export async function initLocalConfig(force = false): Promise<{ created: string[
     if ((await exists(dst)) && !force) {
       skipped.push(file);
       continue;
+    }
+    // Shared docs live under _shared/; ensure the parent dir exists before copyFile.
+    const parent = path.dirname(dst);
+    if (parent !== rawDir) {
+      await createSecureDir(parent);
     }
     const src = path.join(getEmbeddedDir(), file);
     await copyFileSecure(src, dst);

@@ -16,7 +16,7 @@ describe('selectSquad', () => {
       read_content: false,
       force_agents: [],
     });
-    expect(r.agents).toEqual(expect.arrayContaining(['po', 'senior-developer', 'senior-qa']));
+    expect(r.agents).toEqual(expect.arrayContaining(['product-owner', 'senior-developer', 'senior-qa']));
   });
 
   it('detects DBA via path hint (Repository.cs)', async () => {
