@@ -7,6 +7,48 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — Learning JSONL: persistent accept/reject memory
+
+Closes the squad's biggest UX gap: re-running review on the same repo no
+longer re-raises findings the team already considered and rejected (with
+reason). Every accept/reject decision becomes one append-only line in
+`.squad/learnings.jsonl`, versioned in git, surfaced as a markdown block
+injected into the next run's agent and consolidator prompts.
+
+- `src/learning/store.ts` — JSONL store with mtime-keyed cache.
+  `readLearnings`, `appendLearning`, and `tailRecent` (filterable by agent
+  / decision). Schema: `{ ts, pr?, branch?, agent, severity?, finding,
+decision, reason?, scope? }`. Schema violations on read are loud
+  rejections — silent corruption is worse.
+- `src/learning/format.ts` — pure formatter rendering a most-recent-first
+  numbered list under a `## Past team decisions` heading. Filters scoped
+  entries by glob match against `changedFiles`; entries without a scope
+  are repo-wide and always pass. Returns `''` when no entries qualify
+  (callers check before injecting — no empty headers in prompts).
+- New tool `read_learnings` — load, filter (agent / decision / scope),
+  return both raw entries and the rendered markdown block. Honors the
+  master switch `learnings.enabled` from `.squad.yaml`.
+- New tool `record_learning` — append a decision. Side-effecting; the
+  skill (or CLI) is responsible for user confirmation per finding.
+- New `.squad.yaml` section `learnings`:
+  - `path` (default `.squad/learnings.jsonl`)
+  - `max_recent` (default 50, hard cap 200)
+  - `enabled` (default true — turn off to disable injection without
+    deleting the journal)
+- `tools/record-learning.mjs` — CLI helper for non-MCP clients. Direct
+  JSONL append, no MCP round-trip. Same flags as the MCP tool plus
+  `--workspace` / `--file`.
+- `skills/squad/SKILL.md` adds **Phase 14 — Post-PR record decision**
+  (opt-in, per-finding authorisation required) and injects
+  `read_learnings` output into Phase 5 (per-agent advisory) and Phase 10
+  (consolidator). Inviolable rules: never record without explicit
+  per-finding authorisation, never invent a `reason`, never amend or
+  delete past entries through the skill.
+
+38 new tests cover the store (read / append / cache invalidation /
+schema violations) and the formatter (limits, scope filtering,
+rendering variants). Smoke test now verifies 16 tools (was 14).
+
 ### Added — Post `/squad-review` results as a GitHub PR review
 
 Closes the loop from "advisory in your terminal" to "advisory on the PR

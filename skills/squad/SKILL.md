@@ -43,6 +43,8 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `apply_consolidation_rules` — final verdict + rubric scorecard (when reports carry scores)
 - `score_rubric` — standalone rubric calculator (also invoked internally by `apply_consolidation_rules` when reports carry scores)
 - `list_agents` — list configured agents with role, ownership, and dimension weight
+- `read_learnings` — load past accept/reject decisions (filtered by agent + scope), returns a markdown block ready to inject into agent or consolidator prompts
+- `record_learning` — append a new accept/reject decision to `.squad/learnings.jsonl` (Phase 14 post-PR record)
 
 Available named subagents (Claude Code `Task(subagent_type=…)`): `product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`. The plugin registers these from `agents/`. In other MCP clients, the same role can be obtained via `get_agent_definition` and embedded in a generic dispatch prompt.
 
@@ -85,7 +87,11 @@ Skip this gate entirely in review mode.
 
 ## Phase 5 — Advisory squad (parallel, sliced) — both modes
 
-For each agent in `squad.agents`, call `slice_files_for_agent` to get the file slice, then dispatch the agent in parallel via `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt>)`. Run all dispatches in a single message for parallel execution.
+For each agent in `squad.agents`:
+
+1. Call `slice_files_for_agent` to get the file slice.
+2. Call `read_learnings` with `workspace_root`, `agent: "<agent-name>"`, and `changed_files: <file slice>` to fetch past team decisions for this agent. The tool returns a `rendered` markdown block ready for injection — empty string if no relevant learnings or the master switch is disabled.
+3. Dispatch the agent in parallel via `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>)`. Run all dispatches in a single message for parallel execution.
 
 Per-agent advisory prompt template (use the `agent_advisory` MCP prompt with arguments `agent`, `plan`, `slice` to construct, OR build manually):
 
@@ -98,9 +104,14 @@ You are participating in an advisory review.
 ## Your sliced view
 {file list from slices_by_agent[agent], with diffs}
 
+{learnings.rendered — omit this whole section if rendered is empty}
+
 ## Your perspective
 As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per _shared/_Severity-and-Ownership.md.
 For each finding: severity, file:line, observation, recommendation.
+If a similar finding appears in "Past team decisions" above with verdict REJECTED,
+do not re-raise it unless the diff materially changes the rationale. Acknowledge
+the prior decision in your output.
 You do NOT implement. Output is text only.
 
 ## Score
@@ -159,7 +170,14 @@ Call `apply_consolidation_rules` with the reports array (each with `score` popul
 - `rubric` with `weighted_score`, per-dimension breakdown, and `scorecard_text` (pre-formatted ASCII)
 - `downgraded_by_score: true` if you supplied `min_score` and the weighted score fell below it (only downgrades APPROVED → CHANGES_REQUIRED, never further)
 
-Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance.
+Before dispatching the consolidator, call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
+
+Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance.
+
+The consolidator prompt should include the learnings block under a `## Past team decisions` heading so the consolidator can:
+
+- Note when a current finding matches a previously rejected one (with reason) and downgrade severity or strike it.
+- Flag when a current finding matches a previously accepted one to show consistency.
 
 The final user-facing output MUST include the `rubric.scorecard_text` block verbatim — that's the visible artifact that distinguishes squad from generic reviewers.
 
@@ -242,6 +260,76 @@ The CLI invokes `gh pr review <n> --<action> --body-file -`. Surface the URL it 
 - **`gh` not available** → CLI exits 3 with a clear message; surface it to the user. Do not try to install `gh` automatically.
 - **`gh` not authenticated** → `gh pr review` will fail with an auth error; surface it. Suggest `gh auth login`.
 - **No AI attribution** in the review body. The footer says "Generated by squad-mcp" (the tool, not the AI). If the repo prefers a leaner body, set `pr_posting.omit_attribution_footer: true` in `.squad.yaml`.
+
+## Phase 14 — Post-PR record decision (review mode, opt-in)
+
+This phase runs ONLY when the user, after seeing the consolidated verdict (Phase 12) or the posted PR review (Phase 13), explicitly accepts or rejects one or more findings. Typical triggers:
+
+- "the auth finding is wrong, we have CSRF at the gateway — record reject"
+- "yes, all blockers are valid — record accept on those"
+- "/squad-record reject senior-dev-security 'missing CSRF on POST /api/refund' --reason 'CSRF terminated at API gateway'"
+
+The skill never records on its own. **Recording requires explicit user authorisation per finding.** Silence, "ok", "thanks" — none of those are authorisation.
+
+### 1. Confirm the decision
+
+Restate what's about to be recorded back to the user:
+
+```
+About to record:
+  agent:    senior-dev-security
+  finding:  missing CSRF on POST /api/refund
+  decision: REJECT
+  reason:   CSRF terminated at API gateway, see infra/edge.tf
+  scope:    src/api/**
+  pr:       42
+
+Confirm? (yes / no / edit)
+```
+
+Wait for confirmation. "yes" / "go" / "record" = proceed. Anything else = abort or edit.
+
+### 2. Call record_learning
+
+Once confirmed, call the MCP tool:
+
+```
+record_learning({
+  workspace_root: "<repo root>",
+  agent: "senior-dev-security",
+  finding: "missing CSRF on POST /api/refund",
+  decision: "reject",
+  reason: "CSRF terminated at API gateway, see infra/edge.tf",
+  severity: "Major",
+  pr: 42,
+  scope: "src/api/**"
+})
+```
+
+The tool appends one JSONL line to `.squad/learnings.jsonl` (or the path configured in `.squad.yaml`). It is side-effecting but local — it does NOT push or commit. The user is responsible for committing the file (it's intended to live in git).
+
+### 3. Surface the result
+
+Show the user the file path the entry was appended to and remind them to commit it if they want the learning to ship with the repo:
+
+```
+Recorded: reject on senior-dev-security — "missing CSRF on POST /api/refund"
+File:     /path/to/repo/.squad/learnings.jsonl
+
+Commit this file to share the decision with the team.
+```
+
+### 4. Multiple decisions
+
+If the user authorises multiple decisions in one go ("record reject on all three security findings, and accept on the architecture one"), call `record_learning` once per finding. Restate them as a numbered list before confirmation.
+
+### 5. Inviolable rules for recording
+
+- **Never record without explicit per-finding authorisation.** Bulk authorisation is OK ("yes, all of them"), but the user must have seen each finding restated.
+- **Never invent a `reason`.** If the user didn't give one, record without `reason` rather than fabricating. The reason field is what makes future runs trust the rejection.
+- **Never record `accept` for findings the user didn't actually accept.** A finding that was just "addressed in the implementation" is different from one the team decided was correct — only record `accept` when the user explicitly affirms the finding's validity.
+- **Never amend or delete past entries through this skill.** If the user wants to revise, they edit `.squad/learnings.jsonl` directly. The journal is append-only by design.
+- **The CLI exists for non-MCP clients.** If the user is in a non-Claude-Code environment, point them at `tools/record-learning.mjs --reject --agent <name> --finding <title> --reason <reason>`.
 
 ## Boundaries
 
