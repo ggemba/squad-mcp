@@ -17,7 +17,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const AGENT_FILE_MAP: Record<AgentName, string> = {
-  'product-owner': "product-owner.md",
+  "product-owner": "product-owner.md",
   "tech-lead-planner": "tech-lead-planner.md",
   "tech-lead-consolidator": "tech-lead-consolidator.md",
   "senior-architect": "senior-architect.md",
@@ -29,9 +29,9 @@ const AGENT_FILE_MAP: Record<AgentName, string> = {
 };
 
 export const SHARED_FILES = [
-  "_shared/_Severity-and-Ownership.md",
-  "_shared/Skill-Squad-Dev.md",
-  "_shared/Skill-Squad-Review.md",
+  "_Severity-and-Ownership.md",
+  "Skill-Squad-Dev.md",
+  "Skill-Squad-Review.md",
 ];
 
 function defaultLocalDir(): string {
@@ -58,6 +58,16 @@ export function getLocalDir(): { rawDir: string; explicit: boolean } {
 
 export function getEmbeddedDir(): string {
   return path.resolve(__dirname, "..", "..", "agents");
+}
+
+/**
+ * Path to the shared docs directory at repo root (`<repo>/shared/`). Lives
+ * outside `agents/` so the Claude Code plugin manifest's agent validator does
+ * not see non-agent files. Mirrors to `<localOverrideDir>/shared/` when the
+ * user runs init_local_config.
+ */
+export function getEmbeddedSharedDir(): string {
+  return path.resolve(__dirname, "..", "..", "shared");
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -278,13 +288,14 @@ export async function resolveSharedFile(file: string): Promise<string> {
   }
   const override = await resolveOverride();
   if (override) {
+    // Override mirrors source layout: `<localOverrideDir>/shared/<file>`.
     const overrideFile = await validateOverrideFile(
       override.resolvedPath,
-      file,
+      path.join("shared", file),
     );
     if (overrideFile) return overrideFile;
   }
-  return path.join(getEmbeddedDir(), file);
+  return path.join(getEmbeddedSharedDir(), file);
 }
 
 export async function readAgentDefinition(name: AgentName): Promise<string> {
@@ -322,21 +333,33 @@ export async function initLocalConfig(
   const created: string[] = [];
   const skipped: string[] = [];
   // SECURITY: file names come from hardcoded constants only; never accept user-supplied names here.
-  const sources = [...Object.values(AGENT_FILE_MAP), ...SHARED_FILES];
-  for (const file of sources) {
-    const dst = path.join(rawDir, file);
+  // Agent files mirror to <rawDir>/<file>.md.
+  // Shared docs mirror to <rawDir>/shared/<file>.md (matches the source layout
+  // since the dir was lifted out of agents/ in v0.6.1 to satisfy the Claude
+  // Code plugin manifest validator).
+  const targets: { src: string; dst: string; rel: string }[] = [
+    ...Object.values(AGENT_FILE_MAP).map((file) => ({
+      src: path.join(getEmbeddedDir(), file),
+      dst: path.join(rawDir, file),
+      rel: file,
+    })),
+    ...SHARED_FILES.map((file) => ({
+      src: path.join(getEmbeddedSharedDir(), file),
+      dst: path.join(rawDir, "shared", file),
+      rel: path.join("shared", file),
+    })),
+  ];
+  for (const { src, dst, rel } of targets) {
     if ((await exists(dst)) && !force) {
-      skipped.push(file);
+      skipped.push(rel);
       continue;
     }
-    // Shared docs live under _shared/; ensure the parent dir exists before copyFile.
     const parent = path.dirname(dst);
     if (parent !== rawDir) {
       await createSecureDir(parent);
     }
-    const src = path.join(getEmbeddedDir(), file);
     await copyFileSecure(src, dst);
-    created.push(file);
+    created.push(rel);
   }
   return { created, skipped, dir: rawDir };
 }

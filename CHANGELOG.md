@@ -7,6 +7,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed — Plugin manifest validation: shared docs lifted out of `agents/`
+
+Claude Code's `/plugin install` rejected the v0.6.0 plugin with `Validation errors: agents: Invalid input`. The plugin manifest's `agents: "./agents/"` directive iterated every `.md` file under `agents/`, including the three `_shared/*.md` reference docs (severity matrix + skill specs) — they lack subagent frontmatter and fail validation.
+
+- Moved `agents/_shared/` → top-level `shared/` so the plugin's agent validator only sees real subagent files.
+- `src/resources/agent-loader.ts` adds `getEmbeddedSharedDir()` (resolves to `<repo>/shared/`); `SHARED_FILES` now lists bare filenames; `resolveSharedFile` reads from the new dir; `initLocalConfig` mirrors shared docs to `<localOverrideDir>/shared/<file>` (was `<localOverrideDir>/_shared/<file>`).
+- `src/tools/consolidate.ts`, `skills/squad/SKILL.md`, `README.md` — references updated to `shared/_Severity-and-Ownership.md`.
+- `package.json` now ships the `shared/` dir + the new task CLI helpers (`tools/_tasks-io.mjs`, `tools/{list,next,record,update}-task*.mjs`) and `tools/record-learning.mjs` in the published tarball (was missing).
+
+Migration for users with an existing local override at `~/.config/squad-mcp/agents/_shared/`: run `init_local_config` again to mirror to the new `shared/` sub-directory, or move the files manually. Override resolution in v0.6.1 looks at `<localOverrideDir>/shared/<file>`; old `_shared/` overrides fall through to embedded defaults.
+
 ### Added — Tasks: PRD-decomposed atomic work units (anti-bloat for the squad)
 
 Borrows the core idea from claude-task-master and adapts it to squad-mcp's primitives. A PRD is decomposed by the host LLM into atomic tasks; each task carries optional `scope` (glob) and `agent_hints`; the squad runs against ONE task's scope at a time. Less context per pass, fewer tokens, less drift.
