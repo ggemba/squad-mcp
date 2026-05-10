@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-05-10
+
+### Fixed
+
+- **Plugin MCP server now runs from npm, not from gitignored `dist/`.** v0.6.4 (and all earlier releases) shipped a plugin manifest pointing at `${CLAUDE_PLUGIN_ROOT}/dist/index.js`. Claude Code's plugin install does a shallow `git clone` and never runs `npm install` / `npm run build`, so `dist/` (gitignored) was missing on disk and the MCP server failed to start with `Failed to reconnect to plugin:squad:squad`. The plugin manifest now uses `command: "npx"` + `args: ["-y", "@gempack/squad-mcp@<version>"]`, pulling the pre-built tarball published with provenance. The plugin still ships agents/commands/skills directly (those are static markdown). Side benefit: plugin and npm install paths now share a single MCP runtime.
+- **`release.yml` version-pin guard** now also verifies the npx pin in `mcpServers.squad.args` matches the git tag — any future bump that forgets this field fails publish.
+
 ## [0.6.4] - 2026-05-10
 
 ### Changed
