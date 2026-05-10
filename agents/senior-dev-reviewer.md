@@ -612,3 +612,29 @@ Summary and decision. Restate the overall score and the top 1–3 things the aut
 - Be specific: always reference file and line
 - When the language idiom and the existing codebase conflict, side with the existing codebase consistency and flag the inconsistency for separate discussion
 - Remember: the goal is that the author learns, not just that they fix
+
+## Score
+
+At the end of your advisory output, emit exactly:
+
+```
+Score: <NN>/100
+Score rationale: <one sentence on what drove the score>
+```
+
+The score is YOUR dimension's contribution to the squad rubric (`Code Quality`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
+
+### Calibration
+
+- 90-100: idiomatic, readable, well-named, async/error patterns clean.
+- 70-89: minor style or naming smells; no idiom violations of consequence.
+- 50-69: one Major — wrong async pattern, swallowed exception, name that misleads readers.
+- 30-49: multiple Majors; reviewer fatigue indicator.
+- 0-29: code unmaintainable as-is; halt.
+
+### Notes
+
+- Score is per-agent. Do not score other dimensions.
+- Score reflects the slice of files you reviewed, not the whole change.
+- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
+- An honest 65 is more useful than a generous 80; the rubric is auditable.

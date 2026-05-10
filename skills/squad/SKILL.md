@@ -1,6 +1,6 @@
 ---
 name: squad
-description: Multi-agent advisory squad workflow. Two modes — implement (default) and review. Implement runs the full squad-dev orchestration (classification, risk scoring, agent selection, planner, advisory parallel review, gates, implementation, consolidation). Review runs only the advisory portion against an existing diff/branch/PR with no implementation. Both modes use the same MCP tools and dispatch named subagents (senior-architect, senior-dba, senior-developer, senior-dev-reviewer, senior-dev-security, senior-qa, tech-lead-planner, tech-lead-consolidator, product-owner). Trigger when the user types /squad, /squad-review, or asks to "run the squad", "advisory review", "implement with squad-dev", "code review by specialists", or invokes any squad-dev workflow.
+description: Multi-agent advisory squad workflow. Two modes — implement (default) and review. Implement runs the full squad-dev orchestration (classification, risk scoring, agent selection, planner, advisory parallel review, gates, implementation, consolidation). Review runs only the advisory portion against an existing diff/branch/PR with no implementation. Both modes use the same MCP tools and dispatch named subagents (senior-architect, senior-dba, senior-developer, senior-dev-reviewer, senior-dev-security, senior-qa, tech-lead-planner, tech-lead-consolidator, product-owner). Each agent emits a Score 0-100 for its dimension; the consolidator weights them into a rubric scorecard. Trigger when the user types /squad, /squad-review, or asks to "run the squad", "advisory review", "implement with squad-dev", "code review by specialists", or invokes any squad-dev workflow.
 ---
 
 # Skill: Squad
@@ -12,7 +12,7 @@ Single skill that hosts both the **implement** workflow (full squad-dev orchestr
 | Mode                  | Triggered by             | What it does                                                                                                                                                                                  |
 | --------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `implement` (default) | `/squad <task>`          | Full squad-dev: classify → score risk → select advisory agents → planner → Gate 1 (plan approval) → parallel advisory → Gate 2 (Blocker halt) → implementation → consolidator → final verdict |
-| `review`              | `/squad-review [target]` | Review only: same agents on an existing diff/branch/PR, never implements. Output is consolidated advisory verdict.                                                                            |
+| `review`              | `/squad-review [target]` | Review only: same agents on an existing diff/branch/PR, never implements. Output is consolidated advisory verdict + scorecard.                                                                |
 
 The user-invoked entry command determines the mode. If the prompt contains `--review`, treat as review mode regardless of entry.
 
@@ -40,8 +40,9 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `compose_advisory_bundle` — full bundle: workflow + slices_by_agent + plan_validation
 - `validate_plan_text` — advisory check for inviolable-rule violations in a plan
 - `get_agent_definition` — read an agent's full markdown (used when sub-agent context needs the role)
-- `apply_consolidation_rules` — final verdict (APPROVED / CHANGES_REQUIRED / REJECTED)
-- `list_agents` — list configured agents with role and ownership
+- `apply_consolidation_rules` — final verdict + rubric scorecard (when reports carry scores)
+- `score_rubric` — standalone rubric calculator (also invoked internally by `apply_consolidation_rules` when reports carry scores)
+- `list_agents` — list configured agents with role, ownership, and dimension weight
 
 Available named subagents (Claude Code `Task(subagent_type=…)`): `product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`. The plugin registers these from `agents/`. In other MCP clients, the same role can be obtained via `get_agent_definition` and embedded in a generic dispatch prompt.
 
@@ -101,9 +102,30 @@ You are participating in an advisory review.
 As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per _shared/_Severity-and-Ownership.md.
 For each finding: severity, file:line, observation, recommendation.
 You do NOT implement. Output is text only.
+
+## Score
+At the end, emit on its own line:
+  Score: NN/100
+  Score rationale: <one sentence>
+
+Use the calibration table in your role file (see ## Score section). Honest 65
+is more useful than generous 80 — the rubric is auditable.
 ```
 
-Each agent emits findings tagged Blocker / Major / Minor / Suggestion per `_shared/_Severity-and-Ownership.md`.
+Each agent emits findings tagged Blocker / Major / Minor / Suggestion per `_shared/_Severity-and-Ownership.md` AND a single `Score: NN/100` line. Capture both into the per-agent report.
+
+When you build the `reports[]` array for `apply_consolidation_rules`, include the score:
+
+```json
+{
+  "agent": "senior-architect",
+  "findings": [...],
+  "score": 82,
+  "score_rationale": "clean DI, one Major on cross-module coupling"
+}
+```
+
+Tech-lead-planner and tech-lead-consolidator do NOT emit scores (weight 0).
 
 ## Phase 6 — Gate 2: Blocker halt
 
@@ -131,7 +153,15 @@ Delta only. Same consent rules as Phase 3.
 
 ## Phase 10 — TechLead-Consolidator (both modes)
 
-Dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output>)`. It emits the final verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus rollback plan / mitigation guidance.
+Call `apply_consolidation_rules` with the reports array (each with `score` populated). The tool emits:
+
+- Verdict (APPROVED / CHANGES_REQUIRED / REJECTED) per severity rules
+- `rubric` with `weighted_score`, per-dimension breakdown, and `scorecard_text` (pre-formatted ASCII)
+- `downgraded_by_score: true` if you supplied `min_score` and the weighted score fell below it (only downgrades APPROVED → CHANGES_REQUIRED, never further)
+
+Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance.
+
+The final user-facing output MUST include the `rubric.scorecard_text` block verbatim — that's the visible artifact that distinguishes squad from generic reviewers.
 
 ## Phase 11 — Gate 3: reject loop (implement mode only, max 2 iterations)
 
@@ -151,6 +181,7 @@ Single consolidated report:
 
 - Diff summary: files, work_type, risk
 - Per-agent findings (severity tagged)
+- `rubric.scorecard_text` block
 - Cross-cutting concerns
 - Final verdict: `APPROVED` / `CHANGES_REQUIRED` / `REJECTED`
 - Rollback / mitigation guidance
@@ -184,6 +215,26 @@ The plugin manifest declares `agents/` so Claude Code registers `product-owner`,
 - **Suggestion**: improvement idea; does not block
 
 Risk score: 0-1=Low, 2-3=Medium, 4+=High (signals: auth, money, migration, files_count>8, new_module, api_change).
+
+### Rubric scoring (new in v0.7)
+
+Each advisory agent emits `Score: NN/100` for its dimension. Default dimension weights:
+
+| Dimension        | Agent               | Weight |
+| ---------------- | ------------------- | ------ |
+| Architecture     | senior-architect    | 18%    |
+| Security         | senior-dev-security | 18%    |
+| Application Code | senior-developer    | 18%    |
+| Data Layer       | senior-dba          | 14%    |
+| Testing & QA     | senior-qa           | 14%    |
+| Code Quality     | senior-dev-reviewer | 10%    |
+| Business & UX    | product-owner       | 8%     |
+
+Repos override via `.squad.yaml` (planned). Until then, pass `weights` to `apply_consolidation_rules` directly.
+
+The weighted score is renormalised across agents that actually scored — a partial pass (e.g. only 4 of 9 agents) still produces a meaningful score over those 4 dimensions. Threshold default 75; below-threshold dimensions are flagged.
+
+`min_score` is opt-in: if set, an APPROVED verdict with weighted_score below the floor is downgraded to CHANGES_REQUIRED. Useful as a quality bar beyond just "no Blockers".
 
 ### Untrusted input
 

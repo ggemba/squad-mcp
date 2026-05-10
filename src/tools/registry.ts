@@ -1,16 +1,21 @@
-import { z, ZodTypeAny } from 'zod';
-import { scoreRiskTool } from './score-risk.js';
-import { selectSquadTool } from './select-squad.js';
-import { sliceFilesForAgentTool } from './slice-files.js';
-import { listAgentsTool, getAgentDefinitionTool, initLocalConfigTool } from './agents.js';
-import { applyConsolidationRulesTool } from './consolidate.js';
-import { classifyWorkTypeTool } from './classify-work-type.js';
-import { detectChangedFilesTool } from './detect-changed-files.js';
-import { validatePlanTextTool } from './validate-plan-text.js';
-import { composeSquadWorkflowTool } from './compose-squad-workflow.js';
-import { composeAdvisoryBundleTool } from './compose-advisory-bundle.js';
-import { isSquadError } from '../errors.js';
-import { logger, newRequestId } from '../observability/logger.js';
+import { z, ZodTypeAny } from "zod";
+import { scoreRiskTool } from "./score-risk.js";
+import { selectSquadTool } from "./select-squad.js";
+import { sliceFilesForAgentTool } from "./slice-files.js";
+import {
+  listAgentsTool,
+  getAgentDefinitionTool,
+  initLocalConfigTool,
+} from "./agents.js";
+import { applyConsolidationRulesTool } from "./consolidate.js";
+import { scoreRubricTool } from "./score-rubric.js";
+import { classifyWorkTypeTool } from "./classify-work-type.js";
+import { detectChangedFilesTool } from "./detect-changed-files.js";
+import { validatePlanTextTool } from "./validate-plan-text.js";
+import { composeSquadWorkflowTool } from "./compose-squad-workflow.js";
+import { composeAdvisoryBundleTool } from "./compose-advisory-bundle.js";
+import { isSquadError } from "../errors.js";
+import { logger, newRequestId } from "../observability/logger.js";
 
 export interface ToolDef<T extends ZodTypeAny = ZodTypeAny> {
   name: string;
@@ -33,6 +38,7 @@ export function registerTools(): void {
   register(getAgentDefinitionTool);
   register(initLocalConfigTool);
   register(applyConsolidationRulesTool);
+  register(scoreRubricTool);
   register(classifyWorkTypeTool);
   register(detectChangedFilesTool);
   register(validatePlanTextTool);
@@ -54,22 +60,22 @@ interface ToolErrorBody {
 
 function asToolErrorResponse(body: ToolErrorBody) {
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
     isError: true,
   };
 }
 
 function shapeOf(args: unknown): Record<string, unknown> | undefined {
-  if (args === null || typeof args !== 'object') return undefined;
+  if (args === null || typeof args !== "object") return undefined;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
     if (v === null || v === undefined) {
       out[k] = v;
     } else if (Array.isArray(v)) {
       out[k] = `[Array(${v.length})]`;
-    } else if (typeof v === 'object') {
-      out[k] = '[object]';
-    } else if (typeof v === 'string') {
+    } else if (typeof v === "object") {
+      out[k] = "[object]";
+    } else if (typeof v === "string") {
       out[k] = `[string(${v.length})]`;
     } else {
       out[k] = typeof v;
@@ -84,30 +90,34 @@ export async function dispatchTool(name: string, args: unknown) {
   const tool = tools.get(name);
 
   if (!tool) {
-    logger.warn('unknown tool', {
+    logger.warn("unknown tool", {
       tool: name,
       request_id: requestId,
-      outcome: 'unknown_tool',
+      outcome: "unknown_tool",
       duration_ms: Date.now() - started,
     });
     return asToolErrorResponse({
-      error: { code: 'UNKNOWN_TOOL', message: `unknown tool: ${name}` },
+      error: { code: "UNKNOWN_TOOL", message: `unknown tool: ${name}` },
     });
   }
 
-  logger.debug('tool call', { tool: name, request_id: requestId, input_shape: shapeOf(args) });
+  logger.debug("tool call", {
+    tool: name,
+    request_id: requestId,
+    input_shape: shapeOf(args),
+  });
 
   const parsed = tool.schema.safeParse(args);
   if (!parsed.success) {
-    logger.warn('invalid input', {
+    logger.warn("invalid input", {
       tool: name,
       request_id: requestId,
-      outcome: 'invalid_input',
+      outcome: "invalid_input",
       duration_ms: Date.now() - started,
     });
     return asToolErrorResponse({
       error: {
-        code: 'INVALID_INPUT',
+        code: "INVALID_INPUT",
         message: parsed.error.message,
         details: { issues: parsed.error.issues.length },
       },
@@ -116,22 +126,24 @@ export async function dispatchTool(name: string, args: unknown) {
 
   try {
     const result = await tool.handler(parsed.data);
-    logger.info('tool ok', {
+    logger.info("tool ok", {
       tool: name,
       request_id: requestId,
-      outcome: 'success',
+      outcome: "success",
       duration_ms: Date.now() - started,
     });
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      content: [
+        { type: "text" as const, text: JSON.stringify(result, null, 2) },
+      ],
     };
   } catch (err) {
     const duration_ms = Date.now() - started;
     if (isSquadError(err)) {
-      logger.warn('tool error', {
+      logger.warn("tool error", {
         tool: name,
         request_id: requestId,
-        outcome: 'tool_error',
+        outcome: "tool_error",
         duration_ms,
         error_code: err.code,
       });
@@ -140,15 +152,15 @@ export async function dispatchTool(name: string, args: unknown) {
       });
     }
     const message = err instanceof Error ? err.message : String(err);
-    logger.error('internal error', {
+    logger.error("internal error", {
       tool: name,
       request_id: requestId,
-      outcome: 'internal_error',
+      outcome: "internal_error",
       duration_ms,
       details: { message },
     });
     return asToolErrorResponse({
-      error: { code: 'INTERNAL_ERROR', message: 'internal tool error' },
+      error: { code: "INTERNAL_ERROR", message: "internal tool error" },
     });
   }
 }
@@ -162,15 +174,23 @@ function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
       properties[key] = zodToJsonSchema(value);
       if (!value.isOptional()) required.push(key);
     }
-    return { type: 'object', properties, ...(required.length ? { required } : {}) };
+    return {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+    };
   }
-  if (schema instanceof z.ZodString) return { type: 'string' };
-  if (schema instanceof z.ZodNumber) return { type: 'number' };
-  if (schema instanceof z.ZodBoolean) return { type: 'boolean' };
-  if (schema instanceof z.ZodArray) return { type: 'array', items: zodToJsonSchema(schema.element) };
-  if (schema instanceof z.ZodEnum) return { type: 'string', enum: schema.options };
+  if (schema instanceof z.ZodString) return { type: "string" };
+  if (schema instanceof z.ZodNumber) return { type: "number" };
+  if (schema instanceof z.ZodBoolean) return { type: "boolean" };
+  if (schema instanceof z.ZodArray)
+    return { type: "array", items: zodToJsonSchema(schema.element) };
+  if (schema instanceof z.ZodEnum)
+    return { type: "string", enum: schema.options };
   if (schema instanceof z.ZodOptional) return zodToJsonSchema(schema.unwrap());
-  if (schema instanceof z.ZodDefault) return zodToJsonSchema(schema.removeDefault());
-  if (schema instanceof z.ZodEffects) return zodToJsonSchema(schema.innerType());
+  if (schema instanceof z.ZodDefault)
+    return zodToJsonSchema(schema.removeDefault());
+  if (schema instanceof z.ZodEffects)
+    return zodToJsonSchema(schema.innerType());
   return {};
 }

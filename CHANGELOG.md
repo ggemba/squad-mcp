@@ -7,10 +7,46 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — weighted rubric scorecard
+
+Each advisory agent now represents a dimension of a multi-dimensional rubric
+with a default weight. The consolidator emits a pre-formatted ASCII scorecard
+alongside the legacy verdict.
+
+- New tool `score_rubric` (`src/tools/score-rubric.ts`): pure function over
+  per-agent scores (0-100) and optional weight overrides; returns
+  `weighted_score`, per-dimension breakdown with bars, `passes_threshold`,
+  `ignored_agents`, and a pre-formatted `scorecard_text`.
+- `AgentDef` extended with `weight: number` and `dimension: string`. Default
+  weights sum to 100 across the seven advisory agents (Architecture 18%,
+  Security 18%, Application Code 18%, Data Layer 14%, Testing & QA 14%, Code
+  Quality 10%, Business & UX 8%). Meta-agents (tech-lead-planner,
+  tech-lead-consolidator) carry weight 0 — they don't score a dimension.
+- `apply_consolidation_rules` accepts optional per-agent `score`/`score_rationale`,
+  optional `weights` override, optional `threshold` (default 75), and optional
+  `min_score`. Returns `rubric: RubricOutput | null` and `downgraded_by_score`.
+  When `min_score` is set, an APPROVED verdict with weighted score below the
+  floor is downgraded to CHANGES_REQUIRED. Backward compatible: callers that
+  omit scores get the legacy output shape and verdict logic.
+- Each advisory agent file (`agents/*.md`) now ships a `## Score` section with
+  a calibration table (90-100 / 70-89 / 50-69 / 30-49 / 0-29 bands) specific
+  to that dimension, plus the protocol for emitting `Score: NN/100`.
+- Skill `skills/squad/SKILL.md` updated to capture per-agent scores into the
+  reports array and surface `rubric.scorecard_text` verbatim in the final
+  output. Tech-lead-planner/consolidator excluded (weight 0).
+- Weight renormalisation: when only a subset of agents scores (partial pass),
+  the rubric renormalises across the agents that actually scored. A 4-of-9
+  advisory still produces a meaningful weighted score over those 4.
+- `tests/score-rubric.test.ts` and `tests/consolidate-rubric.test.ts` cover
+  the math (renormalisation, weight overrides, sum=100 validation, threshold
+  edge cases), backward compatibility, and the `min_score` downgrade rule.
+
 Planned for a future minor:
 
-- Streaming SHA-256 over `fs.createReadStream` for any large bundled asset reads
-  (avoids `readFileSync` doubling memory).
+- `.squad.yaml` reader so weight overrides live with the repo.
+- Per-PR memory of accept/reject decisions feeding back into agent prompts.
+- Streaming SHA-256 over `fs.createReadStream` for any large bundled asset
+  reads (avoids `readFileSync` doubling memory).
 - Property-based tests for severity/consolidation rules via `fast-check`.
 
 ## [0.6.0] - 2026-05-10
