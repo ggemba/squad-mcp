@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-05-10
+
+### Changed
+
+- **Skill + orchestration prompt: parallel dispatch is now an inviolable rule, not a hint.** Phase 5 of `skills/squad/SKILL.md` and the `squad_orchestration` MCP prompt both spell out the failure mode (multiplied wall time when one Task is dispatched per turn) and the fix (one assistant message with N concurrent `Task` tool_use blocks). Adds Inviolable Rule 9 to the skill header and an explicit anti-pattern block to Phase 5 so future orchestrator LLMs cannot miss it.
+- **`agent_advisory` prompt arg description**: stale `po` reference → `product-owner` (kebab-case rename leftover).
+
 ## [0.6.3] - 2026-05-10
 
 ### Fixed
