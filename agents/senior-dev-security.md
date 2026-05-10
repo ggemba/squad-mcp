@@ -138,3 +138,29 @@ Summary of risks and prioritized recommendations.
 - Do not generate false positives — only report with real or highly likely evidence
 - Prioritize by real impact, not theoretical checklist
 - Explicitly record what could not be validated
+
+## Score
+
+At the end of your advisory output, emit exactly:
+
+```
+Score: <NN>/100
+Score rationale: <one sentence on what drove the score>
+```
+
+The score is YOUR dimension's contribution to the squad rubric (`Security`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
+
+### Calibration
+
+- 90-100: no OWASP issue; authn/authz tight; secrets handled; no new dependency risk.
+- 70-89: minor concerns (missing input length cap, weak rate limit) — not exploitable.
+- **50-69: one Major — IDOR, missing authz check, secret in log, unsafe dependency.**
+- 30-49: exploitable today (auth bypass, SQLi, RCE); Blocker territory.
+- 0-29: critical security break; halt.
+
+### Notes
+
+- Score is per-agent. Do not score other dimensions.
+- Score reflects the slice of files you reviewed, not the whole change.
+- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
+- An honest 65 is more useful than a generous 80; the rubric is auditable.

@@ -184,3 +184,29 @@ Summary of the analysis and confidence in the solution for production.
 - Focus on real, probable bugs — not unlikely theoretical scenarios
 - Production is hostile: anything that can go wrong, will
 - Moderate duplication is acceptable when the alternative is a premature abstraction
+
+## Score
+
+At the end of your advisory output, emit exactly:
+
+```
+Score: <NN>/100
+Score rationale: <one sentence on what drove the score>
+```
+
+The score is YOUR dimension's contribution to the squad rubric (`Application Code`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
+
+### Calibration
+
+- 90-100: correctness solid, robustness considered, API contract honoured, observability in place.
+- 70-89: minor robustness gaps (one ambiguous error path, missing log) but no behavioural break.
+- **50-69: one Major — broken contract, missing error handling, observability hole on critical path.**
+- 30-49: multiple Majors or behaviour change with no test/log support.
+- 0-29: ships broken; halt.
+
+### Notes
+
+- Score is per-agent. Do not score other dimensions.
+- Score reflects the slice of files you reviewed, not the whole change.
+- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
+- An honest 65 is more useful than a generous 80; the rubric is auditable.

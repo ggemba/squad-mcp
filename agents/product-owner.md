@@ -88,3 +88,29 @@ Objective summary of the evaluation.
 - Be pragmatic: not every gap is a blocker, classify by severity
 - Frame impact in business terms, not technical ones
 - Without a user story, judge by observable behavior and product common sense
+
+## Score
+
+At the end of your advisory output, emit exactly:
+
+```
+Score: <NN>/100
+Score rationale: <one sentence on what drove the score>
+```
+
+The score is YOUR dimension's contribution to the squad rubric (`Business & UX`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
+
+### Calibration
+
+- 90-100: requirement matches the change; UX clear; business value evident.
+- 70-89: minor mismatch with stated requirement or UX awkwardness.
+- **50-69: one Major — business rule contradicted, UX broken on critical flow, requirement absent.**
+- 30-49: change does not deliver claimed value; conflicts with PO intent.
+- 0-29: should not be built; halt.
+
+### Notes
+
+- Score is per-agent. Do not score other dimensions.
+- Score reflects the slice of files you reviewed, not the whole change.
+- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
+- An honest 65 is more useful than a generous 80; the rubric is auditable.

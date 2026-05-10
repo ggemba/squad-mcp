@@ -125,3 +125,29 @@ Summary of the diagnosis and long-term view.
 - Distinguish "ideal" from "acceptable for now"
 - Avoid astronaut architecture — prefer pragmatic solutions
 - If the issue is implementation (not design), forward to the right agent
+
+## Score
+
+At the end of your advisory output, emit exactly:
+
+```
+Score: <NN>/100
+Score rationale: <one sentence on what drove the score>
+```
+
+The score is YOUR dimension's contribution to the squad rubric (`Architecture`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
+
+### Calibration
+
+- 90-100: clean module/domain boundaries, DI lifetimes correct, no coupling regression, extensibility clear.
+- 70-89: minor issues (over-eager abstraction, ambiguous responsibility split) but no actionable Major.
+- **50-69: at least one Major (cross-module coupling, wrong DI lifetime, hidden mutable state).**
+- 30-49: multiple Majors or one Blocker that endangers structural integrity.
+- 0-29: architecture-level break; halt.
+
+### Notes
+
+- Score is per-agent. Do not score other dimensions.
+- Score reflects the slice of files you reviewed, not the whole change.
+- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
+- An honest 65 is more useful than a generous 80; the rubric is auditable.
