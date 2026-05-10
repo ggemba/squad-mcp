@@ -71,6 +71,15 @@ jobs:
           done
           echo "::error::tarball not visible on registry after 60s"
           exit 1
+      - name: warm the npx cache (avoids first-run fetch counting against the smoke timeout)
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          # `npx --version` on the published package forces the fetch + extract
+          # so the smoke step below only pays for spawn + handshake. Without
+          # this the cold fetch (~10-25s on a GH runner) eats the handshake
+          # budget and the smoke flakes.
+          npm exec --yes --package "@gempack/squad-mcp@${TAG_VERSION}" -- squad-mcp --help >/dev/null 2>&1 || true
       - name: smoke the published tarball over stdio
         shell: bash
         run: |
@@ -95,7 +104,10 @@ jobs:
             }
           });
           const send = (req) => child.stdin.write(JSON.stringify(req) + "\n");
-          const waitFor = (id, timeoutMs = 30_000) => new Promise((resolve, reject) => {
+          // 90s budget — even with the warm cache, npx adds spawn latency on
+          // top of the server's own startup. Better to fail loudly after 90s
+          // than to flake at 30s.
+          const waitFor = (id, timeoutMs = 90_000) => new Promise((resolve, reject) => {
             const start = Date.now();
             const t = setInterval(() => {
               const m = messages.find((x) => x.id === id);
