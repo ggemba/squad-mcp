@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ["v*.*.*"]
 
 permissions:
   contents: read
@@ -15,8 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
           cache: npm
       - run: npm ci
       - run: npm run lint
@@ -25,12 +25,24 @@ jobs:
       - name: verify version matches tag
         shell: bash
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          PLUGIN_VERSION=$(node -p "require('./.claude-plugin/plugin.json').version")
+          MARKET_VERSION=$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")
+          SERVER_VERSION=$(node -p "require('fs').readFileSync('src/index.ts','utf8').match(/SERVER_VERSION = \"([^\"]+)\"/)[1]")
+          fail=0
+          for pair in "package.json:$PKG_VERSION" ".claude-plugin/plugin.json:$PLUGIN_VERSION" ".claude-plugin/marketplace.json:$MARKET_VERSION" "src/index.ts SERVER_VERSION:$SERVER_VERSION"; do
+            file="${pair%:*}"
+            ver="${pair##*:}"
+            if [ "$ver" != "$TAG_VERSION" ]; then
+              echo "::error::$file version ($ver) does not match tag ($TAG_VERSION)"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
             exit 1
           fi
+          echo "all version pins match tag $TAG_VERSION"
       - run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
