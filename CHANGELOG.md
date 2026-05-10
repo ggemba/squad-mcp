@@ -7,27 +7,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Fixed — Plugin manifest `agents` and `commands` shape (Claude Code rejected v0.6.2)
+## [0.6.3] - 2026-05-10
 
-`/plugin install squad@gempack` failed v0.6.2 with `Validation errors: agents: Invalid input` because `.claude-plugin/plugin.json` declared `"agents": "./agents/"` (string) and `"commands": "./commands/"` (string). Per the Claude Code plugin reference, those fields must be **arrays of explicit file paths** — only `skills` accepts a directory string.
+### Fixed
 
-- `.claude-plugin/plugin.json`: `agents` is now a 9-entry array listing each subagent's `.md` path; `commands` is a 4-entry array. `skills` stays as `./skills/`.
-- Bumped to `0.6.3` across all four version pins (the release-yml guard added in v0.6.2 catches future drift).
+- **Plugin manifest `agents` and `commands` shape.** `/plugin install squad@gempack` rejected v0.6.2 with `Validation errors: agents: Invalid input`. Per the Claude Code plugin reference, `agents` and `commands` must be **arrays of explicit file paths**; only `skills` accepts a directory string. `.claude-plugin/plugin.json` now lists each of the 9 subagent `.md` paths and the 4 command `.md` paths explicitly. `skills` stays as `./skills/`.
 
-### Fixed — Marketplace version pin missed in v0.6.1
+## [0.6.2] - 2026-05-10
 
-`.claude-plugin/marketplace.json` was still pinned to `0.6.0` after v0.6.1 shipped, so `/plugin install squad@gempack` kept resolving to the broken v0.6.0 build. Bumped to `0.6.2` and added a release-workflow check that verifies all four version pins (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `src/index.ts SERVER_VERSION`) match the git tag. Future bumps fail loudly if any pin is forgotten.
+### Fixed
 
-### Fixed — Plugin manifest validation: shared docs lifted out of `agents/`
+- **Marketplace version pin missed in v0.6.1.** `.claude-plugin/marketplace.json` was still pinned to `0.6.0` after v0.6.1 shipped, so `/plugin install squad@gempack` kept resolving to the broken v0.6.0 build. Bumped to `0.6.2`.
+- **Release workflow now verifies all four version pins** (`package.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `src/index.ts SERVER_VERSION`) match the git tag and fail the publish step otherwise. Future single-pin drift is caught before npm publish.
 
-Claude Code's `/plugin install` rejected the v0.6.0 plugin with `Validation errors: agents: Invalid input`. The plugin manifest's `agents: "./agents/"` directive iterated every `.md` file under `agents/`, including the three `_shared/*.md` reference docs (severity matrix + skill specs) — they lack subagent frontmatter and fail validation.
+## [0.6.1] - 2026-05-10
 
-- Moved `agents/_shared/` → top-level `shared/` so the plugin's agent validator only sees real subagent files.
-- `src/resources/agent-loader.ts` adds `getEmbeddedSharedDir()` (resolves to `<repo>/shared/`); `SHARED_FILES` now lists bare filenames; `resolveSharedFile` reads from the new dir; `initLocalConfig` mirrors shared docs to `<localOverrideDir>/shared/<file>` (was `<localOverrideDir>/_shared/<file>`).
-- `src/tools/consolidate.ts`, `skills/squad/SKILL.md`, `README.md` — references updated to `shared/_Severity-and-Ownership.md`.
-- `package.json` now ships the `shared/` dir + the new task CLI helpers (`tools/_tasks-io.mjs`, `tools/{list,next,record,update}-task*.mjs`) and `tools/record-learning.mjs` in the published tarball (was missing).
+### Fixed
 
-Migration for users with an existing local override at `~/.config/squad-mcp/agents/_shared/`: run `init_local_config` again to mirror to the new `shared/` sub-directory, or move the files manually. Override resolution in v0.6.1 looks at `<localOverrideDir>/shared/<file>`; old `_shared/` overrides fall through to embedded defaults.
+- **Plugin manifest validation: shared docs lifted out of `agents/`.** Claude Code's `/plugin install` rejected v0.6.0 with `Validation errors: agents: Invalid input`. The plugin manifest's `agents: "./agents/"` directive iterated every `.md` file under `agents/`, including the three `_shared/*.md` reference docs (severity matrix + skill specs) which lack subagent frontmatter.
+  - Moved `agents/_shared/` → top-level `shared/` so the agent validator only sees real subagent files.
+  - `src/resources/agent-loader.ts` adds `getEmbeddedSharedDir()` (resolves to `<repo>/shared/`); `SHARED_FILES` now lists bare filenames; `resolveSharedFile` reads from the new dir; `initLocalConfig` mirrors shared docs to `<localOverrideDir>/shared/<file>` (was `<localOverrideDir>/_shared/<file>`).
+  - `src/tools/consolidate.ts`, `skills/squad/SKILL.md`, `README.md` — references updated to `shared/_Severity-and-Ownership.md`.
+- **Missing files in published npm tarball.** `package.json` now ships the `shared/` dir, the task CLI helpers (`tools/_tasks-io.mjs`, `tools/{list,next,record,update}-task*.mjs`), and `tools/record-learning.mjs`.
+
+### Migration
+
+Users with an existing local override at `~/.config/squad-mcp/agents/_shared/`: run `init_local_config` again to mirror to the new `shared/` sub-directory, or move the files manually. Override resolution in v0.6.1+ looks at `<localOverrideDir>/shared/<file>`; old `_shared/` overrides fall through to embedded defaults.
+
+### CI
+
+- **`fix(ci+docs)`** — switched two Windows-failing test assertions from forward-slash literals to `path.join()`; re-aligned README/INSTALL.md doc audit (tools count `12` → `23`, agent name `po` → `product-owner`, broken verification example, missing `.squad.yaml` / Tasks / Learnings / PR-posting sections).
+
+## [0.6.0] - 2026-05-10 — features merged via this release window
+
+This release bundles five independent feature streams that landed on `main` between the `0.5.0` cut and the `v0.6.0` tag. Listed by feature; no migration required.
 
 ### Added — Tasks: PRD-decomposed atomic work units (anti-bloat for the squad)
 
@@ -217,8 +230,6 @@ Planned for a future minor:
 - Streaming SHA-256 over `fs.createReadStream` for any large bundled asset
   reads (avoids `readFileSync` doubling memory).
 - Property-based tests for severity/consolidation rules via `fast-check`.
-
-## [0.6.0] - 2026-05-10
 
 ### Architectural cleanup — separation of concerns
 

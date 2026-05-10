@@ -98,7 +98,7 @@ The package is published as [`@gempack/squad-mcp`](https://www.npmjs.com/package
 The default `npx -y @gempack/squad-mcp` resolves to the latest published version on every host launch. To pin a specific version, append `@<version>`:
 
 ```bash
-npx -y @gempack/squad-mcp@0.6.0
+npx -y @gempack/squad-mcp@0.6.3
 ```
 
 Releases are published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements). Verify the published tarball before configuring a host:
@@ -107,7 +107,7 @@ Releases are published from CI with [npm provenance](https://docs.npmjs.com/gene
 npm audit signatures @gempack/squad-mcp
 ```
 
-Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.6.0"]`).
+Pin in your host config the same way (e.g. `args: ["-y", "@gempack/squad-mcp@0.6.3"]`).
 
 > **Note:** the per-host examples below use the unpinned default (`@gempack/squad-mcp`) for readability. For production setups, replace `@gempack/squad-mcp` with `@gempack/squad-mcp@<version>` in every host's `args` array.
 
@@ -526,6 +526,39 @@ After install, regardless of host:
 
 **`/plugin marketplace add` fails with "not found".**
 Make sure you typed `ggemba/squad-mcp` exactly. The marketplace manifest lives at `.claude-plugin/marketplace.json` on the `main` branch of that repo.
+
+**`/plugin install` fails with "Permission denied (publickey)" or "Host key verification failed".**
+Claude Code's plugin installer clones via `git@github.com:owner/repo.git` (SSH). If you have no SSH key configured for GitHub, the clone fails. Two fixes:
+
+- **Force HTTPS (fastest, no key needed):**
+  ```bash
+  git config --global url."https://github.com/".insteadOf "git@github.com:"
+  git config --global --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+  ```
+  Public repos clone over HTTPS without auth. The `gh` CLI's credential helper handles private repos if you've run `gh auth login`.
+- **Set up an SSH key:** `ssh-keygen -t ed25519 -C "you@example.com"` and add the public key at <https://github.com/settings/keys>. Also add GitHub's host keys to `known_hosts` so strict checking does not block:
+  ```bash
+  ssh-keyscan -t ed25519,rsa,ecdsa github.com >> ~/.ssh/known_hosts
+  ```
+  Verify the fingerprint matches GitHub's published values: <https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints>.
+
+**`/plugin install` keeps installing an old version after a marketplace bump.**
+Two layers of cache:
+
+1. **Local Claude Code cache.** Claude Code holds the marketplace manifest locally after `marketplace add`. Force a refetch:
+   ```text
+   /plugin marketplace remove gempack
+   /plugin marketplace add ggemba/squad-mcp
+   /plugin install squad@gempack
+   ```
+2. **GitHub raw CDN.** `raw.githubusercontent.com` caches files for ~5 minutes. If you pushed a `marketplace.json` bump less than 5 minutes ago, even a clean install picks up the cached old version. Wait for the CDN to invalidate and retry. Verify with:
+   ```bash
+   curl -fsSL "https://raw.githubusercontent.com/ggemba/squad-mcp/main/.claude-plugin/marketplace.json" \
+     -H "Cache-Control: no-cache" | jq '.plugins[0].version'
+   ```
+
+**`/plugin install` fails with `Validation errors: agents: Invalid input`.**
+Plugin-author issue (will not affect users on a published release). The `agents` and `commands` fields in `.claude-plugin/plugin.json` must be **arrays of `.md` file paths**, not directory strings. Only `skills` accepts a directory. See [the plugin reference](https://code.claude.com/docs/en/plugins-reference.md). For `squad-mcp` itself this was fixed in v0.6.3.
 
 **Plugin installed but `/squad` does not appear.**
 Restart Claude Code. The slash command registry is populated at startup. If still missing, run `/plugin list` and confirm `squad@gempack` is listed and enabled.
