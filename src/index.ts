@@ -16,7 +16,7 @@ import { logger, setupProcessHandlers } from "./observability/logger.js";
 
 setupProcessHandlers();
 
-const SERVER_VERSION = "0.6.0";
+const SERVER_VERSION = "0.6.1";
 
 const server = new Server(
   {

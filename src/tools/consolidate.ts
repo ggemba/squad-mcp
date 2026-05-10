@@ -180,7 +180,7 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
 export const applyConsolidationRulesTool: ToolDef<typeof schema> = {
   name: "apply_consolidation_rules",
   description:
-    "Aggregate advisory reports and emit a verdict per the rules in _shared/_Severity-and-Ownership.md. " +
+    "Aggregate advisory reports and emit a verdict per the rules in shared/_Severity-and-Ownership.md. " +
     "Blocker -> REJECTED. Unjustified Major -> REJECTED. Otherwise CHANGES_REQUIRED or APPROVED. " +
     "When reports carry per-dimension scores (0-100), also returns a weighted rubric scorecard " +
     "(see score_rubric). Optional `min_score` downgrades APPROVED to CHANGES_REQUIRED if the " +

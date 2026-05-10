@@ -406,9 +406,8 @@ Run the `init_local_config` tool once to seed the local directory with editable 
 squad-mcp/
 ├── .claude-plugin/             # Claude Code plugin manifest + marketplace
 ├── .github/workflows/          # CI + release workflows
-├── agents/                     # Native subagents + shared docs
-│   ├── *.md                    # 9 subagent definitions (kebab-case, with frontmatter)
-│   └── _shared/                # severity matrix + skill specs (not loaded as subagents)
+├── agents/                     # Native subagents (one .md per subagent, kebab-case + frontmatter)
+├── shared/                     # Severity matrix + skill specs (resources, not subagents — kept outside agents/ for the plugin manifest validator)
 ├── commands/                   # Slash commands (/squad, /squad-review, /brainstorm, /commit-suggest)
 ├── skills/                     # Bundled skills
 │   ├── squad/                  # single skill, two modes (implement | review)

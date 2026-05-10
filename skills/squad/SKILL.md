@@ -178,7 +178,7 @@ You are participating in an advisory review.
 {learnings.rendered — omit this whole section if rendered is empty}
 
 ## Your perspective
-As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per _shared/_Severity-and-Ownership.md.
+As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per shared/_Severity-and-Ownership.md.
 For each finding: severity, file:line, observation, recommendation.
 If a similar finding appears in "Past team decisions" above with verdict REJECTED,
 do not re-raise it unless the diff materially changes the rationale. Acknowledge
@@ -194,7 +194,7 @@ Use the calibration table in your role file (see ## Score section). Honest 65
 is more useful than generous 80 — the rubric is auditable.
 ```
 
-Each agent emits findings tagged Blocker / Major / Minor / Suggestion per `_shared/_Severity-and-Ownership.md` AND a single `Score: NN/100` line. Capture both into the per-agent report.
+Each agent emits findings tagged Blocker / Major / Minor / Suggestion per `shared/_Severity-and-Ownership.md` AND a single `Score: NN/100` line. Capture both into the per-agent report.
 
 When you build the `reports[]` array for `apply_consolidation_rules`, include the score:
 
