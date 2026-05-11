@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ToolDef } from "./registry.js";
 import { SafeString } from "./_shared/schemas.js";
 import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js";
-import { readRuns, type RunRecord } from "../runs/store.js";
+import { readRuns, INVOCATION_VALUES, type RunRecord, type RunInvocation } from "../runs/store.js";
 import {
   foldById,
   applyFilters,
@@ -26,7 +26,7 @@ import {
  * No writes here. The single-writer contract belongs to `record_run`.
  */
 
-const InvocationEnum = z.enum(["implement", "review", "task", "question", "brainstorm", "debug"]);
+const InvocationEnum = z.enum(INVOCATION_VALUES);
 const ModeEnum = z.enum(["quick", "normal", "deep"]);
 const VerdictEnum = z.enum(["APPROVED", "CHANGES_REQUIRED", "REJECTED"]);
 const WorkTypeEnum = z.enum([
@@ -92,10 +92,7 @@ interface ListRunsAggregateOutput {
     verdict_counts: Record<"APPROVED" | "CHANGES_REQUIRED" | "REJECTED", number>;
     verdict_total: number;
     score_buckets: { range: string; count: number; min: number; max: number }[];
-    invocation_counts: Record<
-      "implement" | "review" | "task" | "question" | "brainstorm" | "debug",
-      number
-    >;
+    invocation_counts: Record<RunInvocation, number>;
     est_tokens_total: { input: number; output: number; total: number };
     est_tokens_per_run_avg: number;
     est_tokens_per_agent: { agent: AgentName; input: number; output: number; total: number }[];

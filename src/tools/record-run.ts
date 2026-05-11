@@ -2,23 +2,28 @@ import { z } from "zod";
 import type { ToolDef } from "./registry.js";
 import { SafeString } from "./_shared/schemas.js";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
-import { appendRun, type RunRecord } from "../runs/store.js";
+import { appendRun, INVOCATION_VALUES, type RunRecord } from "../runs/store.js";
 
 /**
- * SINGLE WRITER CONTRACT (plan v4, cycle 2 architect A-4; extended in v0.10.0).
+ * SINGLE WRITER CONTRACT (plan v4, cycle 2 architect A-4; extended in v0.10.0,
+ * v0.10.1).
  *
  * Legitimate callers of this tool are skills that own a two-phase lifecycle:
  *
  *  - `skills/squad/SKILL.md` (v0.9.0+) — Phase 1 `in_flight` + Phase 10
- *    terminal pair for `/squad:implement` and `/squad:review` runs.
+ *    terminal pair for `/squad:implement` and `/squad:review` runs
+ *    (invocations: `implement`, `review`, `task`).
  *  - `skills/debug/SKILL.md` (v0.10.0+) — Phase A `in_flight` + Phase C
- *    terminal pair for `/squad:debug` runs with `invocation: "debug"`.
+ *    terminal pair for `/squad:debug` runs (invocation: `debug`).
+ *  - `skills/question/SKILL.md` (v0.10.1+) — Phase 1.5 `in_flight` + Phase
+ *    3.5 terminal pair for `/squad:question` runs (invocation: `question`).
+ *  - `skills/brainstorm/SKILL.md` (v0.10.1+) — Step 1.5 `in_flight` + Step
+ *    5.5 terminal pair for `/brainstorm` runs (invocation: `brainstorm`).
  *
- * Any other caller is a bug. The Phase-1 / Phase-10 (or Phase-A / Phase-C
- * for debug) write pair is the transactional unit; emitting terminal rows
- * from any other path (notably `apply_consolidation_rules`) breaks the
- * two-phase `(in_flight, completed)` pair-by-id invariant that the
- * aggregator relies on for stranded-run detection.
+ * Any other caller is a bug. The two-phase write pair is the transactional
+ * unit; emitting terminal rows from any other path (notably
+ * `apply_consolidation_rules`) breaks the `(in_flight, completed)` pair-by-id
+ * invariant that the aggregator relies on for stranded-run detection.
  *
  * Two phases of the skill's lifecycle:
  *
@@ -44,7 +49,7 @@ import { appendRun, type RunRecord } from "../runs/store.js";
 // store re-validates inside `appendRun`, so any drift between the two
 // schemas trips at the store layer rather than silently passing.
 
-const InvocationEnum = z.enum(["implement", "review", "task", "question", "brainstorm", "debug"]);
+const InvocationEnum = z.enum(INVOCATION_VALUES);
 const ModeEnum = z.enum(["quick", "normal", "deep"]);
 const ModeSourceEnum = z.enum(["user", "auto"]);
 const StatusEnum = z.enum(["in_flight", "completed", "aborted"]);
@@ -125,11 +130,12 @@ async function handler(input: Input): Promise<RecordRunOutput> {
 export const recordRunToolDef: ToolDef<typeof schema> = {
   name: "record_run",
   description:
-    "Append one RunRecord to .squad/runs.jsonl. Single-writer contract: only the squad skill " +
-    "(Phase 1 in_flight + Phase 10 completed/aborted) and the debug skill (Phase A in_flight + " +
-    "Phase C completed/aborted) should call this. Validates against the RunRecord schema_version:1 " +
-    "and enforces MAX_RECORD_BYTES (4000) via RECORD_TOO_LARGE on overflow. Caller is responsible " +
-    "for matching in_flight↔terminal rows by id. File mode is 0o600 (user-only) on first create.",
+    "Append one RunRecord to .squad/runs.jsonl. Single-writer contract: only the lifecycle-owning " +
+    "skills should call this — squad (Phase 1 + Phase 10), debug (Phase A + Phase C), question " +
+    "(Phase 1.5 + Phase 3.5), brainstorm (Step 1.5 + Step 5.5). Validates against the RunRecord " +
+    "schema_version:1 and enforces MAX_RECORD_BYTES (4000) via RECORD_TOO_LARGE on overflow. " +
+    "Caller is responsible for matching in_flight↔terminal rows by id. File mode is 0o600 " +
+    "(user-only) on first create. mode_warning.message is stripped of control chars at write time.",
   schema,
   handler,
 };

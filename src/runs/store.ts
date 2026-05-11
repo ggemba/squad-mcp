@@ -96,7 +96,45 @@ export function decodeSeverityScore(n: number): {
 /** Public re-export so callers can build records without re-implementing the encoding. */
 export { severityScore };
 
-const InvocationEnum = z.enum(["implement", "review", "task", "question", "brainstorm", "debug"]);
+/**
+ * Strip C0 (`\x00`-`\x1F` except `\t`), C1 (`\x7F`-`\x9F`), and ESC (`\x1B`)
+ * from a string before it lands on disk. This is the WRITER-side mirror of
+ * the renderer's `aggregate.stripControlChars` (security #5).
+ *
+ * Defense in depth: render-time sanitisation protects users running
+ * `/squad:stats`; writer-side sanitisation also protects users running
+ * `cat .squad/runs.jsonl` or any other tool that bypasses the aggregator.
+ * The regex is intentionally duplicated (3 lines, no runtime cost) rather
+ * than importing from `aggregate.ts` because that would invert the natural
+ * dep direction (store is foundational; aggregate consumes store).
+ */
+function stripWriterControlChars(s: string): string {
+  return s.replace(/[\x00-\x08\x0A-\x1F\x7F-\x9F]/g, "");
+}
+
+/**
+ * Canonical tuple of accepted journal invocations. Single source of truth.
+ *
+ * Why a tuple, not just a Zod enum: the same set is consumed by FIVE call
+ * sites — this store's `InvocationEnum`, the tool boundary at
+ * `src/tools/record-run.ts`, the filter schema at `src/tools/list-runs.ts`,
+ * the Record literal in the aggregate output type, and the `invocation_counts`
+ * initialiser in `src/runs/aggregate.ts`. Exporting one tuple makes "add a
+ * new invocation" a single-line change instead of five-sites-must-stay-in-
+ * sync. Pattern parallels `AGENT_NAMES_TUPLE` in `src/config/ownership-matrix.ts`.
+ *
+ * `as const` (readonly tuple) is what Zod's `z.enum` requires.
+ */
+export const INVOCATION_VALUES = [
+  "implement",
+  "review",
+  "task",
+  "question",
+  "brainstorm",
+  "debug",
+] as const;
+
+const InvocationEnum = z.enum(INVOCATION_VALUES);
 const ModeEnum = z.enum(["quick", "normal", "deep"]);
 const ModeSourceEnum = z.enum(["user", "auto"]);
 const StatusEnum = z.enum(["in_flight", "completed", "aborted"]);
@@ -388,7 +426,25 @@ export async function appendRun(
     );
   }
 
-  const line = JSON.stringify(validated.data) + "\n";
+  // Defense in depth: strip control chars from `mode_warning.message` at the
+  // writer too. The aggregator's `stripControlChars` already runs at render
+  // (security #5 in v0.9.0), but direct file inspection (`cat`, `less`) sees
+  // raw bytes. Sanitising here keeps the recorded data terminal-safe for any
+  // future viewer that bypasses the aggregator. We strip only this one field
+  // because it's the documented free-form leak surface — other fields are
+  // schema-bounded to safer shapes (enums, ISO strings, numbers, sha refs).
+  const sanitized: RunRecord =
+    validated.data.mode_warning != null
+      ? {
+          ...validated.data,
+          mode_warning: {
+            ...validated.data.mode_warning,
+            message: stripWriterControlChars(validated.data.mode_warning.message),
+          },
+        }
+      : validated.data;
+
+  const line = JSON.stringify(sanitized) + "\n";
   const byteLen = Buffer.byteLength(line, "utf8");
   if (byteLen > MAX_RECORD_BYTES) {
     throw new SquadError(

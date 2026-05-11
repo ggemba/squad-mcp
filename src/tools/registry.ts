@@ -23,6 +23,7 @@ import { composeAdvisoryBundleTool } from "./compose-advisory-bundle.js";
 import { recordRunToolDef } from "./record-run.js";
 import { listRunsToolDef } from "./list-runs.js";
 import { isSquadError } from "../errors.js";
+import { pathSafe, pathSafeDetails } from "../util/path-safety.js";
 import { logger, newRequestId } from "../observability/logger.js";
 
 export interface ToolDef<T extends ZodTypeAny = ZodTypeAny> {
@@ -165,8 +166,17 @@ export async function dispatchTool(name: string, args: unknown) {
         duration_ms,
         error_code: err.code,
       });
+      // Sanitize absolute filesystem paths before the payload crosses the MCP
+      // dispatch boundary to the (potentially untrusted) client. The in-
+      // process SquadError still carries full paths for local debug; only
+      // this serialised copy is truncated. See path-safety.ts:pathSafe for
+      // the truncation shape (last 3 segments with `…/` prefix).
       return asToolErrorResponse({
-        error: { code: err.code, message: err.message, details: err.details },
+        error: {
+          code: err.code,
+          message: pathSafe(err.message),
+          details: pathSafeDetails(err.details),
+        },
       });
     }
     const message = err instanceof Error ? err.message : String(err);

@@ -21,7 +21,7 @@ Position in the workflow:
 
 ## Inviolable Rules
 
-1. **No code implementation.** This skill produces a brainstorm report. It must not edit files, run scripts, run tests, or modify any persistent state.
+1. **No code implementation.** This skill produces a brainstorm report. It must not edit files, run scripts, run tests, or modify any user-facing persistent state. The only file this skill ever writes is the journal `.squad/runs.jsonl` via `record_run` for telemetry — gitignored, mode `0o600`, not user content. Same single-writer pattern as the squad + debug + question skills.
 2. **No `git commit`, `git push`, or any state-mutating git command.** Read-only git is fine (`git log`, `git status`, `git diff` for context).
 3. **Cite sources.** Every market claim, best practice, statistic, or "industry uses X" assertion must link to the URL it came from. Unsourced claims are not allowed.
 4. **Multiple options.** Always present at least two alternatives with explicit pros/cons. Never single-answer. The user is brainstorming, not asking for a verdict.
@@ -32,13 +32,13 @@ Position in the workflow:
 
 The skill takes one required argument (the topic) and optional flags:
 
-| Param                             | Default    | Description                                                                                                                                                            |
-| --------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `<topic>`                         | required   | Free-form text describing the problem, decision, or idea to brainstorm                                                                                                 |
+| Param                             | Default    | Description                                                                                                                                                                      |
+| --------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<topic>`                         | required   | Free-form text describing the problem, decision, or idea to brainstorm                                                                                                           |
 | `--quick` / `--normal` / `--deep` | `--normal` | `--quick` (3 web queries, 1 agent), `--normal` (6 queries, 2-3 agents), `--deep` (10+ queries, 4 agents + tech-lead). Same vocabulary as `/squad:implement` and `/squad:review`. |
-| `--no-web`                        | off        | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase.                                                          |
-| `--focus <domain>`                | auto       | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords.                       |
-| `--sources <N>`                   | 5          | Cap on web sources cited per section. Avoids dump of every result.                                                                                                     |
+| `--no-web`                        | off        | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase.                                                                    |
+| `--focus <domain>`                | auto       | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords.                                 |
+| `--sources <N>`                   | 5          | Cap on web sources cited per section. Avoids dump of every result.                                                                                                               |
 
 ## Step 1: Topic Understanding
 
@@ -51,6 +51,39 @@ Read the user's prompt and extract:
 - **What "done" looks like**: what would satisfy the user — a single recommendation, multiple paths to consider, a comparison table, a risk inventory?
 
 If the topic is ambiguous, ask **one** clarifying question before proceeding. Do not ask a list of questions; pick the most load-bearing one.
+
+## Step 1.5: Write `in_flight` telemetry row (v0.10.1+)
+
+Generate a fresh run id (`Date.now().toString(36) + "-" + 6 chars from [a-z0-9]`) and append the in_flight row before launching Step 2's parallel research:
+
+```
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: <runId>,
+    status: "in_flight",
+    started_at: <ISO 8601 now>,
+    invocation: "brainstorm",
+    mode: <"quick" | "normal" | "deep" from flag, default "normal">,
+    mode_source: <"user" if a depth flag was explicit, "auto" otherwise>,
+    git_ref: null,
+    files_count: 0,
+    agents: <pre-populated array of agents you intend to dispatch in Step 3 + tech-lead-consolidator if --deep>,
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: null,
+  },
+});
+```
+
+**Pre-populate the `agents` array at in_flight time** with one entry per specialist you'll dispatch in Step 3 (metrics zero until Step 5.5 fills them). Pre-population keeps the row informative if the run strands.
+
+Non-blocking try/catch (mirror `skills/debug/SKILL.md` Phase A):
+
+- I/O error / unknown tool: log silently, continue.
+- `SquadError`: surface code + message verbatim (Security #7 contract).
+
+If the in_flight write fails, persist a flag so Step 5.5 finalisation is skipped (no orphan terminal row without a paired in_flight).
 
 ## Step 2: Research Plan
 
@@ -190,6 +223,36 @@ Format: at most 400 words. No long template. No scorecard.
 ```
 
 For `--quick` and `--normal`, the synthesizing skill itself produces the recommendation directly (no separate tech-lead spawn).
+
+## Step 5.5: Finalise telemetry row (v0.10.1+)
+
+After Step 5 synthesis completes (or after early-stop on missing topic / no-research), write the terminal half. Use the SAME `id` from Step 1.5:
+
+```
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: <same runId from Step 1.5>,
+    status: "completed",                       // or "aborted" on early stop
+    started_at: <same started_at from Step 1.5>,
+    completed_at: <ISO 8601 now>,
+    duration_ms: <completed_at - started_at>,
+    invocation: "brainstorm",
+    mode: <same>,
+    mode_source: <same>,
+    git_ref: null,
+    files_count: 0,
+    agents: <same agent list, now with batch_duration_ms + prompt_chars + response_chars filled in for each Step 3 dispatch; score: null, severity_score: null>,
+    verdict: null,           // brainstorm runs don't carry a verdict
+    weighted_score: null,    // no rubric
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: null,
+  },
+});
+```
+
+Same non-blocking try/catch. On `SquadError`, attempt a fallback with the same `id`, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. If that also fails, log and continue.
 
 ## Step 6: Delivery
 

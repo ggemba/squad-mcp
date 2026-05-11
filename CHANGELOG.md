@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-11
+
+Patch release: pays the technical debt accumulated across v0.9.0 + v0.10.0. No new features, no schema change, no user-visible behavior change beyond `/squad:stats` now showing `/squad:question` and `/squad:brainstorm` invocations (they were in the enum but the SKILL files never emitted journal rows).
+
+### Fixed
+
+- **Telemetry wired in `/squad:question` and `/squad:brainstorm`** — both SKILL.md files now emit the same two-phase `record_run` pair the squad + debug skills use. Closes the doc-vs-code drift that `CHANGELOG.md` v0.9.0 + `skills/squad/SKILL.md` documented but the question/brainstorm SKILLs never implemented.
+- **`record_run` MCP tool description + internal doc-comment** updated to list all four legitimate callers (squad, debug, question, brainstorm). The contract surface was stale at v0.10.0 (listed only squad + debug).
+- **`mode_warning.message` sanitised at the writer** (`appendRun`) in addition to the renderer. Direct file inspection (`cat .squad/runs.jsonl`) used to see raw ESC/C0/C1 bytes; now those bytes never reach disk. Defense in depth — the aggregator's render-time `stripControlChars` continues to apply for any field the writer doesn't sanitise.
+- **`tests/runs-store.test.ts` mtime-invalidation test** dropped the 12 ms `setTimeout` (was a guard against ext4 1 s mtime granularity on coarse-mtime CI; superseded by v0.9.0's `(mtimeMs, size)` cache key plus the in-process `cache.delete` in `appendRun`).
+- **`tests/runs-e2e.test.ts` lifecycle assert** now checks `health.completed`, `health.in_flight`, `health.aborted`, and `health.synthesized_aborted` — previously only `total_folded`, which would silently miss a foldById tiebreaker regression that picked the wrong row.
+- **Workspace path leak in `SquadError` surface** — added `pathSafe(str)` + `pathSafeDetails(obj)` helpers in `src/util/path-safety.ts` and wired them at the MCP dispatch boundary (`src/tools/registry.ts:dispatchTool`). Absolute paths in `err.message` AND `err.details` are truncated to last 3 segments with `…/` prefix before crossing the wire to the MCP client. In-process errors still carry full paths for local debug.
+
+### Changed
+
+- **`InvocationEnum` lifted to a shared `INVOCATION_VALUES` const tuple** exported from `src/runs/store.ts` (parallel to `AGENT_NAMES_TUPLE`). Five duplicated `z.enum([...])` / `Record<...>` literals collapsed to one import. Adding a future invocation is now a single-line change. Aggregator's `invocation_counts` initialiser became data-driven (`Object.fromEntries(INVOCATION_VALUES.map(...))`), auto-extending when the tuple grows.
+- **`agents-content.test.ts`** reinforced — pins `model: haiku` in the frontmatter of `senior-debugger.md` and `code-explorer.md`, plus the explicit forbidden-tool strings (`Edit`, `Write`, `NotebookEdit`) in the Boundaries section of both. Catches future relaxations of the utility-role contract.
+
+### Tests
+
+- `tests/runs-aggregate.test.ts`: foldById tiebreaker with differing `started_at` (locks the primary sort key); `aggregateOutcomes` invocation_counts on empty journal initialises every key to 0.
+- `tests/runs-store.test.ts`: RECORD_FAILED fallback row shape accepted (Phase-C SKILL fallback contract); `mode_warning.message` writer sanitization strips C0/C1/ESC from disk bytes.
+- `tests/runs-e2e.test.ts`: `status: "aborted"` write through dispatch (B1 carryforward from v0.9.0 QA); `list_runs aggregate: false` SerializedFoldedRun shape (B2 carryforward); `list_runs invocation: "debug"` filter (v0.10.0 C1); `list_runs work_type + aggregate: true` combined; `/squad:debug --deep` 3-agent record shape store roundtrip.
+- `tests/path-safety.test.ts`: full coverage of `pathSafe` + `pathSafeDetails` — POSIX + Windows shapes, multi-path strings, error-message embedding, idempotency, ≤3-segment passthrough, recursive details sanitization.
+
+### Known issues
+
+The /squad:debug, /squad:question, and /squad:brainstorm telemetry hooks are spec'd in their respective SKILL.md files; the SKILL execution itself is performed by the host LLM. We rely on the LLM following the spec — there is no automated test that intercepts a real `/squad:question` invocation and verifies a row landed in the journal. If you observe missing rows in `/squad:stats`, it indicates the host LLM short-circuited the SKILL spec.
+
 ## [0.10.0] - 2026-05-11
 
 Adds `/squad:debug` — read-only bug investigation skill that bridges `/squad:question` (lookup-only) and `/squad:implement` (writes code). Takes a bug description plus optional stack trace plus optional repro steps, dispatches `code-explorer` to locate suspect code, then a new `senior-debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a top-2 cross-check pass on `--deep`) with `file:line` evidence, verification steps, and confidence labels. Never writes code, never commits.

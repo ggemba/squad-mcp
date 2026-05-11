@@ -196,6 +196,52 @@ describe("appendRun — validation + size cap", () => {
   });
 });
 
+describe("appendRun — RECORD_FAILED fallback shape (v0.10.1)", () => {
+  it("accepts a fallback row with status:aborted + mode_warning code RECORD_FAILED", async () => {
+    // SKILL-level fallback path (Phase C SquadError → second appendRun with
+    // status:aborted + mode_warning) is contract-only. This test asserts the
+    // store accepts the prescribed shape so the fallback can land on disk
+    // when the SKILL invokes it.
+    const id = "fallback-row";
+    await appendRun(workspace, baseInFlight({ id }));
+    await appendRun(workspace, {
+      ...baseInFlight({ id }),
+      status: "aborted",
+      completed_at: "2026-05-11T10:05:00.000Z",
+      duration_ms: 5 * 60_000,
+      mode_warning: {
+        code: "RECORD_FAILED",
+        message: "downstream record write threw RECORD_TOO_LARGE on agent response",
+      },
+    });
+    const rows = await readRuns(workspace);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.status).toBe("aborted");
+    expect(rows[1]!.mode_warning?.code).toBe("RECORD_FAILED");
+  });
+});
+
+describe("appendRun — mode_warning.message writer sanitization (v0.10.1)", () => {
+  it("strips C0/C1/ESC bytes from mode_warning.message before write", async () => {
+    // Defense in depth: aggregate.stripControlChars runs at render, but `cat`
+    // bypasses the aggregator. Sanitize at writer too so on-disk bytes are
+    // terminal-safe even for tools that read the journal directly.
+    const dirty = "leak\x1b[2Jhere\x07\x7fend";
+    const id = "dirty-mode-warning";
+    await appendRun(workspace, {
+      ...baseInFlight({ id }),
+      mode_warning: { code: "DIRTY", message: dirty },
+    });
+    // Re-read raw bytes (bypass Zod / aggregator) to confirm sanitization.
+    const file = path.join(workspace, DEFAULT_RUNS_PATH);
+    const raw = await fs.readFile(file, "utf8");
+    expect(raw).not.toContain("\x1b");
+    expect(raw).not.toContain("\x07");
+    expect(raw).not.toContain("\x7f");
+    expect(raw).toContain("leak[2Jhereend"); // printables survive
+  });
+});
+
 describe("InvocationEnum — debug widening (v0.10.0)", () => {
   it('accepts invocation: "debug" through appendRun + readRuns roundtrip', async () => {
     const id = "debug-run";
@@ -230,13 +276,19 @@ describe("readRuns — file presence + cache", () => {
   });
 
   it("invalidates cache when the file changes", async () => {
+    // Cache key is (mtimeMs, size) since v0.9.0 (senior-dev cycle-2 Major).
+    // Two reasons this test is now reliable on coarse-mtime filesystems:
+    //   1. appendRun calls cache.delete(absRoot) unconditionally — primary
+    //      in-process invalidator.
+    //   2. The size field in the cache key differs after the second append
+    //      (each appendRun grows the file) — secondary cross-process guard.
+    // The pre-v0.9.0 12ms sleep was guarding against an mtime-only key on
+    // ext4 with 1s mtime granularity. No longer needed.
     const id1 = "first";
     await appendRun(workspace, baseInFlight({ id: id1 }));
     const first = await readRuns(workspace);
     expect(first.map((r) => r.id)).toEqual([id1]);
 
-    // Force a different mtime via a small wait + second append.
-    await new Promise((res) => setTimeout(res, 12));
     const id2 = "second";
     await appendRun(workspace, baseInFlight({ id: id2 }));
     const second = await readRuns(workspace);

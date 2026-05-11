@@ -5,6 +5,80 @@ import { rejectIfMalformed, realpathOrSelf } from "./path-internal.js";
 
 export const MAX_BYTES = 16_384;
 
+/**
+ * Truncate absolute filesystem paths inside a string to their last 3 segments,
+ * with a `…/` prefix indicating truncation. Used by the MCP dispatch boundary
+ * (`src/tools/registry.ts`) to sanitise `SquadError.message` and
+ * `SquadError.details` before they leave the server to a (potentially
+ * untrusted) MCP client.
+ *
+ * Why: error messages routinely embed `workspaceRoot` or absolute file paths
+ * (e.g. `failed to read runs file /home/<user>/work/some-repo/.squad/runs.jsonl`).
+ * The full path leaks the local user's home directory and folder layout —
+ * useful debug context, but a sidechannel for username discovery if an MCP
+ * client logs or relays error payloads.
+ *
+ * The transform is purely cosmetic — the `SquadError` itself, in-process,
+ * still carries the full path for local debugging. Only the serialised
+ * payload that crosses the dispatch boundary is sanitised.
+ *
+ * Recognised path shapes (handled non-greedily so multiple paths in one
+ * string each truncate independently):
+ *
+ *   - POSIX absolute: `/foo/bar/baz/qux/file.ts`  → `…/baz/qux/file.ts`
+ *   - Windows drive: `C:\foo\bar\baz\qux\file.ts` → `…/baz/qux/file.ts`
+ *
+ * Paths with fewer than 4 non-empty segments do not match the pattern (the
+ * regex requires at least two interior separators) and are returned as-is.
+ * Already-truncated paths (begin with `…/`) are idempotent under this
+ * function (lookbehind prevents re-matching).
+ */
+export function pathSafe(s: string): string {
+  if (typeof s !== "string" || s.length === 0) return s;
+  // POSIX absolute path: starts with /, captures everything until a whitespace,
+  // quote, or message-formatting boundary. The `(?<!…)` lookbehind prevents
+  // re-matching after an already-truncated `…/` prefix (idempotency).
+  const posix = /(?<!…)\/(?:[A-Za-z0-9._-][^\s'"`<>:,)\]]*\/)+[A-Za-z0-9._-][^\s'"`<>:,)\]]*/g;
+  // Windows drive path: drive letter + colon + backslash, captured similarly.
+  // Note: the Windows segment char-class adds a space (`[A-Za-z0-9._ -]` vs
+  // POSIX's `[A-Za-z0-9._-]`) because Windows directory names commonly contain
+  // spaces (`C:\Program Files\...`). POSIX paths conventionally do not, so
+  // the asymmetry is intentional, not a copy-paste oversight.
+  const win = /[A-Za-z]:\\(?:[A-Za-z0-9._ -][^\s'"`<>:,)\]]*\\)+[A-Za-z0-9._ -][^\s'"`<>:,)\]]*/g;
+  const truncate = (match: string, sep: string): string => {
+    // Drop empty leading segment from absolute paths (leading `/` gives `""`).
+    const segments = match.split(sep).filter((p) => p.length > 0);
+    if (segments.length <= 3) return match;
+    return "…/" + segments.slice(-3).join("/");
+  };
+  return s.replace(posix, (m) => truncate(m, "/")).replace(win, (m) => truncate(m, "\\"));
+}
+
+/**
+ * Recursively apply `pathSafe` to every string leaf in an error-details
+ * payload. Top-level wrapper for `SquadError.details` sanitisation at the
+ * dispatch boundary. Returns a deep-cloned object — the in-process error
+ * is not mutated.
+ */
+export function pathSafeDetails(
+  details: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (details === undefined) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(details)) {
+    if (typeof v === "string") {
+      out[k] = pathSafe(v);
+    } else if (Array.isArray(v)) {
+      out[k] = v.map((item) => (typeof item === "string" ? pathSafe(item) : item));
+    } else if (v !== null && typeof v === "object") {
+      out[k] = pathSafeDetails(v as Record<string, unknown>);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 export interface SafePathContext {
   rootRealCache: Map<string, string>;
 }

@@ -124,6 +124,28 @@ describe("foldById — pair-by-id + last-wins tiebreaker", () => {
     expect(folded[0]!.synthesized_aborted).toBe(false);
   });
 
+  it("differing-started_at: later started_at wins regardless of append position (v0.10.1)", () => {
+    // Explicit coverage of the primary sort key. Previously only the same-
+    // started_at tiebreaker was tested, leaving the started_at ASC ordering
+    // documented but not regression-locked (v0.10.0 QA Suggestion C2).
+    const earlier: RunRecord = rec({
+      id: "swap",
+      status: "completed",
+      started_at: "2026-05-11T09:00:00.000Z",
+      verdict: "APPROVED",
+    });
+    const later: RunRecord = rec({
+      id: "swap",
+      status: "completed",
+      started_at: "2026-05-11T10:00:00.000Z",
+      verdict: "REJECTED",
+    });
+    // Insertion order: later first, earlier second. Sort must still pick later.
+    const folded = foldById([later, earlier]);
+    expect(folded[0]!.record.verdict).toBe("REJECTED");
+    expect(folded[0]!.record.started_at).toBe("2026-05-11T10:00:00.000Z");
+  });
+
   it("breaks ties by (started_at ASC, append position ASC; last wins)", () => {
     const a: RunRecord = rec({
       id: "dup",
@@ -199,6 +221,19 @@ describe("applyFilters", () => {
 describe("aggregateOutcomes", () => {
   it("returns is_empty=true on an empty journal", () => {
     expect(aggregateOutcomes([]).is_empty).toBe(true);
+  });
+
+  it("initialises every invocation_counts key to 0 on an empty journal (v0.10.1)", () => {
+    // Per the data-driven init from INVOCATION_VALUES, every value in the
+    // tuple must have a 0 bucket even when no runs exist. Regression-locks
+    // the Object.fromEntries cast in aggregate.ts.
+    const out = aggregateOutcomes([]);
+    expect(out.invocation_counts.implement).toBe(0);
+    expect(out.invocation_counts.review).toBe(0);
+    expect(out.invocation_counts.task).toBe(0);
+    expect(out.invocation_counts.question).toBe(0);
+    expect(out.invocation_counts.brainstorm).toBe(0);
+    expect(out.invocation_counts.debug).toBe(0);
   });
 
   it("counts verdicts and bucketizes scores from completed rows only", () => {

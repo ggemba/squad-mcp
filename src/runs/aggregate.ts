@@ -1,6 +1,7 @@
 import type { AgentName } from "../config/ownership-matrix.js";
 import {
   decodeSeverityScore,
+  INVOCATION_VALUES,
   type RunRecord,
   type RunInvocation,
   type RunVerdict,
@@ -281,14 +282,14 @@ export function aggregateOutcomes(folded: FoldedRun[]): OutcomeAggregate {
     { range: "70-79", count: 0, min: 70, max: 79 },
     { range: "<70", count: 0, min: 0, max: 69 },
   ];
-  const invocation_counts: Record<RunInvocation, number> = {
-    implement: 0,
-    review: 0,
-    task: 0,
-    question: 0,
-    brainstorm: 0,
-    debug: 0,
-  };
+  // Initialise every invocation key to 0 from the canonical tuple. Keeps this
+  // initialiser auto-extending when `INVOCATION_VALUES` grows; the `Record<
+  // RunInvocation, number>` cast is type-safe because the tuple is the type's
+  // single source of truth.
+  const invocation_counts = Object.fromEntries(INVOCATION_VALUES.map((v) => [v, 0])) as Record<
+    RunInvocation,
+    number
+  >;
   let inputTotal = 0;
   let outputTotal = 0;
   const perAgent = new Map<AgentName, { input: number; output: number; total: number }>();

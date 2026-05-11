@@ -32,4 +32,37 @@ describe("agents content guard rails", () => {
     expect(body.toLowerCase()).toContain("read-only");
     expect(body.toLowerCase()).toContain("no writes");
   });
+
+  // v0.10.1 reinforcement: also pin the cost contract (haiku model) and the
+  // explicit forbidden-tool list. A future relaxation that bumps the model
+  // to sonnet/opus or drops "no Edit/Write" from the Boundaries section will
+  // trip these.
+
+  it("senior-debugger frontmatter pins model: haiku (cost + read-only intent)", async () => {
+    const file = path.join(AGENTS_DIR, "senior-debugger.md");
+    const body = await fs.readFile(file, "utf8");
+    expect(body).toMatch(/^model:\s*haiku\s*$/m);
+  });
+
+  it("code-explorer frontmatter pins model: haiku (cost + read-only intent)", async () => {
+    const file = path.join(AGENTS_DIR, "code-explorer.md");
+    const body = await fs.readFile(file, "utf8");
+    expect(body).toMatch(/^model:\s*haiku\s*$/m);
+  });
+
+  it("senior-debugger Boundaries explicitly forbid Edit / Write / NotebookEdit", async () => {
+    const file = path.join(AGENTS_DIR, "senior-debugger.md");
+    const body = await fs.readFile(file, "utf8");
+    expect(body).toContain("Edit");
+    expect(body).toContain("Write");
+    expect(body).toContain("NotebookEdit");
+  });
+
+  it("code-explorer Boundaries explicitly forbid Edit / Write / NotebookEdit", async () => {
+    const file = path.join(AGENTS_DIR, "code-explorer.md");
+    const body = await fs.readFile(file, "utf8");
+    expect(body).toContain("Edit");
+    expect(body).toContain("Write");
+    expect(body).toContain("NotebookEdit");
+  });
 });

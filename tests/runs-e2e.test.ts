@@ -141,6 +141,15 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
     const tokens = outcomes.est_tokens_total as Record<string, number>;
     // 3500 + 700 + 2100 + 400 = 6700 chars in / out combined.
     expect(tokens.total).toBeGreaterThan(0);
+
+    // v0.10.1: lock health-counter discrimination. Previous assertions only
+    // checked total_folded, so a foldById tiebreaker bug returning the wrong
+    // row (still counted as 1 folded run) could pass undetected.
+    const health = out.health as Record<string, number>;
+    expect(health.completed).toBe(1);
+    expect(health.in_flight).toBe(0);
+    expect(health.aborted).toBe(0);
+    expect(health.synthesized_aborted).toBe(0);
   });
 
   it("returns empty result with file=null when journal does not exist", async () => {
@@ -304,5 +313,158 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
       agent: "senior-qa",
     });
     expect(onlyQa.total_folded).toBe(2); // both records include senior-qa
+  });
+
+  it('v0.10.1: status:"aborted" write through dispatch + readback shape', async () => {
+    // Carryforward B1 from v0.9.0 QA. The aborted code path is reachable from
+    // every lifecycle skill (RECORD_FAILED fallback) but had no e2e coverage.
+    const id = generateRunId();
+    const out = await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: {
+        ...completedRecord(id),
+        status: "aborted",
+        mode_warning: { code: "RECORD_FAILED", message: "simulated terminal failure" },
+      },
+    });
+    expect(out.status).toBe("aborted");
+    const list = await dispatchOk("list_runs", {
+      workspace_root: workspace,
+      aggregate: true,
+    });
+    expect(list.total_folded).toBe(1);
+    const health = list.health as Record<string, number>;
+    expect(health.aborted).toBe(1);
+    expect(health.synthesized_aborted).toBe(0); // disk row was aborted, not synthesized
+  });
+
+  it("v0.10.1: list_runs with aggregate:false returns the SerializedFoldedRun shape", async () => {
+    // Carryforward B2 from v0.9.0 QA. The non-aggregate branch was
+    // dead-code-from-tests (serializeFolded never asserted on).
+    const id = generateRunId();
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: completedRecord(id),
+    });
+    const out = await dispatchOk("list_runs", {
+      workspace_root: workspace,
+      // aggregate intentionally omitted (defaults to false)
+    });
+    expect(Array.isArray(out.runs)).toBe(true);
+    expect(out.runs).toHaveLength(1);
+    const folded = (out.runs as Array<Record<string, unknown>>)[0]!;
+    expect(folded.id).toBe(id);
+    expect(folded.status).toBe("completed");
+    expect(folded.synthesized_aborted).toBe(false);
+    expect(folded.record).toBeDefined();
+    expect(folded.est_tokens).toBeDefined();
+    const tokens = folded.est_tokens as Record<string, number>;
+    expect(typeof tokens.input).toBe("number");
+    expect(typeof tokens.output).toBe("number");
+    expect(typeof tokens.total).toBe("number");
+  });
+
+  it('v0.10.1: list_runs filters by invocation:"debug" (third widening site)', async () => {
+    // v0.10.0 dev C1: the InvocationEnum widening at list-runs.ts:29 was
+    // unexercised. Confirm the filter accepts and discriminates.
+    const dbg = generateRunId();
+    const impl = generateRunId();
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: { ...completedRecord(dbg), invocation: "debug", verdict: null, weighted_score: null },
+    });
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: completedRecord(impl),
+    });
+    const out = await dispatchOk("list_runs", {
+      workspace_root: workspace,
+      invocation: "debug",
+    });
+    expect(out.total_folded).toBe(1);
+    expect((out.runs as Array<Record<string, unknown>>)[0]!.id).toBe(dbg);
+  });
+
+  it("v0.10.1: list_runs with work_type + aggregate:true (combined filter on aggregate path)", async () => {
+    // v0.10.0 dev Suggestion: aggregate path was unexercised with work_type
+    // filter. Regression-locks that the aggregate output reflects the filtered
+    // (work_type-narrowed) set, not the unfiltered one.
+    const bf = generateRunId();
+    const feat = generateRunId();
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: { ...completedRecord(bf), work_type: "Bug Fix" },
+    });
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: { ...completedRecord(feat), work_type: "Feature" },
+    });
+    const out = await dispatchOk("list_runs", {
+      workspace_root: workspace,
+      work_type: "Bug Fix",
+      aggregate: true,
+    });
+    expect(out.total_folded).toBe(1);
+    const outcomes = out.outcomes as Record<string, unknown>;
+    expect(outcomes.total_runs).toBe(1);
+    expect((outcomes.verdict_counts as Record<string, number>).APPROVED).toBe(1);
+  });
+
+  it("v0.10.1: --deep debug record shape — 3 agents at Phase C (store-level roundtrip)", async () => {
+    // v0.10.0 QA Suggestion: the --deep mode's 3-agent record (code-explorer
+    // + senior-debugger + senior-developer/opus) had no test. This asserts
+    // the store accepts the shape and readback preserves it. The actual
+    // SKILL dispatch of 3 agents is contract-only (no SKILL execution harness).
+    const id = generateRunId();
+    await dispatchOk("record_run", {
+      workspace_root: workspace,
+      record: {
+        ...completedRecord(id),
+        invocation: "debug",
+        verdict: null,
+        weighted_score: null,
+        agents: [
+          {
+            name: "code-explorer",
+            model: "haiku",
+            score: null,
+            severity_score: null,
+            batch_duration_ms: 1100,
+            prompt_chars: 900,
+            response_chars: 1600,
+          },
+          {
+            name: "senior-debugger",
+            model: "opus",
+            score: null,
+            severity_score: null,
+            batch_duration_ms: 4200,
+            prompt_chars: 3100,
+            response_chars: 2400,
+          },
+          {
+            name: "senior-developer",
+            model: "opus",
+            score: null,
+            severity_score: null,
+            batch_duration_ms: 3800,
+            prompt_chars: 2700,
+            response_chars: 1900,
+          },
+        ],
+      },
+    });
+    const list = await dispatchOk("list_runs", { workspace_root: workspace });
+    const folded = (list.runs as Array<Record<string, unknown>>)[0]!;
+    const record = folded.record as Record<string, unknown>;
+    const agents = record.agents as Array<Record<string, unknown>>;
+    expect(agents).toHaveLength(3);
+    expect(agents.map((a) => a.name)).toEqual([
+      "code-explorer",
+      "senior-debugger",
+      "senior-developer",
+    ]);
+    expect(agents[1]!.model).toBe("opus"); // --deep override for senior-debugger
+    expect(agents[2]!.model).toBe("opus"); // --deep cross-check on senior-developer
   });
 });

@@ -22,7 +22,7 @@ This skill exists because `/squad:implement` is heavy machinery (classification,
 
 ## Inviolable Rules
 
-1. **No code changes.** No `Edit`, `Write`, `NotebookEdit` in this skill's own actions. The subagent is also read-only by design — but if you, the orchestrator, are tempted to "just fix this real quick" while answering, **stop**. Redirect the user to `/squad:implement`.
+1. **No code changes.** No `Edit`, `Write`, `NotebookEdit` over the user's codebase. The subagent is also read-only by design — but if you, the orchestrator, are tempted to "just fix this real quick" while answering, **stop**. Redirect the user to `/squad:implement`. The only file this skill ever writes is the journal `.squad/runs.jsonl` via `record_run` for telemetry — gitignored, mode `0o600`, not user content. Same single-writer pattern as the squad + debug skills.
 2. **No state-mutating shell or git.** Read-only git (`log`, `show`, `blame`, `ls-files`, `grep`, `status`) is fine for the subagent. The orchestrator should not invoke shell directly — let the subagent do the searching.
 3. **Cite every claim with `file:line`.** A statement about the code without a citation is a hallucination risk; either find the line or say "uncertain — searched X, Y, did not find".
 4. **No AI attribution** in any artifact you produce.
@@ -47,6 +47,42 @@ If both `--quick` and `--thorough` are passed, the later one wins and emit a one
 3. If the question is empty after stripping flags, ask the user for a question and stop.
 4. If the question's surface implies action ("can you change X?", "refactor Y", "add Z"), reply with one sentence redirecting to `/squad:implement` and stop. Question mode does not implement.
 
+### Phase 1.5 — Write `in_flight` telemetry row (v0.10.1+)
+
+Generate a fresh run id (`Date.now().toString(36) + "-" + 6 chars from [a-z0-9]`, per `skills/squad/SKILL.md` spec) and append the Phase-A in_flight row before dispatching the subagent:
+
+```
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: <runId>,
+    status: "in_flight",
+    started_at: <ISO 8601 now>,
+    invocation: "question",
+    mode: <"quick" | "normal" | "thorough" mapped from breadth>,
+    mode_source: <"user" if --quick/--thorough explicit, "auto" otherwise>,
+    git_ref: null,
+    files_count: 0,
+    agents: [
+      { name: "code-explorer", model: "haiku", score: null, severity_score: null,
+        batch_duration_ms: 0, prompt_chars: 0, response_chars: 0 },
+    ],
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: null,
+  },
+});
+```
+
+Wrap in a non-blocking try/catch (same shape as `skills/debug/SKILL.md` Phase A):
+
+- I/O error or unknown-tool: log silently, continue. Telemetry loss must never block a real question.
+- `SquadError` (RECORD_TOO_LARGE / INVALID_INPUT / PATH_TRAVERSAL_DENIED): surface code + message to the user verbatim. Security #7 contract.
+
+If the in_flight write fails, persist a flag so the Phase 3.5 finalisation is skipped (no orphan terminal row without a paired in_flight).
+
+Map `breadth` → `mode`: `quick` → `"quick"`, `medium` → `"normal"`, `thorough` → `"deep"`. Keeps the journal's mode taxonomy consistent across skills for `/squad:stats`.
+
 ### Phase 2 — Dispatch the code-explorer subagent
 
 Call the native Claude Code subagent:
@@ -68,6 +104,42 @@ The subagent returns a Code-Explorer Report (Question / Findings / Summary / Gap
 1. Surface the report directly to the user. Do not rewrite the Findings section — it already has the `file:line` citations the user needs.
 2. **Add value on top**, not in front. If the report's Summary already answers the question, just say so and end. If the user's question has a follow-up that the report opens up (e.g. "X is defined at A — do you want to see what calls it?"), offer the follow-up as a one-line suggestion.
 3. If the report has a non-empty Gaps section, escalate it visibly — those are the cases where the user might want to re-run with `--thorough` or rephrase.
+
+### Phase 3.5 — Finalise telemetry row (v0.10.1+)
+
+After Phase 3 synthesis completes (or after the empty-question / redirect-to-implement short-circuits — those count as `aborted`), write the terminal half:
+
+```
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: <same runId from Phase 1.5>,
+    status: "completed",                          // or "aborted" on early-stop
+    started_at: <same started_at from Phase 1.5>,
+    completed_at: <ISO 8601 now>,
+    duration_ms: <completed_at - started_at>,
+    invocation: "question",
+    mode: <same>,
+    mode_source: <same>,
+    git_ref: null,
+    files_count: 0,
+    agents: [
+      { name: "code-explorer", model: "haiku",
+        score: null, severity_score: null,
+        batch_duration_ms: <Phase 2 wall>,
+        prompt_chars: <Phase 2 prompt>,
+        response_chars: <Phase 2 response> },
+    ],
+    verdict: null,           // question runs don't carry a verdict
+    weighted_score: null,    // no rubric
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: null,
+  },
+});
+```
+
+Same non-blocking try/catch. On `SquadError`, attempt a fallback row with the same `id`, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. If that also fails, log and continue — the aggregator's 1h TTL synthesises an aborted view at the next `/squad:stats`.
 
 ### Phase 4 — End
 
