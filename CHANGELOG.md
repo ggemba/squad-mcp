@@ -7,6 +7,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-05-11
+
+Patch release: bump-only marker for the next dev cycle on top of v0.13.0.
+
 ## [0.13.0] - 2026-05-11
 
 ### Performance (v0.12 series)
