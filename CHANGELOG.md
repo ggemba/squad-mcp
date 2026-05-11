@@ -7,6 +7,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-05-10
+
+Second patch for the release pipeline. v0.8.0 / v0.8.1 on npm are functional — this release exists to actually verify the smoke job (v0.8.1's smoke fix was insufficient).
+
+### Fixed
+
+- **Real root cause: `dist/index.js` was published with mode `644` (not executable).** When npm installed the published tarball, the bin symlink `node_modules/.bin/squad-mcp` pointed at a non-executable target. The shell then reported `sh: 1: squad-mcp: not found` (which dash uses for both "missing on PATH" and "found but cannot exec"). Every release since v0.7.0 hit this. Fixed by appending `chmod +x dist/index.js` to the `build` script in `package.json` so the file is executable when packaged.
+- **Smoke job no longer routes through npx for invocation.** Previously the smoke spawned `npx -y @scope/pkg` (and v0.8.1 tried the `--package=` long form) — both relied on npx to wire the bin onto PATH, which has been unreliable for scoped packages on Ubuntu CI. New approach: `npm install --no-save` into a temp dir, then `spawn("node", [absPath])` directly on `dist/index.js`. No PATH lookup, no npx, no shell-resolved bin name. Strictly proves the published tarball boots end-to-end and speaks JSON-RPC over stdio.
+- Smoke timeout lowered from 90s to 30s — without the npx fetch+spawn ladder, the only cost is the server's own startup (~1-2s).
+
 ## [0.8.1] - 2026-05-10
 
 Patch release for the release pipeline. The 0.8.0 package on npm is functionally identical — this release exists to validate the smoke job.

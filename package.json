@@ -1,6 +1,6 @@
 {
   "name": "@gempack/squad-mcp",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "license": "Apache-2.0",
@@ -31,7 +31,7 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",

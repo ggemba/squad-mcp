@@ -71,35 +71,41 @@ jobs:
           done
           echo "::error::tarball not visible on registry after 60s"
           exit 1
-      - name: warm the npx cache (avoids first-run fetch counting against the smoke timeout)
+      - name: install the published tarball into a fresh temp dir
         shell: bash
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # Force the fetch + extract so the smoke step below only pays for
-          # spawn + handshake. Without this the cold fetch (~10-25s on a GH
-          # runner) eats the handshake budget and the smoke flakes. Drop the
-          # `|| true` so the warm step now fails loudly if the bin won't run
-          # — earlier releases masked the same npx-bin-resolution failure that
-          # broke the smoke (sh: squad-mcp: not found) under the silent `|| true`.
-          npx -y --package="@gempack/squad-mcp@${TAG_VERSION}" squad-mcp --help >/dev/null 2>&1
+          # Install into a dedicated workspace, then verify dist/index.js
+          # exists and is executable. We invoke `node <abs path>` directly
+          # in the smoke step below — sidesteps the npx-bin-resolution path
+          # that has been broken for scoped packages on Ubuntu CI since
+          # the smoke job was introduced (v0.7.0). Repeatedly seeing
+          # `sh: squad-mcp: not found` was npx failing to wire the bin
+          # symlink onto PATH; running `node <path>` is immune.
+          mkdir -p /tmp/squad-smoke && cd /tmp/squad-smoke
+          npm init -y >/dev/null
+          npm install --no-save "@gempack/squad-mcp@${TAG_VERSION}"
+          ls -la node_modules/@gempack/squad-mcp/dist/index.js
+          test -x node_modules/@gempack/squad-mcp/dist/index.js \
+            || (echo "::error::dist/index.js is not executable in the published tarball"; exit 1)
       - name: smoke the published tarball over stdio
         shell: bash
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # The smoke script talks JSON-RPC over stdio to a freshly fetched
-          # copy. CRITICAL: invoke npx via the `--package=<scoped>` + explicit
-          # bin form, not `npx -y @scope/pkg`. The short form has been
-          # unreliable in npm 10+ for scoped packages — `sh: squad-mcp: not
-          # found` happens because npx fails to wire the bin onto PATH and
-          # falls back to running the unscoped name as a shell command. The
-          # long form gives npm an explicit (package, bin) tuple to resolve.
+          cd /tmp/squad-smoke
+          # Invoke `node` on the absolute path of the installed entry point.
+          # No PATH lookup, no npx, no shell-resolved bin name — this is the
+          # most direct way to prove the published tarball boots and speaks
+          # JSON-RPC over stdio.
           cat > /tmp/smoke-published.mjs <<EOF
           import { spawn } from "node:child_process";
-          const child = spawn(
-            "npx",
-            ["-y", "--package=@gempack/squad-mcp@${TAG_VERSION}", "squad-mcp"],
-            { stdio: ["pipe", "pipe", "inherit"] },
+          import path from "node:path";
+          const entry = path.resolve(
+            "/tmp/squad-smoke/node_modules/@gempack/squad-mcp/dist/index.js",
           );
+          const child = spawn("node", [entry], {
+            stdio: ["pipe", "pipe", "inherit"],
+          });
           let buf = "";
           const messages = [];
           child.stdout.on("data", (c) => {
@@ -112,10 +118,11 @@ jobs:
             }
           });
           const send = (req) => child.stdin.write(JSON.stringify(req) + "\n");
-          // 90s budget — even with the warm cache, npx adds spawn latency on
-          // top of the server's own startup. Better to fail loudly after 90s
-          // than to flake at 30s.
-          const waitFor = (id, timeoutMs = 90_000) => new Promise((resolve, reject) => {
+          // 30s budget — invoking `node` directly on the installed entry
+          // skips the npx fetch+extract+spawn ladder, so the only cost
+          // here is the server's own startup (~1-2s for tools/list to
+          // resolve). 30s is plenty; flake budget kept generous.
+          const waitFor = (id, timeoutMs = 30_000) => new Promise((resolve, reject) => {
             const start = Date.now();
             const t = setInterval(() => {
               const m = messages.find((x) => x.id === id);
