@@ -155,11 +155,24 @@ export async function composeSquadWorkflow(input: Input): Promise<ComposeWorkflo
     staged_only: input.staged_only,
   };
   if (input.base_ref !== undefined) detectInput.base_ref = input.base_ref;
-  const changed = await detectChangedFiles(detectInput);
 
-  // Read .squad.yaml early — applies before classification because skip_paths
-  // can shrink the file list, which changes the heuristic in classify/select.
-  const config = await readSquadYaml(input.workspace_root);
+  // Phase 0 parallelisation (v0.12+, B1): `detectChangedFiles` spawns a git
+  // subprocess (~50-300ms cold) and `readSquadYaml` does a small `fs.stat` +
+  // `fs.readFile` (~5-30ms). They are independent — read_squad_config does
+  // not consume the changed-files list. Run them concurrently so the slower
+  // of the two dominates wall-clock instead of their sum.
+  //
+  // Order of `Promise.all`: doesn't matter for correctness; both promises
+  // start eagerly when the array is constructed. The runtime parallelism
+  // budget here is bounded by Node's event loop + git process startup.
+  //
+  // Each call's error policy is preserved: detectChangedFiles throws on git
+  // failure, readSquadYaml throws on invalid YAML. Promise.all surfaces the
+  // first rejection — same behaviour the sequential `await` chain produced.
+  const [changed, config] = await Promise.all([
+    detectChangedFiles(detectInput),
+    readSquadYaml(input.workspace_root),
+  ]);
 
   const allPaths = changed.files.map((f) => f.path);
   const { kept: filePaths, skipped: skippedPaths } = applySkipPaths(allPaths, config.skip_paths);

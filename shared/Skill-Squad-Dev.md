@@ -253,11 +253,12 @@ If an advisory agent forwarded a Blocker/Major to an agent that was not selected
 
 ### Phase 8 — Implementation
 
-- Follow the plan and advisory acceptance criteria.
-- Read → Edit/Write each file. Respect project patterns.
-- Method names in English. No emojis.
-- Update tests per plan and `senior-qa` recommendations.
-- If possible, run the project test suite.
+**v0.13+:** Dispatched to the dedicated `senior-implementer` subagent (Opus-pinned), NOT performed by the orchestrator. See `skills/squad/SKILL.md` Phase 8 for the full dispatch contract.
+
+- Single `Task(subagent_type="senior-implementer")` carrying: workspace_root, test/lint command hints, the approved plan, advisory acceptance criteria (per-agent), files-in-scope (union of advisor slices), past team decisions (learnings.rendered), prior-iteration findings (Phase 11 only).
+- Subagent edits files honouring project patterns + advisory criteria. Method names in English. No emojis. No commit/push.
+- Subagent runs project test suite + lint to verify, returns a 6-section Implementation Report (Plan summary / Changes / Tests / Acceptance criteria coverage / Out of scope / Blockers).
+- Orchestrator inspects Section 6 (Blockers) FIRST — non-empty halts before Phase 9/10. Section 4 ❌ also halts.
 
 ### Phase 9 — Codex Implementation Review (optional)
 

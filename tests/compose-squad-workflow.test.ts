@@ -247,11 +247,10 @@ describe("composeSquadWorkflow", () => {
     });
 
     it("rollback contract: omitting mode still selects normal for a Medium-risk diff", async () => {
-      // The implicit default — pre-v0.8.0 behaviour. Two-file change without
-      // auth/money/migration is Low-risk + over the file-count threshold for
-      // auto-quick? No, files_count=2 fits. Use a 6-file diff (over the cap)
-      // to force normal mode.
-      const sixFiles: DetectChangedFilesOutput = {
+      // The implicit default — pre-v0.8.0 behaviour. We need a diff that
+      // exceeds QUICK_AUTO_MAX_FILES (8 since 2026-05) AND carries no
+      // high-risk signal, so neither auto-quick nor auto-deep fires.
+      const nineFiles: DetectChangedFilesOutput = {
         files: [
           { path: "src/a.ts", status: "modified", raw_status: "M" },
           { path: "src/b.ts", status: "modified", raw_status: "M" },
@@ -259,12 +258,15 @@ describe("composeSquadWorkflow", () => {
           { path: "src/d.ts", status: "modified", raw_status: "M" },
           { path: "src/e.ts", status: "modified", raw_status: "M" },
           { path: "src/f.ts", status: "modified", raw_status: "M" },
+          { path: "src/g.ts", status: "modified", raw_status: "M" },
+          { path: "src/h.ts", status: "modified", raw_status: "M" },
+          { path: "src/i.ts", status: "modified", raw_status: "M" },
         ],
         base_ref: "HEAD~1",
         staged_only: false,
         invocation: "git diff --name-status --no-renames HEAD~1..HEAD",
       };
-      detectChangedFilesMock.mockResolvedValue(sixFiles);
+      detectChangedFilesMock.mockResolvedValue(nineFiles);
 
       const out = await composeSquadWorkflow({
         workspace_root: "/tmp/x",
@@ -274,11 +276,44 @@ describe("composeSquadWorkflow", () => {
         force_agents: [],
       });
 
-      // 6 files > QUICK_AUTO_MAX_FILES (5), so auto-quick declines. No
+      // 9 files > QUICK_AUTO_MAX_FILES (8), so auto-quick declines. No
       // high-risk signal so deep also declines. Result: normal.
       expect(out.mode).toBe("normal");
       expect(out.mode_source).toBe("auto");
       expect(out.mode_warning).toBeUndefined();
+    });
+
+    it("auto-detects quick on the new 8-file boundary (post-2026-05 bump)", async () => {
+      // Pins the threshold bump from 5 → 8. Eight Low-risk files with no
+      // auth/money/migration signal should now resolve to quick (previously
+      // fell through to normal).
+      const eightFiles: DetectChangedFilesOutput = {
+        files: [
+          { path: "src/a.ts", status: "modified", raw_status: "M" },
+          { path: "src/b.ts", status: "modified", raw_status: "M" },
+          { path: "src/c.ts", status: "modified", raw_status: "M" },
+          { path: "src/d.ts", status: "modified", raw_status: "M" },
+          { path: "src/e.ts", status: "modified", raw_status: "M" },
+          { path: "src/f.ts", status: "modified", raw_status: "M" },
+          { path: "src/g.ts", status: "modified", raw_status: "M" },
+          { path: "src/h.ts", status: "modified", raw_status: "M" },
+        ],
+        base_ref: "HEAD~1",
+        staged_only: false,
+        invocation: "git diff --name-status --no-renames HEAD~1..HEAD",
+      };
+      detectChangedFilesMock.mockResolvedValue(eightFiles);
+
+      const out = await composeSquadWorkflow({
+        workspace_root: "/tmp/x",
+        user_prompt: "small Low-risk refactor across eight files",
+        staged_only: false,
+        read_content: false,
+        force_agents: [],
+      });
+
+      expect(out.mode).toBe("quick");
+      expect(out.mode_source).toBe("auto");
     });
   });
 

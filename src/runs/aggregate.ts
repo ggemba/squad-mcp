@@ -470,6 +470,152 @@ export function formatTokens(n: number): string {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Language-aware supplements A/B impact (v0.13+).                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-agent A/B contrast for the v0.13 language-supplement feature.
+ *
+ * For each LANGUAGE_AWARE_AGENT we bucket their `(run, agent_metrics)` pairs
+ * into:
+ *  - `with_supplement`: the agent appears in `record.language_supplements
+ *    .agents_with_supplement` for that run. The supplement was injected into
+ *    the agent's prompt at dispatch time.
+ *  - `without_supplement`: the run has `language_supplements.injected: false`
+ *    OR the agent was not in the supplemented set even though the run was
+ *    eligible for supplementation (detection succeeded). This is the natural
+ *    counterfactual.
+ *
+ * `delta_score` is `with.avg_score - without.avg_score`. A positive number
+ * means agents scored higher with the supplement on. NULL when either side
+ * has fewer than `min_n` rows (default 10) — guards against the noise floor
+ * of a tiny journal.
+ *
+ * Records WITHOUT the `language_supplements` field (older or unrelated
+ * invocations like debug/brainstorm) are excluded from both buckets — they
+ * carry no signal about the v0.13 path.
+ *
+ * Pure: no I/O, no clock. Same shape contract as the rest of aggregate.ts.
+ */
+export interface SupplementImpactPerAgent {
+  agent: AgentName;
+  with_supplement: SupplementBucketStats;
+  without_supplement: SupplementBucketStats;
+  /** `with.avg_score − without.avg_score`, or `null` if either side under min_n. */
+  delta_score: number | null;
+  /** `with.avg_severity_score − without.avg_severity_score`, or `null`. Lower is better. */
+  delta_severity_score: number | null;
+}
+
+export interface SupplementBucketStats {
+  /** Number of (run, agent) pairs in this bucket. */
+  n: number;
+  /** Mean of non-null `score` values in this bucket. `null` when n=0 or all scores are null. */
+  avg_score: number | null;
+  /** Mean of non-null `severity_score` values. `null` when n=0 or all are null. */
+  avg_severity_score: number | null;
+}
+
+/**
+ * Walk the run journal and return per-agent A/B comparisons of supplemented
+ * vs un-supplemented dispatch outcomes.
+ *
+ *  - `min_n` (default 10) gates `delta_*` to `null` when sample size is small.
+ *    Tune down for unit tests, never below 1 in production usage.
+ *  - Only terminal records (`completed | aborted`) contribute — `in_flight`
+ *    rows have null scores and would skew the means.
+ *  - Records lacking `language_supplements` are skipped entirely (not
+ *    counted as "without"); the contrast is only meaningful between runs
+ *    where the v0.13 path actually ran.
+ */
+export function aggregateLanguageSupplementImpact(
+  records: readonly RunRecord[],
+  options: { min_n?: number } = {},
+): SupplementImpactPerAgent[] {
+  const minN = options.min_n ?? 10;
+  // Build a map: agent -> { with: { n, scores[], sevs[] }, without: { n, scores[], sevs[] } }
+  // `n` counts dispatches (one per (agent, run) pair) regardless of whether
+  // the agent emitted a score on that run. Means are computed only from the
+  // non-null subset, so a non-rubric dispatch contributes to n but not to
+  // avg_score / avg_severity_score.
+  type Bucket = { n: number; scores: number[]; sevs: number[] };
+  const buckets = new Map<AgentName, { with: Bucket; without: Bucket }>();
+
+  for (const r of records) {
+    if (r.status === "in_flight") continue;
+    if (!r.language_supplements) continue;
+    const supplemented = new Set<AgentName>(r.language_supplements.agents_with_supplement);
+    for (const a of r.agents) {
+      // Only LANGUAGE_AWARE_AGENTS matter for this contrast — but instead of
+      // hard-coding the allowlist here (would create a second SoT), we infer:
+      // an agent is language-aware iff it appears in some supplemented set
+      // OR its run had `injected: true` and that agent's name is omitted —
+      // the second form catches "implementer was eligible but the squad
+      // didn't dispatch it this round" only weakly. Simplest robust rule:
+      // accept any agent that appears in `agents_with_supplement` across the
+      // FULL set. We learn the agent membership from data, not config.
+      // (The `LANGUAGE_AWARE_AGENTS` const is the SoT for runtime; this
+      // aggregate stays decoupled so adding a 5th language-aware agent
+      // doesn't require touching aggregate.ts.)
+      const inWith = supplemented.has(a.name);
+      const inWithout =
+        !inWith &&
+        (r.language_supplements.injected || r.language_supplements.confidence !== "none");
+      if (!inWith && !inWithout) continue;
+      const slot = buckets.get(a.name) ?? {
+        with: { n: 0, scores: [], sevs: [] },
+        without: { n: 0, scores: [], sevs: [] },
+      };
+      const target = inWith ? slot.with : slot.without;
+      target.n += 1;
+      if (a.score !== null) target.scores.push(a.score);
+      if (a.severity_score !== null) target.sevs.push(a.severity_score);
+      buckets.set(a.name, slot);
+    }
+  }
+
+  const out: SupplementImpactPerAgent[] = [];
+  for (const [agent, b] of buckets) {
+    const w = bucketStats(b.with);
+    const wo = bucketStats(b.without);
+    const deltaScore =
+      w.n >= minN && wo.n >= minN && w.avg_score !== null && wo.avg_score !== null
+        ? round2(w.avg_score - wo.avg_score)
+        : null;
+    const deltaSev =
+      w.n >= minN && wo.n >= minN && w.avg_severity_score !== null && wo.avg_severity_score !== null
+        ? round2(w.avg_severity_score - wo.avg_severity_score)
+        : null;
+    out.push({
+      agent,
+      with_supplement: w,
+      without_supplement: wo,
+      delta_score: deltaScore,
+      delta_severity_score: deltaSev,
+    });
+  }
+  // Stable order — by agent name — so a renderer can rely on it for diffs.
+  out.sort((x, y) => x.agent.localeCompare(y.agent));
+  return out;
+}
+
+function bucketStats(b: { n: number; scores: number[]; sevs: number[] }): SupplementBucketStats {
+  return {
+    n: b.n,
+    avg_score: b.scores.length
+      ? round2(b.scores.reduce((s, n) => s + n, 0) / b.scores.length)
+      : null,
+    avg_severity_score: b.sevs.length
+      ? round2(b.sevs.reduce((s, n) => s + n, 0) / b.sevs.length)
+      : null,
+  };
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Suggestion: re-emit decoded severity counts when needed (not for stats     */
 /* main panels — kept for future drill-down view).                            */
 /* -------------------------------------------------------------------------- */

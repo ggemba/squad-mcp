@@ -1,7 +1,7 @@
 ---
 name: tech-lead-consolidator
 description: Tech lead AFTER the code is written. Convergence point for advisory reports, arbitrates conflicts, issues the final merge verdict, owns rollback plan and deploy considerations.
-model: inherit
+model: sonnet
 ---
 
 # TechLead-Consolidator

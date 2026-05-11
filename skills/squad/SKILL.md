@@ -136,7 +136,7 @@ If the user wants to override, accept `force_work_type` or `force_agents`.
 1. **Explicit user flag wins.** `/squad:implement --quick <task>` or `/squad:implement --deep <task>` set `mode` directly. `compose_squad_workflow` accepts the value and emits `mode_source: "user"`.
 2. **Auto-detect** when neither flag is present (`mode` omitted from the call):
    - `mode = "deep"` if `risk.level == High` OR `work_type == "Security"` OR any of `touches_auth` / `touches_money` / `touches_migration` is true.
-   - `mode = "quick"` if `risk.level == Low` AND `files_count <= 5` AND `loc_changed <= 150` AND none of the high-risk signals fire AND `work_type != "Security"`.
+   - `mode = "quick"` if `risk.level == Low` AND `files_count <= QUICK_AUTO_MAX_FILES` (bumped 5 → 8 in 2026-05; the constant lives at `src/tools/mode/exec-mode.ts`) AND none of the high-risk signals fire AND `work_type != "Security"`. The `loc_changed` heuristic was REMOVED in 2026-05 — it duplicated the file-count cap without adding signal.
    - `mode = "normal"` otherwise. This is the pre-v0.8.0 behaviour and the implicit default.
    - Returned as `mode_source: "auto"`.
 3. **Safety override on forced `--quick` over high-risk diff.** The cap-to-2 stays, but `senior-dev-security` is force-included as one of the two agents, and `mode_warning` is set in the output. Never silently honour `--quick` on a security-relevant change without that warning.
@@ -235,9 +235,91 @@ This rule applies uniformly: there is no per-agent exception in `deep`. If the u
 
 For each agent in `squad.agents`:
 
-1. Call `slice_files_for_agent` to get the file slice. (These reads can run in parallel too — batch them in one message.)
+1. Call `slice_files_for_agent` to get the file slice. (These reads can run in parallel too — batch them in one message.) **Preferred:** call `compose_advisory_bundle` ONCE up front — it returns `slices_by_agent` AND `hunks_by_agent` in a single roundtrip. Skip step 1's individual `slice_files_for_agent` calls when the bundle already carries them.
 2. Call `read_learnings` with `workspace_root`, `agent: "<agent-name>"`, and `changed_files: <file slice>` to fetch past team decisions for this agent. (Same — batch the per-agent reads.)
 3. Then in **one** assistant message, emit N `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>{, model: "opus" when mode === "deep"})` blocks — one per selected agent.
+
+### Hunks vs full-file content (v0.12+ perf path)
+
+`compose_advisory_bundle` now emits `hunks_by_agent[agent]: Record<path, FileHunk>` alongside `slices_by_agent[agent]`. Each `FileHunk` carries `{diff, truncated, full_file_changed, byte_size}`. **Use the hunks as the primary context source** in the agent prompt — they're typically 10-30% of the full file size and cut Sonnet/Haiku processing time materially. Agents have `Read` tool access for full-file context when they need cross-line reasoning.
+
+Rules:
+
+- Default — pass `hunks` inline; instruct the agent to `Read` if they need broader context.
+- When `full_file_changed: true` (file added or deleted entirely), the diff IS the file; no `Read` fallback needed.
+- When `truncated: true` (diff exceeded `max_hunk_bytes_per_file`), flag this explicitly in the agent prompt so the agent knows to `Read` the file.
+- When `hunks_by_agent` is absent (caller passed `include_hunks: false`, or extraction failed silently), fall back to the pre-v0.12 behaviour: pass `file_contents` from `slices_by_agent` inline.
+
+### Language-aware prompt supplements (v0.13+)
+
+`compose_advisory_bundle` also emits `detected_languages` and `language_supplements_by_agent` (the latter only for `senior-developer`, `senior-dev-reviewer`, `senior-qa`, `senior-implementer` — the four agents that have language-specific addenda on disk under `agents/<agent>.langs/<lang>.md`).
+
+When `language_supplements_by_agent[agent]` is non-empty for a given agent in this dispatch, INJECT each supplement under a `## Language-specific guidance for this review` heading at the TOP of the agent's prompt (above the Plan/Context). Order: stable per `detected_languages.all`. The agent's core system prompt stays language-agnostic; the language-specific checklists ride in the user prompt only when they apply.
+
+```
+[per-agent prompt, when language supplements exist]
+
+## Language-specific guidance for this review
+
+The diff touches: {detected_languages.all.join(", ")} (primary: {detected_languages.primary}; confidence: {detected_languages.confidence}).
+
+{for each (lang, supplement) in language_supplements_by_agent[agent]:
+  ### {lang}
+  {supplement}
+}
+
+---
+
+[then continues with the standard prompt: Plan / Your sliced view / Past team decisions / etc.]
+```
+
+Rules:
+
+- **Skip the supplements section entirely** when `language_supplements_by_agent` is absent (no segmentation for this agent), or when the inner record is empty (no supplements matched any detected language for this agent).
+- **Don't paraphrase the supplement** — paste it verbatim. The wording is curated and aliasing introduces drift.
+- **Multi-language PRs** — paste all matching supplements, one per detected language. Trust the agent to weigh them.
+- **`confidence: "low" | "none"`** — still inject supplements for `low` (some signal beats none), but include the confidence label in the heading so the agent can downweight aggressively.
+- **Language-agnostic agents** (architect, dba, security, planner, consolidator, PO) — `language_supplements_by_agent` will not have entries for them; their prompt skips this section entirely.
+
+### Async / background dispatch (v0.12+, opt-in)
+
+When the user passes `--async` (or default behaviour for `/squad:review` only), dispatch each `Task()` with `run_in_background: true`. The host returns control to the user immediately; agent completion notifications arrive asynchronously and the orchestrator (this skill) resumes Phase 10 once all expected notifications have landed.
+
+**Trigger rules:**
+
+| Skill              | Default                         | `--async` opt-in       | Rationale                                                       |
+| ------------------ | ------------------------------- | ---------------------- | --------------------------------------------------------------- |
+| `/squad:review`    | **background** (v0.12+ default) | n/a                    | Pure advisory, no Gate 2 mid-flow — perfect fit                 |
+| `/squad:implement` | foreground (sync)               | `--async` flag opts in | Gate 2 (Blocker halt) is interactive — async muddies the prompt |
+| `/squad:debug`     | foreground (sync)               | `--async` flag opts in | Bug investigation usually wants immediate feedback              |
+| `/squad:question`  | foreground always               | n/a                    | Single dispatch, sub-second; no benefit                         |
+
+**Dispatch pattern (background):**
+
+```
+[assistant turn]
+<thinking>Dispatching N agents in background — user can keep working while they run.</thinking>
+<tool_use name="Task" subagent_type="senior-architect" run_in_background=true prompt="...">
+<tool_use name="Task" subagent_type="senior-developer" run_in_background=true prompt="...">
+... (N parallel)
+[assistant message to user]
+> Squad dispatched in background: senior-architect, senior-developer, senior-qa.
+> I'll consolidate and emit the verdict as completion notifications arrive — keep working.
+[end of turn]
+```
+
+**Completion handling:**
+
+- Each background `Task` completion fires a notification (system-reminder-style) carrying the agent's output.
+- The orchestrator counts notifications against the dispatched set. When count == dispatched.length → run Phase 10 (consolidator) automatically.
+- If a notification arrives WHILE the user is mid-conversation, surface a brief acknowledgement ("senior-architect done, 2/3"), do NOT interrupt the user's flow.
+- When the final notification arrives, emit the consolidator output as a fresh assistant message even if the user is doing something else — that IS the deliverable they were waiting for.
+
+**Trade-offs accepted:**
+
+- **No Gate 2 mid-flight in async mode.** All findings land in the consolidator at once; Blocker halt becomes "consolidator emits REJECTED + Blocker list, user decides next step". For `/squad:implement --async`, this means Gate 2 happens at the same time as the verdict, not before.
+- **Session lifetime constraint.** If the user closes the session before all notifications arrive, the in-flight agents complete in isolation but the consolidator never fires. Document as Known Limitation; rerun `/squad:review` if interrupted.
+- **Cost is identical.** Async only changes WHEN the user gets the answer (sooner-perceived because they aren't blocked staring at the terminal); the squad still runs the same agents.
 
 Concrete shape of the message that triggers parallel dispatch:
 
@@ -265,22 +347,36 @@ That triples-to-N×s wall time and is treated as a Phase 5 violation.
 
 Per-agent advisory prompt template (use the `agent_advisory` MCP prompt with arguments `agent`, `plan`, `slice` to construct, OR build manually):
 
-```
+````
 You are participating in an advisory review.
 
 ## Plan / Context
 {plan in implement mode; "Review of existing changes" in review mode}
 
 ## Your sliced view
-{file list from slices_by_agent[agent], with diffs}
+Files in scope (from slices_by_agent[agent].matched_files):
+{file list — one path per line}
+
+Changed regions (from hunks_by_agent[agent], when present):
+{for each (path, hunk):
+   path  (truncated: <bool>, full_file_changed: <bool>)
+   ```diff
+   {hunk.diff}
+````
+
+}
+
+If a file is marked truncated: true, OR you need cross-line context not visible in the hunk, use the Read tool on the path to retrieve the full file. Full file content is NOT pasted into this prompt by default — only the changed regions.
 
 {learnings.rendered — omit this whole section if rendered is empty}
 
 ## Your perspective
-As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per shared/_Severity-and-Ownership.md.
+
+As {agent role}, produce findings tagged Blocker / Major / Minor / Suggestion per shared/\_Severity-and-Ownership.md.
 For each finding: severity, file:line, observation, recommendation.
 
 **Past-decision interlock (v0.11.0+):**
+
 - Read the "Past team decisions" section above carefully. Entries marked `⭐ PROMOTED` are team policy — finding that contradicts a promoted accept is itself suspect; finding that aligns with a promoted reject must be downgraded or dropped.
 - If a finding you are about to raise normalises to the same title as a past entry (case-insensitive, whitespace-collapsed, parenthetical suffixes stripped — the `normalizeFindingTitle` rule), reference the past decision explicitly in your output: `"Note: similar finding was REJECTED on YYYY-MM-DD (reason: ...). Re-raising because <material change>."` If you cannot articulate a material change, drop the finding entirely.
 - Never re-raise a previously-rejected finding silently. The team has already paid for that conversation.
@@ -288,13 +384,15 @@ For each finding: severity, file:line, observation, recommendation.
 You do NOT implement. Output is text only.
 
 ## Score
+
 At the end, emit on its own line:
-  Score: NN/100
-  Score rationale: <one sentence>
+Score: NN/100
+Score rationale: <one sentence>
 
 Use the calibration table in your role file (see ## Score section). Honest 65
 is more useful than generous 80 — the rubric is auditable.
-```
+
+````
 
 Each agent emits findings tagged Blocker / Major / Minor / Suggestion per `shared/_Severity-and-Ownership.md` AND a single `Score: NN/100` line. Capture both into the per-agent report.
 
@@ -307,7 +405,7 @@ When you build the `reports[]` array for `apply_consolidation_rules`, include th
   "score": 82,
   "score_rationale": "clean DI, one Major on cross-module coupling"
 }
-```
+````
 
 Tech-lead-planner and tech-lead-consolidator do NOT emit scores (weight 0).
 
@@ -327,7 +425,84 @@ For Blocker/Major items in domains owned by agents not originally selected, spaw
 
 ## Phase 8 — Implementation (implement mode only)
 
-Implement the plan. Honor advisory acceptance criteria. **Do not commit or push.**
+**v0.13+ change:** Implementation is now dispatched to the dedicated `senior-implementer` subagent (`agents/senior-implementer.md`, pinned `model: opus`). The orchestrator does NOT edit files directly anymore. Single `Task` dispatch, not parallel — there is exactly one implementer per implementation step.
+
+### Dispatch contract
+
+````
+Task(
+  subagent_type: "senior-implementer",
+  description: "Execute approved plan",
+  prompt: <
+    ## Workspace
+    workspace_root: <absolute path to repo root, same value passed to compose_squad_workflow>
+    test_command_hint: <one-line hint inferred from package.json `test` script,
+                        OR `pyproject.toml` / `Cargo.toml` / `*.csproj`,
+                        OR "unknown — agent should detect and report">
+    lint_command_hint: <same shape>
+
+    ## Approved plan
+    {the plan from Phase 4, verbatim, including any clarifications the user made at Gate 1}
+
+    ## Advisory acceptance criteria
+    {bullet list per advisory agent — what the implementation must satisfy to pass each one's review.
+     Format: "- [<agent-name>] <criterion text>" so the agent can map back to ✅/⚠️/❌ in Section 4.}
+
+    ## Files in scope
+    {Comma-or-newline-separated workspace-relative paths the agent is permitted to Edit/Write.
+     Source: union of `slices_by_agent[a].matched.map(m => m.file)` for every advisor in `workflow.squad.agents`.
+     Falls back to `workflow.changed_files.files.map(f => f.path)` filtered by `workflow.skipped_paths` when no advisor selected the file (rare, but possible for cross-cutting changes).
+     `senior-implementer` is INTENTIONALLY not in any SQUAD_BY_TYPE entry — it is never auto-selected for slicing — so the orchestrator MUST compute the union here, not call `slice_files_for_agent({agent: "senior-implementer"})`.}
+
+    ## Files in scope — diffs (when hunks_by_agent populated)
+    {Per-file hunks (UNION across all advisor slices), pasted as fenced ```diff blocks. Truncated hunks
+     carry the standard `[... diff truncated by squad-mcp ...]` marker — the agent uses Read to fetch
+     full context for those.}
+
+    ## Past team decisions (omit section entirely if learnings.rendered is empty)
+    {learnings.rendered — promoted entries first, then recent. Treat ⭐ PROMOTED as binding constraints.}
+
+    ## Prior-iteration findings (Phase 11 reject-loop only — omit on first dispatch)
+    {Structured list, one bullet per finding, exact format:
+       - <severity>: <agent-name> — <finding title> — <one-line "what to fix" guidance derived from
+         the consolidator's response or the post-impl reviewer's report>
+     Severities are Blocker | Major (Minor / Suggestion are NOT re-fed — they are advisory-only).
+     Source priority: (1) post-impl consolidator output from prior round, (2) any new advisor finding
+     since the prior implementer report. Do NOT re-feed the prior implementer's own Section 6 Blockers
+     verbatim — those were halts, not fixable findings, and they should have triggered Gate-1 re-entry
+     instead of Phase 11.}
+  >
+  // model: "opus" is INHERITED from senior-implementer.md frontmatter pin in
+  // --quick and --normal modes. In --deep mode the skill-level Opus override
+  // (line ~230) also applies and is a no-op since the pin already gave Opus.
+)
+````
+
+### Handling the Implementation Report
+
+The agent returns a 6-section Implementation Report. The orchestrator MUST inspect it before proceeding to Phase 9 / Phase 10:
+
+| Section                         | Orchestrator action                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. Plan summary                 | Verify the agent's restatement matches the plan you passed. If materially divergent (agent misread scope), halt and surface to user — do NOT proceed to Phase 9/10 with a wrong-scope implementation.                                                                                                                                                                                                                                                                    |
+| 2. Changes made                 | Surface to user verbatim under "Implementation: changes made".                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 3. Tests run                    | Surface to user verbatim under "Implementation: test run". If a test newly failed, halt and re-enter Phase 11 reject-loop with the failure as a Blocker finding.                                                                                                                                                                                                                                                                                                         |
+| 4. Acceptance criteria coverage | Verify all criteria are ✅ or have justified ⚠️/❌. ANY ❌ → halt and surface to user (the implementation does not meet what the squad approved).                                                                                                                                                                                                                                                                                                                        |
+| 5. Out of scope                 | Surface to user as advisory only. NOT a blocker.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 6. Blockers                     | **If non-empty, HALT.** Do NOT proceed to Phase 9 (Codex review), Phase 10 (consolidator), or Phase 11 (reject-loop). The agent could not complete the plan; the right path is to surface the Section 6 content to the user, present them with options (re-enter Gate 1 with revised plan / abandon / manually intervene), and STOP. Treating Section 6 Blockers as a normal Phase-11 input would loop the agent against an obstacle it already declared insurmountable. |
+
+### Worst-case cost
+
+`--deep` mode caps Phase 11 at 3 reject-loop cycles. With Phase 8 itself being 1 dispatch, the worst case is **4 Opus implementer dispatches per `/squad:implement --deep`** (1 first-pass + 3 reject-loop iterations). Budget accordingly. `--normal` caps at 2 (3 total Opus dispatches). `--quick` caps at 1 (2 total).
+
+### Why a subagent and not the orchestrator
+
+1. **Model guarantee.** Pre-v0.13, the orchestrator's editing inherited the user's session model (often Sonnet for cost). The frontmatter pin on `senior-implementer` ensures implementation always runs at Opus regardless of the session default.
+2. **Context isolation.** The implementer prompt carries only the approved plan + acceptance criteria + files. It is not contaminated by the conversation backlog (other branches the user explored before the plan crystallised). Behaviour is deterministic for a given plan.
+
+**Inviolable rules preserved.** The agent's frontmatter and prose forbid `git commit`, `git push`, AI attribution, and scope creep beyond the plan. The agent halts and reports if it cannot complete a step — does NOT leave TODO comments or silently extend scope.
+
+**Reject-loop continuity.** Phase 11 re-dispatches the same `subagent_type` — Claude Code spawns a fresh subagent each time, with zero memory of prior iterations. `prior_iteration_findings` is the ONLY continuity channel between iterations; its schema is defined above and the orchestrator MUST follow it precisely.
 
 Skip this phase entirely in review mode.
 
@@ -391,10 +566,58 @@ record_run({
     verdict: <APPROVED | CHANGES_REQUIRED | REJECTED | null on question / brainstorm>,
     weighted_score: <0-100 or null>,
     est_tokens_method: "chars-div-3.5",
-    mode_warning: <if Phase 1 had one, carry it forward> | null
+    mode_warning: <if Phase 1 had one, carry it forward> | null,
+    // OPTIONAL — only emit when user passed --profile or .squad.yaml.profile = true.
+    // See "Phase timings (v0.12+, --profile flag)" below for capture mechanics.
+    phase_timings: <{ "phase_1_classify_ms": NNN, "phase_2_planner_ms": NNN, ... } | undefined>,
+    // OPTIONAL — emit on every run that went through `compose_advisory_bundle`
+    // (implement / review). Skip on debug, question, brainstorm. Built from the
+    // bundle's `detected_languages` + `language_supplements_by_agent` outputs:
+    //   injected: Object.keys(language_supplements_by_agent ?? {}).length > 0
+    //   detected: detected_languages?.all ?? []
+    //   confidence: detected_languages?.confidence ?? "none"
+    //   agents_with_supplement: Object.keys(language_supplements_by_agent ?? {})
+    // Powers `aggregateLanguageSupplementImpact` — A/B signal on whether
+    // per-language supplements actually move agent scores. Always emit when
+    // available so we accumulate data; analysis can wait. See aggregate.ts.
+    language_supplements: <{ injected, detected, confidence, agents_with_supplement } | undefined>
   }
 });
 ```
+
+### Phase timings (v0.12+, `--profile` flag)
+
+When the user passes `--profile` on the invocation (e.g. `/squad:implement --profile <task>`), capture per-phase wall-clock and include it in the Phase 10 terminal record. This is observability — zero behavioural effect on the run itself.
+
+Capture pattern:
+
+```
+const phaseStartedAt: Record<string, number> = {};
+const phaseTimings: Record<string, number> = {};
+
+// At the START of each phase:
+phaseStartedAt["phase_1_classify"] = Date.now();
+
+// At the END of each phase (immediately before the next phase starts):
+phaseTimings["phase_1_classify_ms"] = Date.now() - phaseStartedAt["phase_1_classify"];
+```
+
+Stable phase keys (the orchestrator MUST use these names so `/squad:stats` aggregation works):
+
+- `phase_1_classify_ms` — Phase 0 + Phase 1 (detect / classify / risk / select)
+- `phase_2_planner_ms` — tech-lead-planner dispatch (`undefined` when `mode === "quick"`)
+- `phase_4_gate1_wait_ms` — user thinking time at Gate 1 (between plan presented and approval)
+- `phase_5_advisory_ms` — parallel advisory batch (max of all agents, not sum)
+- `phase_6_gate2_wait_ms` — user thinking time at Gate 2 (Blocker halt, when triggered)
+- `phase_8_implementation_ms` — implementation phase (implement mode only)
+- `phase_10_consolidator_ms` — `apply_consolidation_rules` + consolidator-persona dispatch
+- `phase_12_learnings_ms` — Phase 12 batched "save as precedents?" prompt + record_learning calls
+
+When a phase is skipped (e.g. `phase_2_planner_ms` in quick mode, `phase_8_implementation_ms` in review mode), OMIT the key — do not emit `0` or `null`. The aggregator distinguishes "not measured" from "ran in zero time".
+
+Cap of 30 keys is enforced by the schema; well above the realistic phase count. Cap of 30 minutes per phase value is also enforced.
+
+When `--profile` was NOT passed, the orchestrator OMITS `phase_timings` from the terminal record (`undefined`). `/squad:stats` shows phase breakdowns only when at least one journal row carries `phase_timings`.
 
 Wrap in the same non-blocking try / catch as Phase 1:
 

@@ -17,12 +17,20 @@ import type { AgentName, WorkType } from "../../config/ownership-matrix.js";
  * Auto-detect threshold for `mode: "quick"`. Surfaced as a named constant so
  * a future `.squad.yaml` override (Sprint 2 / v0.8.1) has a single hook.
  *
- * Note: an earlier draft also gated on a `loc_changed` heuristic, but the
- * heuristic was tautological with this file-count cap and could be foot-gunned
- * by single-file giant rewrites. Removed in favour of a real `git diff --numstat`
- * once we need finer granularity — track in the v0.8.1 follow-up.
+ * History: shipped at 5 in v0.8.0, bumped to 8 in 2026-05 after telemetry
+ * showed the median Low-risk PR sits around 6-7 files (small refactors,
+ * docs+code combos, a feature with its single test file). At 5 the auto-detect
+ * fell back to `normal` (4-7 agents, ~60-90s wall-clock) too often for diffs
+ * that didn't actually need that breadth, training users to pass `--quick`
+ * by hand. The risk gate (auth/money/migration/Security still force `deep`)
+ * is the load-bearing safety; the file-count cap is just a budget heuristic.
+ *
+ * Earlier draft also gated on a `loc_changed` heuristic, but the heuristic
+ * was tautological with this file-count cap and could be foot-gunned by
+ * single-file giant rewrites. Removed; track the `git diff --numstat`
+ * follow-up if needed.
  */
-export const QUICK_AUTO_MAX_FILES = 5;
+export const QUICK_AUTO_MAX_FILES = 8;
 
 /**
  * Execution depth. PUBLIC STABLE CONTRACT from v0.8.0 — downstream

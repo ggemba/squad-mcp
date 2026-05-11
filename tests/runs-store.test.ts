@@ -249,6 +249,106 @@ describe("appendRun — mode_warning.message writer sanitization (v0.10.1)", () 
   });
 });
 
+describe("phase_timings — --profile flag (v0.12)", () => {
+  it("accepts a terminal row with phase_timings and round-trips through readRuns", async () => {
+    const id = "profile-row";
+    const rec = baseCompleted(id, {
+      phase_timings: {
+        phase_1_classify_ms: 420,
+        phase_2_planner_ms: 18_500,
+        phase_5_advisory_ms: 24_200,
+        phase_10_consolidator_ms: 19_900,
+      },
+    });
+    await appendRun(workspace, rec);
+    const rows = await readRuns(workspace);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.phase_timings).toEqual({
+      phase_1_classify_ms: 420,
+      phase_2_planner_ms: 18_500,
+      phase_5_advisory_ms: 24_200,
+      phase_10_consolidator_ms: 19_900,
+    });
+  });
+
+  it("absent phase_timings means --profile was not passed", async () => {
+    const id = "no-profile";
+    const rec = baseCompleted(id); // no phase_timings field
+    await appendRun(workspace, rec);
+    const rows = await readRuns(workspace);
+    expect(rows[0]!.phase_timings).toBeUndefined();
+  });
+
+  it("rejects negative phase_timings values", async () => {
+    const bad = baseCompleted("bad-negative", {
+      phase_timings: { phase_1_classify_ms: -100 },
+    });
+    let err: unknown;
+    try {
+      await appendRun(workspace, bad);
+    } catch (e) {
+      err = e;
+    }
+    expect(isSquadError(err)).toBe(true);
+    if (isSquadError(err)) expect(err.code).toBe("INVALID_INPUT");
+  });
+
+  it("rejects phase_timings values > 30 minutes (1.8M ms)", async () => {
+    const bad = baseCompleted("bad-huge", {
+      phase_timings: { phase_1_classify_ms: 2_000_000 }, // ~33 min, over 30-min cap
+    });
+    let err: unknown;
+    try {
+      await appendRun(workspace, bad);
+    } catch (e) {
+      err = e;
+    }
+    expect(isSquadError(err)).toBe(true);
+    if (isSquadError(err)) expect(err.code).toBe("INVALID_INPUT");
+  });
+
+  it("phase_timings tolerates arbitrary phase key names (extensible)", async () => {
+    // Future phase names should round-trip without schema bump.
+    const id = "future-phase-key";
+    const rec = baseCompleted(id, {
+      phase_timings: {
+        phase_99_hypothetical_ms: 5_000,
+        phase_2_planner_ms: 10_000,
+      },
+    });
+    await appendRun(workspace, rec);
+    const rows = await readRuns(workspace);
+    expect(rows[0]!.phase_timings).toMatchObject({
+      phase_99_hypothetical_ms: 5_000,
+      phase_2_planner_ms: 10_000,
+    });
+  });
+
+  it("rejects phase_timings with > 30 keys (round-2 review fix — .refine enforced)", async () => {
+    // The doc claimed a 30-key cap but the original schema only enforced
+    // per-value bounds. .refine now closes the gap.
+    const tooMany: Record<string, number> = {};
+    for (let i = 0; i < 31; i++) tooMany[`phase_${i}_ms`] = 100;
+    const bad = baseCompleted("too-many-keys", { phase_timings: tooMany });
+    let err: unknown;
+    try {
+      await appendRun(workspace, bad);
+    } catch (e) {
+      err = e;
+    }
+    expect(isSquadError(err)).toBe(true);
+    if (isSquadError(err)) expect(err.code).toBe("INVALID_INPUT");
+  });
+
+  it("accepts phase_timings with exactly 30 keys (boundary)", async () => {
+    const exact: Record<string, number> = {};
+    for (let i = 0; i < 30; i++) exact[`phase_${i}_ms`] = 100;
+    await appendRun(workspace, baseCompleted("exact-30", { phase_timings: exact }));
+    const rows = await readRuns(workspace);
+    expect(Object.keys(rows[0]!.phase_timings!).length).toBe(30);
+  });
+});
+
 describe("InvocationEnum — debug widening (v0.10.0)", () => {
   it('accepts invocation: "debug" through appendRun + readRuns roundtrip', async () => {
     const id = "debug-run";

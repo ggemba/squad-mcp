@@ -105,6 +105,20 @@ const schema = z.object({
       })
       .nullable()
       .optional(),
+    /**
+     * v0.13+ language-aware bundling telemetry. Mirrors the shape in
+     * `src/runs/store.ts`'s `runRecordSchema`. Mirroring (not importing)
+     * is intentional per the comment at the top of this file — drift is
+     * caught by the store's re-validation.
+     */
+    language_supplements: z
+      .object({
+        injected: z.boolean(),
+        detected: z.array(SafeString(20)).max(13),
+        confidence: z.enum(["high", "medium", "low", "none"]),
+        agents_with_supplement: z.array(z.enum(AGENT_NAMES_TUPLE)).max(8),
+      })
+      .optional(),
   }),
 });
 

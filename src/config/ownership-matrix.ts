@@ -9,7 +9,8 @@ export type AgentName =
   | "senior-dev-security"
   | "senior-qa"
   | "code-explorer"
-  | "senior-debugger";
+  | "senior-debugger"
+  | "senior-implementer";
 
 export const AGENT_NAMES: AgentName[] = [
   "product-owner",
@@ -23,6 +24,7 @@ export const AGENT_NAMES: AgentName[] = [
   "senior-qa",
   "code-explorer",
   "senior-debugger",
+  "senior-implementer",
 ];
 
 export const AGENT_NAMES_TUPLE = AGENT_NAMES as [AgentName, ...AgentName[]];
@@ -187,6 +189,25 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     // Weight 0 — utility role like code-explorer / tech-lead-*. The debugger
     // never scores a rubric dimension; it informs the user during /squad:debug.
     // Not in any SQUAD_BY_TYPE entry so it is never auto-selected by the matrix.
+    weight: 0,
+    dimension: "",
+  },
+  "senior-implementer": {
+    name: "senior-implementer",
+    role: "Phase 8 code-writing executor (Opus-pinned)",
+    owns: [
+      "Editing files to implement an approved squad plan",
+      "Writing new files when the plan calls for them",
+      "Running the test/lint loop to verify the implementation",
+      "Producing an implementation report with changes + coverage of acceptance criteria",
+    ],
+    conventions: [],
+    // Weight 0 — utility role like code-explorer / senior-debugger / tech-lead-*.
+    // The implementer EXECUTES the plan; it does not score a rubric dimension
+    // (the rubric measures advisory quality, not the writer's output). Not in
+    // any SQUAD_BY_TYPE entry so it is never auto-selected by the matrix —
+    // it is dispatched explicitly by skills/squad/SKILL.md Phase 8 after
+    // Gate 1 + Gate 2 cleared.
     weight: 0,
     dimension: "",
   },

@@ -65,6 +65,36 @@ const squadYamlSchema = z.object({
       auto_post: z.boolean().optional(),
       request_changes_below_score: z.number().min(0).max(100).optional(),
       omit_attribution_footer: z.boolean().optional(),
+      /**
+       * Optional severity budget applied to the PR comment body before render
+       * (A.3, May 2026). Caps total findings expanded inline; surplus collapses
+       * into a "(N more X findings hidden by budget)" footnote instead of being
+       * pasted as new bullets. Drops happen severity-aware: lowest severity
+       * first (Suggestion → Minor → Major → Blocker). Blockers are NEVER
+       * silently dropped; if Blocker count alone exceeds the cap the budget is
+       * effectively waived for them and the footnote notes the overage.
+       *
+       * Independent of platform rate limits, but motivated by them: Bitbucket
+       * Cloud's 1000 req/h per-user ceiling makes uncapped PR floods costly.
+       *
+       * `per_pr_max`: total expanded findings in the body (default unlimited).
+       * `drop_below`: hard floor — anything strictly below this severity is
+       *   dropped FIRST regardless of `per_pr_max`. e.g. `"Minor"` drops all
+       *   Suggestions; `"Major"` drops Suggestions + Minors.
+       */
+      severity_budget: z
+        .object({
+          per_pr_max: z.number().int().positive().max(500).optional(),
+          drop_below: z.enum(["Suggestion", "Minor", "Major"]).optional(),
+        })
+        .optional(),
+      /**
+       * Default output format for `tools/post-review.mjs`. `markdown` keeps the
+       * historical behaviour (PR comment only). `sarif` emits a SARIF 2.1.0
+       * file at `.squad/last-review.sarif.json` and skips the PR post — useful
+       * for pure CI gating. `both` does both. CLI `--output-format` flag wins.
+       */
+      output_format: z.enum(["markdown", "sarif", "both"]).optional(),
     })
     .optional(),
   /**
@@ -115,6 +145,13 @@ export interface PrPostingConfig {
   request_changes_below_score: number | undefined;
   /** Default false — footer present unless explicitly suppressed. */
   omit_attribution_footer: boolean;
+  /** A.3: severity budget caps applied at format time. Undefined = no cap. */
+  severity_budget: {
+    per_pr_max: number | undefined;
+    drop_below: "Suggestion" | "Minor" | "Major" | undefined;
+  };
+  /** A.2: default output format. Default "markdown" (historical). */
+  output_format: "markdown" | "sarif" | "both";
 }
 
 export interface LearningsConfig {
@@ -225,6 +262,11 @@ function applyDefaults(parsed: SquadYamlConfig, source: string | null): Resolved
     auto_post: parsed.pr_posting?.auto_post ?? false,
     request_changes_below_score: parsed.pr_posting?.request_changes_below_score,
     omit_attribution_footer: parsed.pr_posting?.omit_attribution_footer ?? false,
+    severity_budget: {
+      per_pr_max: parsed.pr_posting?.severity_budget?.per_pr_max,
+      drop_below: parsed.pr_posting?.severity_budget?.drop_below,
+    },
+    output_format: parsed.pr_posting?.output_format ?? "markdown",
   };
 
   const learnings: LearningsConfig = {
@@ -340,6 +382,18 @@ export async function readSquadYaml(workspaceRoot: string): Promise<ResolvedSqua
       if (typeof p.omit_attribution_footer === "string") {
         p.omit_attribution_footer = p.omit_attribution_footer === "true";
       }
+      // A.3 severity_budget — nested object; per_pr_max needs numeric coercion.
+      if (p.severity_budget && typeof p.severity_budget === "object") {
+        const sb = p.severity_budget as Record<string, unknown>;
+        if (sb.per_pr_max !== undefined) {
+          sb.per_pr_max = coerceNumber(
+            sb.per_pr_max,
+            "pr_posting.severity_budget.per_pr_max",
+            located.filePath,
+          );
+        }
+        // drop_below is an enum string — leave as-is, zod validates.
+      }
     }
     if (o.learnings && typeof o.learnings === "object") {
       const l = o.learnings as Record<string, unknown>;
@@ -348,6 +402,13 @@ export async function readSquadYaml(workspaceRoot: string): Promise<ResolvedSqua
       }
       if (typeof l.enabled === "string") {
         l.enabled = l.enabled === "true";
+      }
+    }
+    // tasks.enabled — bool coercion symmetrical to learnings.enabled.
+    if (o.tasks && typeof o.tasks === "object") {
+      const t = o.tasks as Record<string, unknown>;
+      if (typeof t.enabled === "string") {
+        t.enabled = t.enabled === "true";
       }
     }
   } else if (doc === null || doc === undefined) {

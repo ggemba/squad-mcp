@@ -407,28 +407,94 @@ node tools/update-task-status.mjs --task 5 --status done
 
 The CLIs share `tools/_tasks-io.mjs` for read/write and require only node 18+. Schema validation is lighter than the MCP tool — production use should prefer the MCP path.
 
-## Posting reviews to GitHub PRs
+## Posting reviews to PRs (GitHub + Bitbucket Cloud)
 
-Once the squad runs, you can post the verdict + scorecard as a `gh pr review` directly. The skill `/squad:review #42` runs the advisory and offers to post the result; default behaviour is **dry-run + confirmation** — Claude shows the exact `gh` command and the markdown body, then waits for your "go" before posting.
+Once the squad runs, you can post the verdict + scorecard as a PR review on **GitHub** or **Bitbucket Cloud**. The skill `/squad:review #42` runs the advisory and offers to post the result; default behaviour is **dry-run + confirmation** — Claude shows the exact request and the markdown body, then waits for your "go" before posting.
 
 ```bash
-# manual usage (outside the skill)
+# auto-detect platform from `git remote get-url origin`
 echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42 --dry-run
-# prints: gh pr review 42 --approve --body-file - <<'EOF' ... EOF
-
-# actually post
 echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42
+
+# force a platform
+echo '<consolidation JSON>' | node tools/post-review.mjs --pr 31 --platform bitbucket-cloud --repo repos_acgsa/some-repo
 ```
 
-The CLI maps verdict → `gh` action deterministically:
+The CLI maps verdict → review action deterministically:
 
-| Verdict                                            | Score signal           | `gh` action                        |
-| -------------------------------------------------- | ---------------------- | ---------------------------------- |
-| `REJECTED`                                         | —                      | `--request-changes` (blocks merge) |
-| `CHANGES_REQUIRED`                                 | —                      | `--comment` (advisory)             |
-| `APPROVED` + `downgraded_by_score: true`           | weighted < `min_score` | `--comment`                        |
-| `APPROVED` + score < `request_changes_below_score` | (opt-in floor)         | `--request-changes`                |
-| `APPROVED` otherwise                               | passes threshold       | `--approve`                        |
+| Verdict                                            | Score signal           | GitHub `gh` action                 | Bitbucket Cloud                            |
+| -------------------------------------------------- | ---------------------- | ---------------------------------- | ------------------------------------------ |
+| `REJECTED`                                         | —                      | `--request-changes` (blocks merge) | `POST /comments` + `POST /request-changes` |
+| `CHANGES_REQUIRED`                                 | —                      | `--comment` (advisory)             | `POST /comments` only                      |
+| `APPROVED` + `downgraded_by_score: true`           | weighted < `min_score` | `--comment`                        | `POST /comments` only                      |
+| `APPROVED` + score < `request_changes_below_score` | (opt-in floor)         | `--request-changes`                | `POST /comments` + `POST /request-changes` |
+| `APPROVED` otherwise                               | passes threshold       | `--approve`                        | `POST /comments` + `POST /approve`         |
+
+### Platform auto-detection
+
+`--platform auto` (default) parses `git remote get-url origin`:
+
+- `github.com/<owner>/<repo>` → GitHub
+- `bitbucket.org/<workspace>/<repo>` → Bitbucket Cloud
+- Anything else → exit 6 with a clear error. Pass `--platform <name> --repo <a>/<b>` to override.
+
+Bitbucket Server / Data Center (self-hosted) is **not** supported — it has a different REST API surface and would need a separate adapter.
+
+### Auth
+
+| Platform        | Mechanism                                                                       |
+| --------------- | ------------------------------------------------------------------------------- |
+| GitHub          | `gh` CLI on PATH + `gh auth login`. Exits 3 if missing.                         |
+| Bitbucket Cloud | `SQUAD_BITBUCKET_EMAIL` + `SQUAD_BITBUCKET_TOKEN` env vars. Exits 5 if missing. |
+
+For Bitbucket Cloud, generate an **API Token** at <https://id.atlassian.com/manage-profile/security/api-tokens> with the `pullrequest:write` scope (App Passwords were deprecated by Atlassian in 2025). Auth is HTTP Basic with `email:apiToken`.
+
+### Severity budget (A.3, May 2026)
+
+Cap how many findings get expanded inline in the PR body before collapsing the surplus into a footnote. Drops happen lowest-severity-first; **Blockers are never silently dropped**. Useful for big PRs and platforms with tight rate limits (Bitbucket Cloud is 1000 req/h per user).
+
+CLI:
+
+```bash
+node tools/post-review.mjs --pr 42 --severity-cap 20 --drop-below Minor
+```
+
+Repo default via `.squad.yaml`:
+
+```yaml
+pr_posting:
+  severity_budget:
+    per_pr_max: 20 # cap total expanded findings (Blockers exempt)
+    drop_below: Minor # hard floor — anything strictly below this drops FIRST
+```
+
+When the budget hides anything, the body carries a footnote like `_Severity budget hid 7 findings (4 minor, 3 suggestion). Tune pr_posting.severity_budget in .squad.yaml._` so it's never silent.
+
+### SARIF / JSON output (A.2, May 2026)
+
+Emit a SARIF 2.1.0 artefact for CI gating, IDE annotations, and dedup with linters. Three modes:
+
+```bash
+# markdown only (default — historical behaviour)
+node tools/post-review.mjs --pr 42
+
+# SARIF only — writes .squad/last-review.sarif.json, SKIPS the PR post
+node tools/post-review.mjs --output-format sarif
+
+# both — SARIF + post to PR
+node tools/post-review.mjs --pr 42 --output-format both
+```
+
+Override path with `--sarif-path <file>`. Each `result` carries a `partialFingerprints.canonicalHash` (16-char sha256) built from `(agent, severity, normalized title)` — stable across rebases, enables future dedup-on-rerun and cross-tool dedup with Sonar / CodeQL.
+
+Repo default via `.squad.yaml`:
+
+```yaml
+pr_posting:
+  output_format: both # markdown | sarif | both (default markdown)
+```
+
+GitHub Code Scanning, GitLab SAST, Sonar, and most ingestion pipelines consume SARIF 2.1.0 directly.
 
 ### Auto-post (opt-in)
 
@@ -440,8 +506,6 @@ pr_posting:
   request_changes_below_score: 50 # below this, post --request-changes instead of --approve
   omit_attribution_footer: false # default false — footer present
 ```
-
-Requires `gh` CLI in PATH and authenticated (`gh auth login`). The CLI exits 3 with a clear message if `gh` is missing.
 
 ## Detection strategy (`select_squad` / `slice_files_for_agent`)
 

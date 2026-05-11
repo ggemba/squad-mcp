@@ -224,6 +224,70 @@ const runRecordSchema = z.object({
     })
     .nullable()
     .optional(),
+  /**
+   * Optional per-phase timing breakdown (v0.12+, E1). Populated only when the
+   * user passed `--profile` (or `.squad.yaml.profile = true`). Keyed by a
+   * stable phase name; values are wall-clock milliseconds since Phase 1
+   * started. The orchestrator captures Date.now() at phase boundaries and
+   * emits the diff here on the terminal `record_run` call.
+   *
+   * Why keyed map (not fixed shape): the phase list evolves (Phase 9 Codex
+   * round, Phase 11 reject-loop) and we want add-without-schema-bump
+   * extensibility. Cap of 30 keys is well above the realistic phase count
+   * (8-12 phases typically); cap of 30 minutes per phase is generous.
+   *
+   * Cap chosen to keep the JSONL row well under MAX_RECORD_BYTES (4000):
+   * 30 entries × ~50 bytes per `"phase_name": NNNNNN` pair ≈ 1500 bytes.
+   * Combined with the other fields, fits comfortably.
+   */
+  phase_timings: z
+    .record(SafeString(50), z.number().int().nonnegative().max(1_800_000))
+    .refine((r) => Object.keys(r).length <= 30, {
+      message: "phase_timings must not exceed 30 keys",
+    })
+    .optional(),
+  /**
+   * v0.13+ language-aware bundling telemetry. Optional — older records and
+   * non-squad invocations (debug, question, brainstorm) omit it. The skill
+   * orchestrator populates this on the terminal `record_run` call from the
+   * `detected_languages` + `language_supplements_by_agent` fields of
+   * `compose_advisory_bundle`'s output.
+   *
+   * Purpose: enable A/B measurement of whether per-language supplement
+   * injection actually improves agent advisory quality (delta in score /
+   * severity for runs WITH supplement vs WITHOUT). Without this signal we
+   * are flying blind on whether to expand the `.langs/` catalog beyond the
+   * initial 3 languages (TS / Python / C#).
+   *
+   * Byte budget: ~180 bytes worst case (4 agents + 13 detected langs).
+   * Comfortably under MAX_RECORD_BYTES.
+   */
+  language_supplements: z
+    .object({
+      /**
+       * `true` iff at least one agent in this run received at least one
+       * supplement at dispatch time. `false` when detection succeeded but
+       * (a) the user passed `include_language_supplements: false`, (b) no
+       * detected language has an on-disk supplement (e.g. Go-only PR), or
+       * (c) no LANGUAGE_AWARE_AGENT was in the squad selection.
+       */
+      injected: z.boolean(),
+      /**
+       * All language ids returned by `detectLanguages(...).all`. Stable
+       * order per LANGUAGES tuple. Capped at 13 (current Language union
+       * size); future expansion bumps the cap and the schema version.
+       */
+      detected: z.array(SafeString(20)).max(13),
+      /** Detection confidence — useful for filtering low-signal A/B rows out. */
+      confidence: z.enum(["high", "medium", "low", "none"]),
+      /**
+       * Agent names that received at least one supplement. Subset of
+       * LANGUAGE_AWARE_AGENTS ∩ this run's squad. Empty when `injected` is
+       * `false`. Capped at 8 to leave headroom; today the allowlist is 4.
+       */
+      agents_with_supplement: z.array(z.enum(AGENT_NAMES_TUPLE)).max(8),
+    })
+    .optional(),
 });
 
 export type RunRecord = z.infer<typeof runRecordSchema>;

@@ -12,13 +12,18 @@ describe("selectSquad — extended", () => {
   it("returns deterministic agent ordering (insertion / rank — core first, then signals, then forced)", async () => {
     const r = await selectSquad({
       work_type: "Feature",
-      files: [],
+      files: ["src/components/Login.tsx"], // user-facing — keeps PO in core (v0.12 C2)
       read_content: false,
       force_agents: ["senior-dba", "senior-architect"],
     });
     // Feature core matrix is [product-owner, senior-developer, senior-qa] in
     // that order; force_agents come last. Insertion-order is the contract
     // since v0.8.0 so shapeSquadForMode can take top-2 by rank.
+    //
+    // v0.12 C2: PO stays in core only when files include a user-facing
+    // surface. A .tsx component qualifies; this test now uses a tsx fixture
+    // so the ordering contract is exercised in isolation from the demotion
+    // rule (which has dedicated tests in select-squad.test.ts).
     expect(r.agents).toEqual([
       "product-owner",
       "senior-developer",
