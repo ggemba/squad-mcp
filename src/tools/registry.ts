@@ -20,6 +20,8 @@ import { detectChangedFilesTool } from "./detect-changed-files.js";
 import { validatePlanTextTool } from "./validate-plan-text.js";
 import { composeSquadWorkflowTool } from "./compose-squad-workflow.js";
 import { composeAdvisoryBundleTool } from "./compose-advisory-bundle.js";
+import { recordRunToolDef } from "./record-run.js";
+import { listRunsToolDef } from "./list-runs.js";
 import { isSquadError } from "../errors.js";
 import { logger, newRequestId } from "../observability/logger.js";
 
@@ -60,6 +62,8 @@ export function registerTools(): void {
   register(validatePlanTextTool);
   register(composeSquadWorkflowTool);
   register(composeAdvisoryBundleTool);
+  register(recordRunToolDef);
+  register(listRunsToolDef);
 }
 
 export function listTools() {

@@ -27,6 +27,7 @@ const AGENT_FILE_MAP: Record<AgentName, string> = {
   "senior-dev-security": "senior-dev-security.md",
   "senior-qa": "senior-qa.md",
   "code-explorer": "code-explorer.md",
+  "senior-debugger": "senior-debugger.md",
 };
 
 export const SHARED_FILES = [

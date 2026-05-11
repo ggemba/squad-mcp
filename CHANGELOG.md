@@ -7,6 +7,69 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-11
+
+Adds `/squad:debug` — read-only bug investigation skill that bridges `/squad:question` (lookup-only) and `/squad:implement` (writes code). Takes a bug description plus optional stack trace plus optional repro steps, dispatches `code-explorer` to locate suspect code, then a new `senior-debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a top-2 cross-check pass on `--deep`) with `file:line` evidence, verification steps, and confidence labels. Never writes code, never commits.
+
+### Added
+
+- **`/squad:debug` slash command + skill** (`commands/debug.md`, `skills/debug/SKILL.md`) — three-phase flow (A orient → B hypothesize → B' cross-check on `--deep` → C present). Inputs parsed best-effort into bug description (required) + stack trace (optional, capped at 4 KB) + repro steps (optional). Output is one rendered Markdown block: bug summary, code-explorer orientation, ranked hypotheses with verification steps, discrimination plan, next-action pointing to `/squad:implement`.
+- **`senior-debugger` agent** (`agents/senior-debugger.md`) — hypothesis-first persona modeled after `code-explorer`. Utility role: weight 0 in the rubric, never auto-selected by the `SQUAD_BY_TYPE` matrix. Mirrors `code-explorer`'s untrusted-input clause. `model: haiku` (cheap; reasoning over file dumps).
+- **`"debug"` invocation type** in `.squad/runs.jsonl`. The new skill's two-phase `record_run` hook writes Phase A `in_flight` and Phase C `completed | aborted` rows under the same single-writer contract as the squad skill. `schema_version` stays at 1 — adding an enum value routes downgrade-readback to the existing quarantine path (loud, recoverable), not silent loss. See "Known issues" below for the downgrade artefact.
+- **`InvocationEnum` widened in three sites**: `src/runs/store.ts`, `src/tools/record-run.ts`, `src/tools/list-runs.ts` (filter schema + `Record<...>` literal). `aggregateOutcomes.invocation_counts.debug: 0` initialiser.
+
+### Changed
+
+- **`record_run` single-writer contract extended** — the doc-comment at `src/tools/record-run.ts:7-33` now lists both `skills/squad/SKILL.md` and `skills/debug/SKILL.md` as legitimate callers. Any other caller is still a bug.
+- **`/squad:stats` panel** now lists `debug` in the invocation breakdown (`skills/stats/SKILL.md` §Panel order item 5).
+
+### Security
+
+- New persona carries the same "untrusted input" boundary as `code-explorer` — bug descriptions, stack traces, and repro steps are user-supplied text and must not be interpreted as commands directed at the agent.
+- Stack trace capped at 4 KB before forwarding to the persona — bounds prompt size and the journal record size (the trace is never written to the journal, but the prompt cap protects downstream tools).
+
+### Known issues
+
+- **v0.9.0 reader downgrade artefact.** A user who downgrades from v0.10.0 → v0.9.0 with `invocation: "debug"` rows already in the journal will see those rows quarantined to `.squad/runs.jsonl.corrupt-<ts>.jsonl` on the next read, because Zod's enum check at the v0.9.0 reader rejects `"debug"` as a schema violation. The quarantine is loud (logger.warn + sibling file), not silent. Re-merge the quarantine back into the journal after re-upgrading.
+- **Inherited from v0.9.0** — `CHANGELOG.md` (v0.9.0) and `skills/squad/SKILL.md:167` claim `/squad:question` and `/squad:brainstorm` invocations emit two-row journal records. They do not (only the squad implement/review SKILL does). Scheduled for v0.10.1.
+
+### Tests
+
+- `tests/runs-store.test.ts` — `invocation: "debug"` accepted by the Zod schema.
+- `tests/runs-aggregate.test.ts` — `aggregateOutcomes.invocation_counts.debug` initialised to 0 and counts a `debug` run when present.
+- `tests/agent-loader.test.ts` — `senior-debugger` resolves through `get_agent_definition` (added to the resolver test set).
+- `tests/agents-content.test.ts` (new) — grep-based check that `agents/senior-debugger.md` carries the literal strings `read-only` and `no writes` (locks the inviolable boundary against accidental future relaxation).
+- `tests/runs-e2e.test.ts` — full lifecycle: `record_run` Phase A in_flight + Phase C completed for an `invocation: "debug"` run, `list_runs` returns it via the folded result, invocation_counts.debug increments.
+
+## [0.9.0] - 2026-05-11
+
+Adds the **run journal** (`.squad/runs.jsonl`) and the `/squad:stats` skill. Every `/squad:implement`, `/squad:review`, `/squad:task`, `/squad:question`, and `/squad:brainstorm` invocation appends a two-row record (Phase 1 `in_flight` → Phase 10 `completed | aborted`, paired by id). The new skill reads the journal back as a single-screen ANSI dashboard with bar charts, score distribution, sparkline trend, and per-agent token / wall-clock breakdown.
+
+### Added
+
+- **`record_run` MCP tool** — single-writer append for `.squad/runs.jsonl`. The squad skill is the only legitimate caller (Phase 1 `in_flight` + Phase 10 terminal). Validates against `RunRecord` schema_version 1, enforces `MAX_RECORD_BYTES = 4_000` via the new `RECORD_TOO_LARGE` error code (rejects oversize instead of splitting rows), creates the file with mode `0o600` and parent dir with `0o700`.
+- **`list_runs` MCP tool** — read-only. Folds the two-row pair by id (last-wins tiebreaker on `started_at` + append position), applies filters (`since` / `limit` / `agent` / `verdict` / `mode` / `invocation` / `work_type`), and returns either the folded list (`aggregate: false`) or a precomputed aggregate bundle (`aggregate: true`: outcomes + health + sparkline trend buckets). Missing journal returns an empty result, not an error.
+- **`/squad:stats` skill** (`skills/stats/SKILL.md`) — observability dashboard. Renders the panel inside an ` ```ansi ` code-fence with one accent colour (cyan). Bars use Unicode block characters (`█▉▊▋▌▍▎▏`) at 1/8 granularity; trend uses sparkline glyphs (`▁▂▃▄▅▆▇█`). Flags: `--quick` (last 7 days, skip per-agent), `--thorough` (full history + health panel), `--since <ISO>`, `--last <N>`, `--no-color`. Honours `NO_COLOR` env. All token figures are estimates (chars ÷ 3.5) and labelled as such.
+- **In-flight TTL** — `aggregate.ts` synthesises an `aborted` view for `in_flight` rows older than 1h with no terminal pair. The on-disk row is unchanged; only the aggregator's `synthesized_aborted` counter surfaces it.
+- **Severity encoding** — per-agent findings tally collapses to a single `severity_score` integer (`B*1000 + M*100 + m*10 + s`) to fit PIPE_BUF budget on 9-agent runs. Inverse decoder exposed as `decodeSeverityScore` for drill-down views.
+- **`.stats-seen` sentinel** — diagnostic file at `.squad/.stats-seen` written by the stats skill on the first invocation and every 10-run delta thereafter.
+
+### Changed
+
+- **Squad skill Phase 1 + Phase 10 wiring.** Phase 1 end writes the `in_flight` row before dispatching the planner / advisory; Phase 10 end writes the `completed | aborted` finalisation. Non-blocking try/catch: I/O errors are silent (telemetry loss never blocks a real review), `SquadError` codes surface to the user verbatim. On Phase 10 write failure, the skill writes a second row with `status: "aborted"` and `mode_warning: { code: "RECORD_FAILED", message }` so the in_flight row never strands.
+
+### Security
+
+- `.squad/runs.jsonl` and `.squad/runs.jsonl.lock` are gitignored by default — the journal contains branch refs (e.g. `feat/acme-acquisition`) and prompt-length signals that can leak business context.
+- `mode_warning.message` is partially user-influenceable; `aggregate.stripControlChars` strips C0/C1/ESC before rendering. The recorded data stays intact for forensics; only the rendering path sanitises.
+- Configured paths flow through `ensureRelativeInsideRoot` (lexical containment check) at the boundary where YAML config first becomes a real fs path.
+
+### Tests
+
+- `tests/runs-store.test.ts` — appendRun happy path, RECORD_TOO_LARGE, ENOENT empty, quarantine corrupt + unknown schema_version, mtime cache, file mode `0o600`, path traversal denied, concurrent append under lock.
+- `tests/runs-aggregate.test.ts` — foldById tiebreaker, IN_FLIGHT_TTL synthesis, applyFilters, aggregateOutcomes empty + populated, aggregateHealth, trendByDay, renderBar / sparkline / formatDuration / formatTokens, stripControlChars; fast-check property tests for token estimation invariants.
+- `tests/runs-e2e.test.ts` — full lifecycle through the MCP dispatch boundary.
+
 ## [0.8.2] - 2026-05-10
 
 Second patch for the release pipeline. v0.8.0 / v0.8.1 on npm are functional — this release exists to actually verify the smoke job (v0.8.1's smoke fix was insufficient).

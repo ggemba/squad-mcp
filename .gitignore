@@ -15,5 +15,11 @@ coverage/
 # JSONL quarantine files from the learning store (corrupted-line side files)
 .squad/*.corrupt-*.jsonl
 
+# squad-mcp run journal — local-only operational telemetry (v0.9.0+).
+# Remove these two lines if you want team-wide run sharing.
+.squad/runs.jsonl
+.squad/runs.jsonl.lock
+.squad/.stats-seen
+
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs

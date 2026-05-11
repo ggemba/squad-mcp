@@ -150,6 +150,40 @@ Mode shapes behaviour at these places only:
 
 Surface `mode` to the user up front (Phase 1) so they understand why the run was sized the way it was. If `mode_warning` is set, surface it immediately — it's a safety signal, not a footnote.
 
+### Phase 1 end — write `in_flight` run record (both modes, v0.9.0+)
+
+After `compose_squad_workflow` returns and before dispatching Phase 2 / Phase 5, generate a fresh run id and append the first half of the two-phase journal record. Single-writer contract: this skill is the ONLY legitimate caller of `record_run`.
+
+```
+const runId = <generated id; "rt" + timestamp base36 + 6 random a-z0-9>;
+const startedAt = <ISO 8601 now>;
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: runId,
+    status: "in_flight",
+    started_at: startedAt,
+    invocation: "implement" | "review" | "task" | "question" | "brainstorm",
+    mode: <resolved mode>,
+    mode_source: <"user" | "auto">,
+    work_type: <classified work_type>,            // omit on question / brainstorm
+    git_ref: { kind: "head" | "diff_base" | "pr_head", value: <ref> } | null,
+    files_count: <changed files count, 0 for question / brainstorm>,
+    agents: [{ name: a, model: <resolved per Phase 5 strategy>, score: null, severity_score: null, batch_duration_ms: 0, prompt_chars: 0, response_chars: 0 }, ...],
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: <if set in Phase 1 output> | null
+  }
+});
+```
+
+Wrap the call in a non-blocking try / catch:
+
+- **I/O error** (filesystem full, permissions, lock contention exhaustion): log silently, continue the workflow. Loss of telemetry must NEVER block a real review.
+- **SquadError** (RECORD_TOO_LARGE / INVALID_INPUT / PATH_TRAVERSAL_DENIED): surface to the user verbatim (`code` + `message`). These are security-class signals — Security #7 contract says the user gets to see them.
+
+Persist `runId` + `startedAt` for Phase 10. If the in_flight write failed, the Phase 10 finalisation is skipped entirely (no orphan terminal row without a paired in_flight).
+
 ### Review mode
 
 Resolve target first:
@@ -318,6 +352,55 @@ The consolidator prompt should include the learnings block under a `## Past team
 - Flag when a current finding matches a previously accepted one to show consistency.
 
 The final user-facing output MUST include the `rubric.scorecard_text` block verbatim — that's the visible artifact that distinguishes squad from generic reviewers.
+
+### Phase 10 end — finalize run record (both modes, v0.9.0+)
+
+After the verdict + rubric are known and BEFORE returning the final output to the user, write the terminal half of the two-phase record. Same `id` as the Phase-1 in_flight row; the aggregator pairs them.
+
+```
+const completedAt = <ISO 8601 now>;
+record_run({
+  workspace_root: <cwd>,
+  record: {
+    schema_version: 1,
+    id: <same id from Phase 1>,
+    status: "completed",                          // or "aborted" on Gate 1 / 2 stop
+    started_at: <same started_at from Phase 1>,
+    completed_at: completedAt,
+    duration_ms: <completedAt - startedAt>,
+    invocation: <same as Phase 1>,
+    mode: <same>,
+    mode_source: <same>,
+    work_type: <same>,
+    git_ref: <same>,
+    files_count: <same>,
+    agents: [
+      {
+        name: a,
+        model: <model the agent actually ran with>,
+        score: <0-100 or null for non-rubric agents (planner / consolidator / code-explorer)>,
+        severity_score: <encoded: Blocker*1000 + Major*100 + Minor*10 + Suggestion; or null if not scored>,
+        batch_duration_ms: <wall-clock from dispatch to result>,
+        prompt_chars: <orchestrator-visible prompt char count>,
+        response_chars: <orchestrator-visible response char count>
+      }, ...
+    ],
+    verdict: <APPROVED | CHANGES_REQUIRED | REJECTED | null on question / brainstorm>,
+    weighted_score: <0-100 or null>,
+    est_tokens_method: "chars-div-3.5",
+    mode_warning: <if Phase 1 had one, carry it forward> | null
+  }
+});
+```
+
+Wrap in the same non-blocking try / catch as Phase 1:
+
+- **I/O error**: log silently, surface no error to the user. Telemetry loss is acceptable; broken workflow is not.
+- **SquadError**: surface code + message. RECORD_TOO_LARGE here means the caller built an oversize record — usually a runaway `mode_warning.message`. Per cycle-2 advisor consensus, the store rejects rather than silently splitting rows.
+
+**Finalisation failure fallback.** If `record_run` throws a SquadError on the Phase-10 write, attempt one more `record_run` call with the SAME id, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. This ensures the in_flight row never strands. If that fallback also fails, log and continue — the aggregator's 1h TTL will synthesize an aborted view at the next `/squad:stats` invocation.
+
+**No record_run from other paths.** `apply_consolidation_rules` does NOT call `record_run`. The skill is the only writer. Plan v4 (cycle 2 architect A-4) ratified this for one reason: the (in_flight, completed) pair-by-id invariant is the only thing the aggregator relies on for stranded-run detection; emitting terminal rows from anywhere else breaks that contract.
 
 ## Phase 11 — Gate 3: reject loop (implement mode only)
 

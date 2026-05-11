@@ -70,6 +70,12 @@ describe("agent-loader — env set to allowlisted dir", () => {
     const archResult = await resolveAgentFile("senior-architect");
     expect(archResult).toMatch(/agents[\\/]senior-architect\.md$/);
   });
+
+  it("resolves senior-debugger from the embedded agents directory (v0.10.0)", async () => {
+    __resetAgentLoaderForTests();
+    const result = await resolveAgentFile("senior-debugger");
+    expect(result).toMatch(/agents[\\/]senior-debugger\.md$/);
+  });
 });
 
 describe("agent-loader — env set to non-allowlisted dir", () => {

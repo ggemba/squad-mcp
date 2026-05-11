@@ -8,7 +8,8 @@ export type AgentName =
   | "senior-dev-reviewer"
   | "senior-dev-security"
   | "senior-qa"
-  | "code-explorer";
+  | "code-explorer"
+  | "senior-debugger";
 
 export const AGENT_NAMES: AgentName[] = [
   "product-owner",
@@ -21,6 +22,7 @@ export const AGENT_NAMES: AgentName[] = [
   "senior-dev-security",
   "senior-qa",
   "code-explorer",
+  "senior-debugger",
 ];
 
 export const AGENT_NAMES_TUPLE = AGENT_NAMES as [AgentName, ...AgentName[]];
@@ -170,6 +172,21 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     // a rubric dimension; it just hands context to other agents (or to the
     // /squad:question skill). Keeping it out of the rubric prevents it from
     // diluting the advisory dimensions on every run.
+    weight: 0,
+    dimension: "",
+  },
+  "senior-debugger": {
+    name: "senior-debugger",
+    role: "Hypothesis-first bug investigation (read-only)",
+    owns: [
+      "Causal reasoning over a failure",
+      "Ranked root-cause hypotheses with file:line evidence",
+      "Verification steps for the user to confirm or reject each hypothesis",
+    ],
+    conventions: [],
+    // Weight 0 — utility role like code-explorer / tech-lead-*. The debugger
+    // never scores a rubric dimension; it informs the user during /squad:debug.
+    // Not in any SQUAD_BY_TYPE entry so it is never auto-selected by the matrix.
     weight: 0,
     dimension: "",
   },

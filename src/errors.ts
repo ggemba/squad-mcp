@@ -12,7 +12,13 @@ export type SquadErrorCode =
   | "GIT_NOT_FOUND"
   | "GIT_OUTPUT_TOO_LARGE"
   | "GIT_NOT_A_REPO"
-  | "CONFIG_READ_FAILED";
+  | "CONFIG_READ_FAILED"
+  // Emitted by `src/runs/store.ts` when `JSON.stringify(record)` exceeds
+  // MAX_RECORD_BYTES. Plan v4 rejected the multi-row partial-fallback
+  // mechanism (5 cycle-2 advisors converged on the same Major) and
+  // chose loud rejection at validation time: the caller retries with
+  // shorter fields rather than the store silently splitting rows.
+  | "RECORD_TOO_LARGE";
 
 export class SquadError extends Error {
   readonly code: SquadErrorCode;
