@@ -1,7 +1,7 @@
 ---
 name: senior-dev-security
 description: Application security specialist. Finds OWASP Top 10 vulnerabilities, validates authn/authz, sensitive data, input validation, and dependency CVEs.
-model: inherit
+model: sonnet
 ---
 
 # Senior-Dev-Security

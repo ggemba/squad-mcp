@@ -1,7 +1,7 @@
 ---
 name: senior-dba
 description: Senior DBA. Reviews queries, migrations, EF mappings, cache, concurrency, and persistence stack. Use for data-layer changes.
-model: inherit
+model: sonnet
 ---
 
 # Senior-DBA

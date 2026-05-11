@@ -1,6 +1,6 @@
 {
   "name": "@gempack/squad-mcp",
-  "version": "0.11.3",
+  "version": "0.13.0",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "license": "Apache-2.0",
@@ -52,6 +52,8 @@
     "commands",
     "skills",
     "tools/post-review.mjs",
+    "tools/_pr-platform.mjs",
+    "tools/_bitbucket-cloud.mjs",
     "tools/record-learning.mjs",
     "tools/_tasks-io.mjs",
     "tools/list-tasks.mjs",

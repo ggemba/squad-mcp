@@ -1,7 +1,7 @@
 ---
 name: senior-debugger
 description: Hypothesis-first bug investigation subagent. Takes a bug description plus optional stack trace plus optional repro steps, plus a code-explorer's grounded findings, and emits N ranked hypotheses about the root cause — each with evidence, verification steps the user can run, and a confidence label. Read-only end-to-end; never proposes a code fix. Spawn via `/squad:debug` (or by another agent that needs causal reasoning over a failure). Utility role, like `code-explorer`: weight 0 in the rubric, never auto-selected by the work-type matrix.
-model: haiku
+model: sonnet
 ---
 
 # Senior-Debugger

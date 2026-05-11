@@ -13,6 +13,7 @@ import {
   renderSparkline,
   formatDuration,
   formatTokens,
+  aggregateLanguageSupplementImpact,
   IN_FLIGHT_TTL_MS,
   CHARS_PER_TOKEN_ESTIMATE,
 } from "../src/runs/aggregate.js";
@@ -353,5 +354,185 @@ describe("formatTokens", () => {
     expect(formatTokens(1_500)).toBe("1.5k");
     expect(formatTokens(70_000)).toBe("70k");
     expect(formatTokens(1_600_000)).toBe("1.60M");
+  });
+});
+
+describe("aggregateLanguageSupplementImpact", () => {
+  // Helper: build a record with the v0.13 telemetry pre-filled.
+  function langRec(
+    id: string,
+    over: {
+      injected: boolean;
+      detected: string[];
+      confidence: "high" | "medium" | "low" | "none";
+      agents_with_supplement: AgentMetrics["name"][];
+      agents: AgentMetrics[];
+    },
+  ): RunRecord {
+    return rec({
+      id,
+      agents: over.agents,
+      language_supplements: {
+        injected: over.injected,
+        detected: over.detected,
+        confidence: over.confidence,
+        agents_with_supplement: over.agents_with_supplement,
+      },
+    });
+  }
+
+  it("returns an empty array when no records carry language_supplements", () => {
+    const out = aggregateLanguageSupplementImpact([rec({ id: "a" }), rec({ id: "b" })]);
+    expect(out).toEqual([]);
+  });
+
+  it("excludes in_flight records from both buckets", () => {
+    const records: RunRecord[] = [
+      langRec("done", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-developer"],
+        agents: [agent("senior-developer", { score: 80 })],
+      }),
+      // in_flight row with the same agent — must NOT contribute
+      {
+        ...langRec("flight", {
+          injected: true,
+          detected: ["typescript"],
+          confidence: "high",
+          agents_with_supplement: ["senior-developer"],
+          agents: [agent("senior-developer", { score: 99 })],
+        }),
+        status: "in_flight",
+      },
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
+    const dev = out.find((r) => r.agent === "senior-developer")!;
+    expect(dev.with_supplement.n).toBe(1);
+    expect(dev.with_supplement.avg_score).toBe(80);
+  });
+
+  it("buckets agents into with_supplement / without_supplement correctly", () => {
+    const records: RunRecord[] = [
+      langRec("r1", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-developer", "senior-qa"],
+        agents: [
+          agent("senior-developer", { score: 90, severity_score: 100 }),
+          agent("senior-qa", { score: 80, severity_score: 200 }),
+          agent("senior-architect", { score: 70, severity_score: 300 }),
+        ],
+      }),
+      langRec("r2", {
+        // detection succeeded but supplements were opted out (or no supplement
+        // on disk for the language) — the agents still ran, just unsupplemented.
+        injected: false,
+        detected: ["go"],
+        confidence: "high",
+        agents_with_supplement: [],
+        agents: [
+          agent("senior-developer", { score: 70, severity_score: 400 }),
+          agent("senior-qa", { score: 60, severity_score: 500 }),
+        ],
+      }),
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
+    const dev = out.find((r) => r.agent === "senior-developer")!;
+    expect(dev.with_supplement.n).toBe(1);
+    expect(dev.with_supplement.avg_score).toBe(90);
+    expect(dev.without_supplement.n).toBe(1);
+    expect(dev.without_supplement.avg_score).toBe(70);
+    expect(dev.delta_score).toBe(20);
+    expect(dev.delta_severity_score).toBe(-300); // 100 − 400, lower severity is better
+
+    const qa = out.find((r) => r.agent === "senior-qa")!;
+    expect(qa.delta_score).toBe(20); // 80 − 60
+  });
+
+  it("returns null delta_* when either bucket is below min_n", () => {
+    const records: RunRecord[] = [
+      langRec("r1", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-developer"],
+        agents: [agent("senior-developer", { score: 90 })],
+      }),
+      langRec("r2", {
+        injected: false,
+        detected: ["go"],
+        confidence: "high",
+        agents_with_supplement: [],
+        agents: [agent("senior-developer", { score: 70 })],
+      }),
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 5 });
+    const dev = out.find((r) => r.agent === "senior-developer")!;
+    expect(dev.with_supplement.n).toBe(1);
+    expect(dev.without_supplement.n).toBe(1);
+    expect(dev.delta_score).toBeNull();
+    expect(dev.delta_severity_score).toBeNull();
+  });
+
+  it("ignores agents on confidence='none' runs that received no supplement", () => {
+    // confidence none means no recognised files at all — there's no
+    // counterfactual signal here. Such runs must NOT pollute the without
+    // bucket.
+    const records: RunRecord[] = [
+      langRec("noisy", {
+        injected: false,
+        detected: [],
+        confidence: "none",
+        agents_with_supplement: [],
+        agents: [agent("senior-developer", { score: 50 })],
+      }),
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
+    expect(out).toEqual([]);
+  });
+
+  it("handles null scores in agent metrics by excluding them from the mean", () => {
+    const records: RunRecord[] = [
+      langRec("a", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-developer"],
+        agents: [agent("senior-developer", { score: null, severity_score: null })],
+      }),
+      langRec("b", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-developer"],
+        agents: [agent("senior-developer", { score: 80, severity_score: 100 })],
+      }),
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
+    const dev = out.find((r) => r.agent === "senior-developer")!;
+    expect(dev.with_supplement.n).toBe(2); // both rows count toward n
+    expect(dev.with_supplement.avg_score).toBe(80); // but only the non-null contributes
+  });
+
+  it("stable agent order in the output", () => {
+    const records: RunRecord[] = [
+      langRec("z", {
+        injected: true,
+        detected: ["typescript"],
+        confidence: "high",
+        agents_with_supplement: ["senior-qa", "senior-developer", "senior-implementer"],
+        agents: [
+          agent("senior-qa", { score: 80 }),
+          agent("senior-developer", { score: 80 }),
+          agent("senior-implementer", { score: 80 }),
+        ],
+      }),
+    ];
+    const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
+    const names = out.map((r) => r.agent);
+    expect(names).toEqual([...names].sort());
   });
 });

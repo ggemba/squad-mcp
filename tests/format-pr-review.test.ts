@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { formatPrReview, chooseGhAction } from "../src/format/pr-review.js";
+import { formatPrReview, chooseGhAction, applySeverityBudget } from "../src/format/pr-review.js";
+import type { Severity } from "../src/tools/consolidate.js";
 import type { ConsolidationOutput } from "../src/tools/consolidate.js";
 import type { RubricOutput } from "../src/tools/score-rubric.js";
 
@@ -249,5 +250,147 @@ describe("formatPrReview — footer + summary", () => {
     expect(out.action).toBe("request-changes");
     expect(out.body).toContain("Posting as request-changes");
     expect(out.body).toContain("60");
+  });
+});
+
+describe("formatPrReview — A.3 severity budget", () => {
+  function consolidationWithFindings(blockers: number, majors: number) {
+    return makeConsolidation({
+      verdict: blockers > 0 ? "REJECTED" : "CHANGES_REQUIRED",
+      blockers: Array.from({ length: blockers }, (_, i) => ({
+        agent: "senior-developer",
+        title: `Blocker ${i + 1}`,
+      })),
+      majors_unjustified: Array.from({ length: majors }, (_, i) => ({
+        agent: "senior-developer",
+        title: `Major ${i + 1}`,
+      })),
+      severity_counts: { Blocker: blockers, Major: majors, Minor: 0, Suggestion: 0 },
+    });
+  }
+
+  it("no budget = nothing dropped, no footnote", () => {
+    const out = formatPrReview(consolidationWithFindings(1, 1), {});
+    expect(out.body).not.toContain("hidden by budget");
+  });
+
+  it("perPrMax cap drops Majors before Blockers", () => {
+    const c = consolidationWithFindings(1, 5);
+    const out = formatPrReview(c, { severityBudget: { perPrMax: 3 } });
+    // 1 Blocker + 5 Majors = 6; cap 3 → keep all 1 Blocker + 2 Majors, drop 3 Majors.
+    expect(out.body).toContain("Blocker 1");
+    expect(out.body).toMatch(/hid 3 finding/);
+    expect(out.body).toMatch(/3 major/);
+  });
+
+  it("dropBelow Major is a no-op when consolidation only carries Blocker+Major", () => {
+    // formatPrReview consumes ConsolidationOutput, which today only expands
+    // Blocker + unjustified-Major items (Minor/Suggestion stay as severity_counts).
+    // So dropBelow="Major" through the high-level path has nothing to drop.
+    // The positive path is covered directly against applySeverityBudget below.
+    const c = consolidationWithFindings(1, 3);
+    const out = formatPrReview(c, { severityBudget: { dropBelow: "Major" } });
+    expect(out.body).not.toContain("hidden by budget");
+    expect(out.body).toContain("Blocker 1");
+    expect(out.body).toContain("Major 1");
+  });
+
+  it("Blockers exempt from cap — budget waived footnote when only Blockers remain", () => {
+    const c = consolidationWithFindings(5, 0);
+    const out = formatPrReview(c, { severityBudget: { perPrMax: 2 } });
+    // All 5 Blockers must still appear; budget waived note rendered.
+    for (let i = 1; i <= 5; i++) expect(out.body).toContain(`Blocker ${i}`);
+    expect(out.body).toMatch(/Budget exceeded by Blocker count alone/);
+  });
+
+  it("footnote pluralises correctly for single hidden item", () => {
+    const c = consolidationWithFindings(0, 2);
+    const out = formatPrReview(c, { severityBudget: { perPrMax: 1 } });
+    expect(out.body).toMatch(/hid 1 finding\b/); // singular
+    expect(out.body).not.toMatch(/hid 1 findings/);
+  });
+});
+
+describe("applySeverityBudget — positive drop paths over a constructed grouping", () => {
+  function buildGrouped(
+    items: Array<{ agent: string; severity: Severity; title: string }>,
+  ): Map<string, { severity: Severity; title: string }[]> {
+    const m = new Map<string, { severity: Severity; title: string }[]>();
+    for (const it of items) {
+      const list = m.get(it.agent) ?? [];
+      list.push({ severity: it.severity, title: it.title });
+      m.set(it.agent, list);
+    }
+    return m;
+  }
+
+  it("dropBelow Minor drops Suggestions but keeps Minor + Major + Blocker", () => {
+    const grouped = buildGrouped([
+      { agent: "a", severity: "Blocker", title: "b1" },
+      { agent: "a", severity: "Major", title: "ma1" },
+      { agent: "a", severity: "Minor", title: "mi1" },
+      { agent: "a", severity: "Suggestion", title: "s1" },
+      { agent: "a", severity: "Suggestion", title: "s2" },
+    ]);
+    const r = applySeverityBudget(grouped, { dropBelow: "Minor" });
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 0, Minor: 0, Suggestion: 2 });
+    expect(r.budgetWaived).toBe(false);
+    const survivors = Array.from(r.grouped.values()).flat();
+    expect(survivors.map((s) => s.severity).sort()).toEqual(["Blocker", "Major", "Minor"]);
+  });
+
+  it("dropBelow Major drops Minor + Suggestion", () => {
+    const grouped = buildGrouped([
+      { agent: "a", severity: "Major", title: "ma1" },
+      { agent: "a", severity: "Minor", title: "mi1" },
+      { agent: "a", severity: "Suggestion", title: "s1" },
+    ]);
+    const r = applySeverityBudget(grouped, { dropBelow: "Major" });
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 0, Minor: 1, Suggestion: 1 });
+  });
+
+  it("dropBelow Suggestion is a no-op (nothing is strictly below Suggestion)", () => {
+    const grouped = buildGrouped([
+      { agent: "a", severity: "Suggestion", title: "s1" },
+      { agent: "a", severity: "Suggestion", title: "s2" },
+    ]);
+    const r = applySeverityBudget(grouped, { dropBelow: "Suggestion" });
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 0, Minor: 0, Suggestion: 0 });
+  });
+
+  it("perPrMax drops Suggestions first, then Minors, then Majors — preserves all Blockers", () => {
+    const grouped = buildGrouped([
+      { agent: "a", severity: "Blocker", title: "b1" },
+      { agent: "a", severity: "Blocker", title: "b2" },
+      { agent: "a", severity: "Major", title: "ma1" },
+      { agent: "a", severity: "Major", title: "ma2" },
+      { agent: "a", severity: "Minor", title: "mi1" },
+      { agent: "a", severity: "Suggestion", title: "s1" },
+      { agent: "a", severity: "Suggestion", title: "s2" },
+    ]);
+    const r = applySeverityBudget(grouped, { perPrMax: 3 });
+    // Cap 3 with 2 Blockers + 2 Majors + 1 Minor + 2 Suggestions = 7 total.
+    // Drop order: 2 Suggestions, 1 Minor, 1 Major. Keep 2 Blockers + 1 Major = 3.
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 1, Minor: 1, Suggestion: 2 });
+    expect(r.budgetWaived).toBe(false);
+    const survivors = Array.from(r.grouped.values()).flat();
+    expect(survivors).toHaveLength(3);
+  });
+
+  it("exact-at-boundary: count == perPrMax → nothing hidden", () => {
+    const grouped = buildGrouped([
+      { agent: "a", severity: "Blocker", title: "b1" },
+      { agent: "a", severity: "Major", title: "ma1" },
+    ]);
+    const r = applySeverityBudget(grouped, { perPrMax: 2 });
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 0, Minor: 0, Suggestion: 0 });
+  });
+
+  it("no budget returns input unchanged with zero hidden", () => {
+    const grouped = buildGrouped([{ agent: "a", severity: "Major", title: "x" }]);
+    const r = applySeverityBudget(grouped, undefined);
+    expect(r.hidden).toEqual({ Blocker: 0, Major: 0, Minor: 0, Suggestion: 0 });
+    expect(r.budgetWaived).toBe(false);
+    expect(r.grouped).toBe(grouped);
   });
 });

@@ -1,7 +1,7 @@
 ---
 name: senior-architect
 description: Senior Architect. Guards module boundaries, coupling, dependency direction, DI lifetimes, and scalability. Use for structural changes and new modules.
-model: inherit
+model: sonnet
 ---
 
 # Senior-Architect

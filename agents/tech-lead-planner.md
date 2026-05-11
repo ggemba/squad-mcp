@@ -1,7 +1,7 @@
 ---
 name: tech-lead-planner
 description: Tech lead at plan time. Reviews proposed implementation plans BEFORE execution to catch design mistakes, misplaced complexity, and missing deploy considerations. Use for plan-stage review only - not for line-by-line code review.
-model: inherit
+model: sonnet
 ---
 
 # TechLead-Planner

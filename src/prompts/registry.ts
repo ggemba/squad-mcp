@@ -74,7 +74,9 @@ Phase 7 — Escalation Round
 - If reports forward items to non-selected agents, spawn those agents only for forwarded items.
 
 Phase 8 — Implementation
-- Implement guided by advisory acceptance criteria.
+- Dispatch to the senior-implementer subagent (model: opus pinned, dedicated executor).
+- Single Task() call carrying the approved plan + advisory acceptance criteria + files_slice + learnings + prior_iteration_findings (Phase 11 only).
+- Subagent returns a 6-section Implementation Report; orchestrator inspects Section 6 (Blockers) — non-empty halts before Phase 9.
 - Method names in English. No emojis.
 
 Phase 9 — Codex Implementation Review (optional, only if codex=${codex}).
@@ -92,7 +94,7 @@ Inviolable rules:
 1. Implementation only after approved plan.
 2. Codex requires explicit user consent.
 3. TechLead-Consolidator delivers the final verdict.
-4. Advisory agents assess; the orchestrator implements.
+4. Advisory agents assess; the senior-implementer subagent (Opus-pinned) executes Phase 8.
 5. Method names in English. No emojis.
 6. Never run commit or push.`;
     return {

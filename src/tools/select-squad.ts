@@ -27,6 +27,82 @@ const schema = z.object({
   workspace_root: safeString(4096).optional(),
 });
 
+/**
+ * User-facing surface detection (v0.12+, C2). Matched against the changed-file
+ * list to decide whether `product-owner` belongs in the squad for a `Feature`
+ * change. The PO's value is reasoning about UX, copy, accessibility, and
+ * conversion flows — none of which apply to a purely internal API refactor
+ * that happens to be classified as Feature.
+ *
+ * Heuristic shape (single combined regex for speed; `i` flag for cross-OS
+ * path-case tolerance):
+ *
+ *   - Front-end view-component directories: components / pages / ui / views /
+ *     screens / routes (Next / Remix / Nuxt / SvelteKit / etc.) anywhere in
+ *     the path. Hyphenated variants like `view-models` deliberately excluded
+ *     — `view-models` is server-internal, not user-facing.
+ *   - JSX-family file extensions: .tsx, .jsx, .vue, .svelte, .razor, .cshtml
+ *   - Web presentation: .html, .htm, .css, .scss, .sass, .less, .styl
+ *   - .NET / Java MVC view-class suffixes: *Component.cs, *Page.cs, *View.cs,
+ *     *Razor.cs (server-rendered presentation that is still user-facing).
+ *   - Translation / copy: i18n / locales / l10n / translations directories,
+ *     .po / .pot files.
+ *
+ * NOT user-facing (deliberately excluded to keep the PO out of pure
+ * back-end / infra Features):
+ *
+ *   - Controllers, services, repositories, models, DTOs, schemas, migrations,
+ *     workers, queues, cron jobs, CLI tools, build configs.
+ *   - Tests of any kind (they're verification, not user surface).
+ *
+ * Conservatively wide: a false positive (PO included on an internal feature
+ * that happens to touch `components/` for a tooling reason) only costs one
+ * extra Haiku/Sonnet dispatch. A false negative (PO excluded from a real UX
+ * change) is louder — the user pays in either a missed UX finding or a
+ * manual `--force-agents product-owner` invocation. Bias toward inclusion.
+ */
+const USER_FACING_PATTERN = new RegExp(
+  [
+    // Front-end view directories (no hyphenated suffixes — view-models is NOT user-facing)
+    String.raw`[\\/](components|pages|ui|views|screens|routes|app(?:[\\/]|$))(?:[\\/]|$)`,
+    // JSX-family + presentation file extensions
+    String.raw`\.(tsx|jsx|vue|svelte|razor|cshtml|html?|css|scss|sass|less|styl)$`,
+    // .NET / Java MVC view-class suffixes (case-insensitive — accommodates *page.cs / *Page.cs)
+    String.raw`(Component|Page|View|Razor)\.cs$`,
+    // i18n / l10n / translations dirs + translation file extensions.
+    // NOTE: `.properties` is NOT included — Java apps use it for both i18n
+    // bundles and ordinary backend config (`application.properties`, `log4j.properties`).
+    // The directory-based check above (`[\\/]i18n[\\/]`, `[\\/]locales[\\/]`, etc.)
+    // catches Java i18n correctly without dragging in Spring configs.
+    String.raw`[\\/](i18n|locales?|l10n|translations?|lang)[\\/]`,
+    String.raw`\.(po|pot|xlf)$`,
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Path-prefix check for `node_modules/`. A third-party package file at
+ * `node_modules/some-ui-lib/components/Button.tsx` would trip the regex
+ * but is NOT a user-facing change — the diff that touches it is operating
+ * on the dependency tree, not on the user's own UI surface. Exclude
+ * unconditionally.
+ *
+ * Defensive against both POSIX (`node_modules/...`) and Windows
+ * (`node_modules\...`) separators, anywhere in the path (handles nested
+ * `apps/web/node_modules/foo/...` in monorepos).
+ */
+function isUnderNodeModules(file: string): boolean {
+  return /(?:^|[\\/])node_modules[\\/]/.test(file);
+}
+
+function hasUserFacingFile(files: readonly string[]): boolean {
+  for (const f of files) {
+    if (isUnderNodeModules(f)) continue;
+    if (USER_FACING_PATTERN.test(f)) return true;
+  }
+  return false;
+}
+
 type Input = z.infer<typeof schema>;
 
 export interface Evidence {
@@ -47,11 +123,40 @@ export interface SelectSquadOutput {
 
 export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
   const matrixEntry = SQUAD_BY_TYPE[input.work_type as WorkType];
-  const selected = new Set<AgentName>(matrixEntry.core);
-  const rationale: { agent: AgentName; reason: string }[] = matrixEntry.core.map((a) => ({
+
+  // v0.12+ C2: drop `product-owner` from `Feature` core when the diff has
+  // no user-facing surface. PO reviews UX/copy/accessibility — adding it
+  // to a purely internal API feature is a wasted Sonnet dispatch and a
+  // dilution of the rubric. The matrix declares PO as Feature.core; this
+  // is the only place that overrides that declaration, and it does so
+  // ONLY when both conditions hold: work_type === "Feature" AND no path
+  // in the changed-file list trips USER_FACING_PATTERN.
+  //
+  // Business Rule keeps PO unconditionally — that work type's whole
+  // reason for existing is to surface PO. `force_agents` still wins
+  // below: a caller passing `force_agents: ["product-owner"]` re-adds
+  // the agent regardless of this drop.
+  const skipProductOwner =
+    input.work_type === "Feature" &&
+    matrixEntry.core.includes("product-owner") &&
+    !hasUserFacingFile(input.files);
+
+  const coreAgents = skipProductOwner
+    ? matrixEntry.core.filter((a) => a !== "product-owner")
+    : matrixEntry.core;
+
+  const selected = new Set<AgentName>(coreAgents);
+  const rationale: { agent: AgentName; reason: string }[] = coreAgents.map((a) => ({
     agent: a,
     reason: `core agent for ${input.work_type}`,
   }));
+  if (skipProductOwner) {
+    rationale.push({
+      agent: "product-owner",
+      reason:
+        "demoted from core: Feature has no user-facing files (components / pages / ui / views / *.tsx / *.vue / view-class suffixes / i18n). Pass force_agents=[product-owner] to re-include.",
+    });
+  }
 
   const evidence: Evidence[] = [];
   const lowConfidence: { file: string; reason: string }[] = [];

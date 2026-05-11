@@ -30,6 +30,21 @@ export interface FormatPrReviewOptions {
    * sources.
    */
   repoLabel?: string;
+  /**
+   * A.3: severity budget. Caps how many findings get expanded inline in the
+   * body before collapsing the surplus into a footnote. Drops happen
+   * severity-aware: lowest severity first. Blockers are NEVER silently dropped
+   * — if Blocker count alone exceeds `perPrMax` they all still render and the
+   * footnote notes the overage.
+   *
+   * `perPrMax`: total expanded findings. Undefined = unlimited.
+   * `dropBelow`: hard floor — anything strictly below this severity is dropped
+   *   FIRST regardless of `perPrMax`.
+   */
+  severityBudget?: {
+    perPrMax?: number;
+    dropBelow?: "Suggestion" | "Minor" | "Major";
+  };
 }
 
 export interface PrReviewPayload {
@@ -111,20 +126,123 @@ function groupFindingsByAgent(
   return grouped;
 }
 
-function formatFindingsSection(consolidation: ConsolidationOutput): string {
-  const grouped = groupFindingsByAgent(consolidation);
+/**
+ * Apply the A.3 severity budget. Operates on the per-agent grouped findings
+ * (the actionable subset — Blockers + unjustified Majors only; Minor/Suggestion
+ * counts already live as totals). Returns a possibly-pruned grouping plus a
+ * tally of what was hidden so the caller can render a footnote.
+ *
+ * Drop order:
+ *   1. Anything strictly below `dropBelow` (cap-independent).
+ *   2. If still over `perPrMax`, drop from the lowest remaining severity until
+ *      under cap. Blockers are exempt — if only Blockers remain and they exceed
+ *      the cap, they all stay (and the footnote notes the budget was waived).
+ */
+export function applySeverityBudget(
+  grouped: Map<string, { severity: Severity; title: string }[]>,
+  budget: NonNullable<FormatPrReviewOptions["severityBudget"]> | undefined,
+): {
+  grouped: Map<string, { severity: Severity; title: string }[]>;
+  hidden: Record<Severity, number>;
+  budgetWaived: boolean;
+} {
+  const hidden: Record<Severity, number> = { Blocker: 0, Major: 0, Minor: 0, Suggestion: 0 };
+  if (!budget) return { grouped, hidden, budgetWaived: false };
+
+  // Flatten into one list with agent attribution so we can drop globally.
+  type FlatItem = { agent: string; severity: Severity; title: string };
+  let flat: FlatItem[] = [];
+  for (const [agent, findings] of grouped.entries()) {
+    for (const f of findings) flat.push({ agent, severity: f.severity, title: f.title });
+  }
+
+  // Step 1: drop strictly below `dropBelow`.
+  if (budget.dropBelow) {
+    const floorIdx = SEVERITY_ORDER.indexOf(budget.dropBelow as Severity);
+    const next: FlatItem[] = [];
+    for (const it of flat) {
+      const itIdx = SEVERITY_ORDER.indexOf(it.severity);
+      if (itIdx > floorIdx) {
+        // strictly worse-than-floor index = lower severity in our ordering
+        hidden[it.severity]++;
+      } else {
+        next.push(it);
+      }
+    }
+    flat = next;
+  }
+
+  // Step 2: enforce per_pr_max if set.
+  let budgetWaived = false;
+  if (typeof budget.perPrMax === "number" && flat.length > budget.perPrMax) {
+    // Drop from lowest severity upward until under cap, preserving Blockers.
+    // Iterate severities in reverse-priority order: Suggestion → Minor → Major.
+    const dropOrder: Severity[] = ["Suggestion", "Minor", "Major"];
+    for (const sev of dropOrder) {
+      while (flat.length > budget.perPrMax) {
+        const idx = flat.findIndex((it) => it.severity === sev);
+        if (idx === -1) break;
+        hidden[sev]++;
+        flat.splice(idx, 1);
+      }
+      if (flat.length <= budget.perPrMax) break;
+    }
+    // Blockers exempt — if still over cap after exhausting dropOrder, all remaining
+    // items are Blockers. Surface the waiver so the footnote can explain.
+    if (flat.length > budget.perPrMax) {
+      budgetWaived = true;
+    }
+  }
+
+  // Rebuild grouped from the surviving flat list.
+  const next = new Map<string, { severity: Severity; title: string }[]>();
+  for (const it of flat) {
+    const list = next.get(it.agent) ?? [];
+    list.push({ severity: it.severity, title: it.title });
+    next.set(it.agent, list);
+  }
+  return { grouped: next, hidden, budgetWaived };
+}
+
+function formatFindingsSection(
+  consolidation: ConsolidationOutput,
+  budget: FormatPrReviewOptions["severityBudget"],
+): string {
+  const groupedRaw = groupFindingsByAgent(consolidation);
   const c = consolidation.severity_counts;
   const totalFindings = c.Blocker + c.Major + c.Minor + c.Suggestion;
 
   // Clean review with zero of every severity — skip the section entirely.
   if (totalFindings === 0) return "";
 
+  const { grouped, hidden, budgetWaived } = applySeverityBudget(groupedRaw, budget);
+
   const totals = `**Severity totals:** ${c.Blocker} blocker / ${c.Major} major / ${c.Minor} minor / ${c.Suggestion} suggestion`;
+
+  // Build the budget footnote (if anything was hidden).
+  const hiddenTotal = hidden.Blocker + hidden.Major + hidden.Minor + hidden.Suggestion;
+  const footnoteParts: string[] = [];
+  if (hiddenTotal > 0) {
+    const breakdown: string[] = [];
+    for (const sev of SEVERITY_ORDER) {
+      if (hidden[sev] > 0) breakdown.push(`${hidden[sev]} ${sev.toLowerCase()}`);
+    }
+    footnoteParts.push(
+      `_Severity budget hid ${hiddenTotal} finding${hiddenTotal === 1 ? "" : "s"} (${breakdown.join(", ")}). Tune \`pr_posting.severity_budget\` in \`.squad.yaml\`._`,
+    );
+  }
+  if (budgetWaived) {
+    footnoteParts.push(
+      `_Budget exceeded by Blocker count alone — Blockers are never silently dropped._`,
+    );
+  }
 
   // No actionable findings (no Blockers, no unjustified Majors) but Minor/Suggestion
   // counts exist. Emit just the totals — no per-agent expansion needed.
   if (grouped.size === 0) {
-    return ["### Findings", "", totals].join("\n");
+    const lines = ["### Findings", "", totals];
+    if (footnoteParts.length > 0) lines.push("", ...footnoteParts);
+    return lines.join("\n");
   }
 
   const sections: string[] = [];
@@ -142,7 +260,9 @@ function formatFindingsSection(consolidation: ConsolidationOutput): string {
     sections.push(lines.join("\n"));
   }
 
-  return ["### Findings", "", sections.join("\n\n"), "", totals].join("\n");
+  const out = ["### Findings", "", sections.join("\n\n"), "", totals];
+  if (footnoteParts.length > 0) out.push("", ...footnoteParts);
+  return out.join("\n");
 }
 
 function formatRubricBlock(rubric: RubricOutput | null): string {
@@ -202,7 +322,7 @@ export function formatPrReview(
   const rubricBlock = formatRubricBlock(consolidation.rubric);
   if (rubricBlock) sections.push(rubricBlock);
 
-  const findings = formatFindingsSection(consolidation);
+  const findings = formatFindingsSection(consolidation, options.severityBudget);
   if (findings) sections.push(findings);
 
   sections.push(formatFooter(consolidation, action, options));

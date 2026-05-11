@@ -28,6 +28,7 @@ const AGENT_FILE_MAP: Record<AgentName, string> = {
   "senior-qa": "senior-qa.md",
   "code-explorer": "code-explorer.md",
   "senior-debugger": "senior-debugger.md",
+  "senior-implementer": "senior-implementer.md",
 };
 
 export const SHARED_FILES = [
@@ -296,6 +297,86 @@ export async function resolveSharedFile(file: string): Promise<string> {
 export async function readAgentDefinition(name: AgentName): Promise<string> {
   const filePath = await resolveAgentFile(name);
   return fs.readFile(filePath, "utf8");
+}
+
+/**
+ * Allowed language identifier shape for the on-disk supplement layout
+ * (`agents/<agent>.langs/<lang>.md`). Restricted to lowercase letters, digits,
+ * underscore, hyphen — matches `Language` type in `src/exec/detect-languages.ts`
+ * (which uses `typescript`, `csharp`, etc) AND defends against path traversal
+ * (`../foo`) at the validation layer before any fs call.
+ *
+ * If the language identifier doesn't match this shape, the supplement read
+ * silently returns null — the language is treated as "no supplement available"
+ * rather than throwing. Same envelope as the existing `validateOverrideFile`
+ * fallback contract.
+ */
+const LANGUAGE_ID_REGEX = /^[a-z0-9_-]+$/;
+
+/**
+ * Read a single per-language supplement file for an agent, returning the file
+ * body or `null` when the file does not exist (no `.langs/` directory, or no
+ * `<lang>.md` inside it).
+ *
+ * Language-supplement layout:
+ *   agents/
+ *     senior-dev-reviewer.md            ← core (always loaded as agent system prompt)
+ *     senior-dev-reviewer.langs/        ← optional directory
+ *       typescript.md                    ← per-language addendum
+ *       python.md
+ *       csharp.md
+ *
+ * The directory is OPTIONAL. Agents without `.langs/` (e.g. `senior-architect`,
+ * `tech-lead-*`) just return null for every language — caller composes the
+ * bundle without supplements and the agent runs on its core prompt only.
+ *
+ * Override directory support is intentionally NOT plumbed in v0.13 — supplement
+ * files ship with the package and are not user-overridable yet. When a user
+ * customises an agent role they edit the core `.md`; per-language addenda are
+ * curated. Adding override support is a follow-up if the demand surfaces.
+ */
+export async function readAgentLanguageSupplement(
+  name: AgentName,
+  language: string,
+): Promise<string | null> {
+  await ensureEmbeddedDir();
+  assertKnownAgent(name);
+  if (typeof language !== "string" || !LANGUAGE_ID_REGEX.test(language)) {
+    // Path-traversal defence: only well-formed language ids reach the fs.
+    return null;
+  }
+  const embedded = getEmbeddedDir();
+  const supplementPath = path.join(embedded, `${name}.langs`, `${language}.md`);
+  try {
+    return await fs.readFile(supplementPath, "utf8");
+  } catch {
+    // ENOENT (no supplement for this lang) and any other read failure are
+    // treated the same — supplements are an optimisation, never load-bearing.
+    return null;
+  }
+}
+
+/**
+ * Bulk variant: load supplements for multiple languages at once. Returns a
+ * record keyed by language, value = content. Languages with no supplement on
+ * disk are OMITTED from the result (not present as `null`) so callers can
+ * iterate `Object.entries` and trust every value is a real string.
+ */
+export async function readAgentLanguageSupplements(
+  name: AgentName,
+  languages: readonly string[],
+): Promise<Record<string, string>> {
+  const results = await Promise.all(
+    languages.map(async (lang) => {
+      const body = await readAgentLanguageSupplement(name, lang);
+      return [lang, body] as const;
+    }),
+  );
+  const out: Record<string, string> = {};
+  for (const [lang, body] of results) {
+    if (body !== null) out[lang] = body;
+  }
+  return out;
 }
 
 export async function listAvailableAgents() {
