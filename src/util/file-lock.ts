@@ -40,7 +40,14 @@ async function tryAcquire(lockPath: string): Promise<boolean> {
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") return false;
+    // POSIX returns EEXIST when O_EXCL hits an existing file. Windows
+    // returns EPERM under the same condition when the file is also held
+    // open by another writer (mandatory file locking semantics — distinct
+    // from POSIX advisory locking). Both mean "another holder owns the
+    // lock right now, retry"; treat them as the same negative result.
+    // Without the EPERM mapping, concurrent-append tests on windows-latest
+    // throw an unhandled exception instead of looping the backoff.
+    if (code === "EEXIST" || code === "EPERM") return false;
     throw err;
   }
 }

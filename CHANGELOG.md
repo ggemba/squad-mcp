@@ -7,6 +7,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-05-11
+
+Patch release: last CI matrix slot. v0.11.2 left one job red — `test (windows-latest, 20)` — on the concurrent-append test in `tests/learning-store.test.ts`.
+
+### Fixed
+
+- **`src/util/file-lock.ts` now maps EPERM to retry** alongside EEXIST. Background: POSIX returns `EEXIST` when `fs.open(path, "wx")` collides with an existing lock file; Windows returns `EPERM` under the same condition because of NTFS mandatory locking (the file is held open by the rival writer). Without the EPERM mapping, the 30-way concurrent `appendLearning` test in `tests/learning-store.test.ts` would throw an unhandled exception out of the backoff loop on `windows-latest` instead of looping back to retry. The fix is a one-line additional code-class check; the semantics ("another holder owns the lock right now") are identical.
+
+No source-code changes beyond the file-lock branch. Confirmed locally; `windows-latest` node 22 was already green in v0.11.2.
+
 ## [0.11.2] - 2026-05-11
 
 Patch release: closes the remaining CI breakages after v0.11.1 fixed the prettier drift. Two issues that v0.11.1's narrower scope did not surface:
