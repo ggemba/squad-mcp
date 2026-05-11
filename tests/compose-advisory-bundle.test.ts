@@ -305,9 +305,7 @@ describe("composeAdvisoryBundle", () => {
   describe("language-aware supplements (v0.13)", () => {
     // POSIX-only paths so this fixture's behaviour is identical on
     // Linux/macOS CI and Windows local. The Windows-backslash path is
-    // covered by a dedicated test below — keeping it out of the shared
-    // fixture avoids triggering Linux-side path-normalisation warns that
-    // distort the fail-soft warn-cardinality assertion.
+    // covered by a dedicated test below.
     const tsChanged: DetectChangedFilesOutput = {
       files: [
         { path: "src/auth/jwt-validator.ts", status: "modified", raw_status: "M" },
@@ -437,6 +435,14 @@ describe("composeAdvisoryBundle", () => {
           read_content: false,
           staged_only: false,
           force_agents: [],
+          // CROSS-PLATFORM CRITICAL: hunks default-on tries to
+          // resolveSafePath(workspace_root). "C:/fake/workspace" is absolute
+          // on Windows but RELATIVE on Linux (POSIX requires a leading
+          // slash) → PATH_INVALID → fail-soft warn fires → +1 warn that
+          // would skew the cardinality assertion below from 4 to 5. This
+          // test exercises the language-supplement fail-soft path only;
+          // opting out of hunks keeps it OS-agnostic.
+          include_hunks: false,
         });
 
         // Detection still succeeded — only the disk read failed.
