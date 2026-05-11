@@ -7,6 +7,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-10
+
+Patch release for the release pipeline. The 0.8.0 package on npm is functionally identical — this release exists to validate the smoke job.
+
+### Fixed
+
+- **`release.yml` smoke job: `sh: 1: squad-mcp: not found`.** The post-publish smoke step spawned `npx -y @gempack/squad-mcp@<tag>` with no explicit bin name. In npm 10+ on Ubuntu CI, that short form has been unreliable for scoped packages — npx fails to wire the bin onto PATH and falls back to running the unscoped name as a shell command, which is not found. Switched both the warm-cache step and the smoke step to the long form `npx -y --package=@gempack/squad-mcp@<tag> squad-mcp`, which gives npm an explicit (package, bin) tuple to resolve.
+- **Warm-cache step no longer silently masks failure.** The previous `|| true` at the end of the warm step had been hiding the same npx-bin-resolution failure for every release since v0.7.0. Removed — if the warm step fails now, the run aborts before wasting 90s on the smoke timeout.
+
 ## [0.8.0] - 2026-05-10
 
 Three themes: **execution depth** (the user can size each run), **command surface cleanup** (no more stuttering `/squad:squad`), and **fast code Q&A** (new `code-explorer` subagent + `/squad:question` skill).

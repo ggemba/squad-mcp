@@ -75,23 +75,31 @@ jobs:
         shell: bash
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # `npx --version` on the published package forces the fetch + extract
-          # so the smoke step below only pays for spawn + handshake. Without
-          # this the cold fetch (~10-25s on a GH runner) eats the handshake
-          # budget and the smoke flakes.
-          npm exec --yes --package "@gempack/squad-mcp@${TAG_VERSION}" -- squad-mcp --help >/dev/null 2>&1 || true
+          # Force the fetch + extract so the smoke step below only pays for
+          # spawn + handshake. Without this the cold fetch (~10-25s on a GH
+          # runner) eats the handshake budget and the smoke flakes. Drop the
+          # `|| true` so the warm step now fails loudly if the bin won't run
+          # — earlier releases masked the same npx-bin-resolution failure that
+          # broke the smoke (sh: squad-mcp: not found) under the silent `|| true`.
+          npx -y --package="@gempack/squad-mcp@${TAG_VERSION}" squad-mcp --help >/dev/null 2>&1
       - name: smoke the published tarball over stdio
         shell: bash
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # The smoke script in tests/smoke.mjs talks JSON-RPC over stdio to
-          # a freshly fetched copy. We rewrite it to point at the published
-          # tarball via npx rather than dist/.
+          # The smoke script talks JSON-RPC over stdio to a freshly fetched
+          # copy. CRITICAL: invoke npx via the `--package=<scoped>` + explicit
+          # bin form, not `npx -y @scope/pkg`. The short form has been
+          # unreliable in npm 10+ for scoped packages — `sh: squad-mcp: not
+          # found` happens because npx fails to wire the bin onto PATH and
+          # falls back to running the unscoped name as a shell command. The
+          # long form gives npm an explicit (package, bin) tuple to resolve.
           cat > /tmp/smoke-published.mjs <<EOF
           import { spawn } from "node:child_process";
-          const child = spawn("npx", ["-y", "@gempack/squad-mcp@${TAG_VERSION}"], {
-            stdio: ["pipe", "pipe", "inherit"],
-          });
+          const child = spawn(
+            "npx",
+            ["-y", "--package=@gempack/squad-mcp@${TAG_VERSION}", "squad-mcp"],
+            { stdio: ["pipe", "pipe", "inherit"] },
+          );
           let buf = "";
           const messages = [];
           child.stdout.on("data", (c) => {
