@@ -33,6 +33,7 @@ describe("server lifecycle", () => {
       "list_runs",
       "list_tasks",
       "next_task",
+      "prune_learnings",
       "read_learnings",
       "read_squad_config",
       "record_learning",

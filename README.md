@@ -127,6 +127,7 @@ Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed
 | `read_squad_config`         | Read and resolve `.squad.yaml` (or `.squad.yml`) at workspace_root. Returns effective weights, threshold, min_score, skip_paths, disable_agents.                                                                                               |
 | `read_learnings`            | Load past accept/reject decisions from `.squad/learnings.jsonl`. Filters by agent / decision / changed-file scope. Returns entries plus a markdown block ready to inject into agent or consolidator prompts.                                   |
 | `record_learning`           | Append one accept/reject decision to `.squad/learnings.jsonl`. Side-effecting; the skill (or CLI) is responsible for per-finding user authorisation.                                                                                           |
+| `prune_learnings`           | Lifecycle maintenance (v0.11.0+): mark entries older than `max_age_days` as `archived` and entries with ≥ `min_recurrence` accepts on the same canonicalised finding as `promoted`. Atomic rewrite under file lock. Never auto-runs.           |
 | `compose_prd_parse`         | Build a prompt + JSON schema for the host LLM to decompose a PRD into atomic tasks. Pure-MCP: server does NO LLM calls. Caller (skill) feeds the prompt to its model, then calls `record_tasks` after user confirmation.                       |
 | `list_tasks`                | Read tasks from `.squad/tasks.json`. Filters: status, agent (matches `agent_hints`), changed_files (glob match against task `scope`).                                                                                                          |
 | `next_task`                 | Pick the next ready task: candidate status (default pending), all dependencies done, optional agent / changed_files filter. Tiebreak priority then id. Returns null + reason when none ready.                                                  |
@@ -240,17 +241,20 @@ Each time the team accepts or rejects an advisory finding, the decision can be a
 
 The file lives in git. Decisions are auditable in PR diffs.
 
-### Recording decisions
+### Recording decisions (v0.11.0+ Phase 12 prompt)
 
-Inside Claude Code, after `/squad:review` produces the verdict, tell the skill to record:
+After `/squad:review` consolidates findings, the skill surfaces a single batched prompt at the end of the report. It groups the findings by agent + severity (Suggestion-level findings excluded) and asks one question:
 
-```
-record reject senior-dev-security "missing CSRF on POST /api/refund"
-  reason: CSRF terminated at API gateway
-  scope: src/api/**
-```
+> Save which findings as precedents? Reply: `accept N1,N2,N3` / `reject N4` / `all accept` / `skip` / `because <reason>` to attach a rationale.
 
-The skill confirms each decision and calls the `record_learning` MCP tool. **Per-finding authorisation is required** — silence or "thanks" is not authorisation.
+Each affirmative pick fires one `record_learning` call. Examples:
+
+- `accept 1,2 because we ship this pattern across services`
+- `reject 3` (records the rejection without a reason; the squad will still suppress the same finding next run)
+- `all accept` (accepts every Blocker / Major / Minor in the report)
+- `skip` or empty response (records nothing)
+
+**Per-finding authorisation is required** — silence or "thanks" is not authorisation. The skill never invents a reason; the text after `because` flows verbatim to `record_learning.reason`.
 
 For non-MCP environments, use the CLI helper:
 
@@ -268,6 +272,28 @@ node tools/record-learning.mjs --reject \
 In Phase 5 (per-agent advisory) the skill calls `read_learnings(workspace_root, agent, changed_files)` and injects the rendered `## Past team decisions` block into the agent's prompt. In Phase 10 (consolidator) it does the same without an agent filter — the consolidator sees the full picture across agents.
 
 Each agent is told: when a current finding matches a previously **rejected** decision (similar agent + similar finding text + matching scope), suppress or downgrade severity unless the diff materially changes the rationale. When a finding contradicts a previously **accepted** decision, flag the contradiction explicitly.
+
+### Lifecycle (v0.11.0+): archive + promote
+
+Two new optional fields on each entry let the journal age gracefully without manual surgery:
+
+- `archived: true` — the entry is past the team's age cutoff and is hidden from default `read_learnings` injection. The row stays on disk for forensics.
+- `promoted: true` — the same finding (matched by canonicalised title) has been accepted ≥ N times and now surfaces FIRST in the rendered block as `⭐ PROMOTED`. Advisors are instructed to treat promoted entries as team policy, not ordinary precedent.
+
+Both flags are set by the **`prune_learnings`** MCP tool:
+
+```
+prune_learnings({
+  workspace_root: <repo>,
+  max_age_days: 180,    // entries older than this get archived: true
+  min_recurrence: 3,    // accept-decisions on the same finding ≥ 3× get promoted: true
+  dry_run: false        // set true to inspect counts without mutating
+})
+```
+
+`prune_learnings` **never auto-runs.** The defaults are `max_age_days: 0` (= disabled) and `min_recurrence: 3` — invoking with no arguments is a safe no-op. Wire it into a cron or pre-commit hook if you want regular housekeeping. Each non-no-op run produces an atomic rewrite of `.squad/learnings.jsonl` under the same file lock used by `record_learning`; concurrent readers either see the pre-rewrite or post-rewrite file in full, never a torn write. A `.prev` snapshot is kept alongside the file as the rollback point.
+
+The v0.11.0 schema is **additive and backward-compatible** — a v0.10.x reader strips the unknown `archived` / `promoted` fields silently and continues. No `schema_version` bump.
 
 ### Configuration
 

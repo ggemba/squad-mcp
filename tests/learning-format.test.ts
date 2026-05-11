@@ -129,6 +129,74 @@ describe("formatLearningsForPrompt — limit", () => {
   });
 });
 
+describe("formatLearningsForPrompt — prompt-injection sanitization (cycle-2 Blocker B3)", () => {
+  it("strips C0/C1 control bytes from finding and reason", async () => {
+    // Control bytes (terminal escapes, BELs, etc.) get stripped so they
+    // can't manipulate downstream LLM rendering or terminal output.
+    const out = formatLearningsForPrompt([
+      e({
+        finding: "csrf" + String.fromCharCode(0x1b) + "[31m red",
+        reason: "we" + String.fromCharCode(0x07) + "shipped" + String.fromCharCode(0x1f) + "this",
+      }),
+    ]);
+    // Stripped versions appear; raw control bytes do not.
+    expect(out).toContain("csrf[31m red");
+    expect(out).toContain("weshippedthis");
+    expect(out).not.toContain("\x1b");
+    expect(out).not.toContain("\x07");
+    expect(out).not.toContain("\x1f");
+  });
+
+  it("strips bidi-control codepoints (U+202A–202E, U+2066–2069)", () => {
+    // RTL/LTR overrides can re-order rendered text visually and hide
+    // payloads from human reviewers.
+    const out = formatLearningsForPrompt([
+      e({
+        finding: "innocent‮tpircs_evil text",
+        reason: "rationale⁦hidden⁩here",
+      }),
+    ]);
+    expect(out).not.toContain("‮");
+    expect(out).not.toContain("⁦");
+    expect(out).not.toContain("⁩");
+  });
+
+  it("strips zero-width codepoints (U+200B–200D, U+FEFF)", () => {
+    // ZWSP/ZWJ/ZWNJ/BOM can hide instruction tokens between visible chars.
+    const out = formatLearningsForPrompt([
+      e({
+        finding: "csrf​token‌missing",
+        reason: "we‍shipped﻿it",
+      }),
+    ]);
+    expect(out).toContain("csrftokenmissing");
+    expect(out).toContain("weshippedit");
+    expect(out).not.toMatch(/[​-‍﻿]/);
+  });
+
+  it("preserves tab, newline, and carriage return (legitimate whitespace)", () => {
+    const out = formatLearningsForPrompt([
+      e({
+        finding: "regular finding",
+        reason: "line one\ttabbed",
+      }),
+    ]);
+    expect(out).toContain("line one\ttabbed");
+  });
+
+  it("wraps reason in a Markdown blockquote for LLM context separation", () => {
+    // The renderer lexically separates user-supplied rationale from
+    // surrounding instruction text by prefixing the reason line with `> `.
+    const out = formatLearningsForPrompt([
+      e({
+        finding: "x",
+        reason: "we have CSRF at the gateway",
+      }),
+    ]);
+    expect(out).toContain("> Reason: we have CSRF at the gateway");
+  });
+});
+
 describe("formatLearningsForPrompt — scope filter via changedFiles", () => {
   it("includes entries with no scope (repo-wide)", () => {
     const out = formatLearningsForPrompt([e({ finding: "global" })], {

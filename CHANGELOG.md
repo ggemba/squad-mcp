@@ -7,6 +7,66 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-11
+
+Closes the **learnings loop** end-to-end. Before v0.11.0, `read_learnings` was wired into Phase 5 of the squad skill but `record_learning` was a buried manual call — the write side of the cycle never fired in practice. v0.11.0 makes the cycle automatic: after `/squad:review` consolidates findings, the skill batches them into a single Phase 12 "Save as precedents?" prompt, the user picks accept/reject per finding, and the squad stops re-raising things the team already decided. Adds lifecycle plumbing (archive + promote), agent-visible past-decision inlining, and a `prune_learnings` MCP tool for housekeeping. Backward-compatible at the journal level — additive optional fields, v0.10.x readers see new fields as unknown and strip them.
+
+### Cycle-2 fixes (Phase 11 reject-loop)
+
+The first implementation pass shipped with three Blockers caught in the post-impl review:
+
+- **B1 — Promoted-first ordering was broken end-to-end.** The original `[...promoted, ...rest]` array was passed through `tailRecent.slice(-limit)` (which keeps the tail, dropping promoted at the head when journal > limit), then `formatLearningsForPrompt.reverse()` (which pushed promoted to the bottom of rendered output). Three reviewers (architect, developer, QA) independently identified the bug. Fixed by partitioning visible entries, capping promoted at `MAX_PROMOTED_IN_PROMPT = 10` (architect Major M2), applying user filters only to non-promoted, and feeding the formatter a pre-shaped input that survives its internal reverse. Test now pins `idxPromoted < idxRegular` and the `entries.length > limit` regression.
+- **B2 — Atomic rewrite step-4 failure had no rollback.** Between `<file>→.prev` and `.tmp→<file>` renames, a failure of the second left the journal MISSING with no recovery hint surfaced. Fixed by catching the failure, attempting `<file>.prev → <file>` rollback, and emitting a new `ATOMIC_REWRITE_FAILED` SquadError. Double-failure path embeds `mv <file>.prev <file>` recovery instructions in the message. Tests mock `fs.rename` to exercise both paths.
+- **B3 — LLM prompt injection persisted via `reason`.** `formatLearningsForPrompt` interpolated user-supplied text raw into every advisor prompt thereafter; a hostile commit to a shared `.squad/learnings.jsonl` (or a one-time paste-and-record) persistently subverted future runs. Fixed by adding render-time `sanitizeForPrompt` (strips C0/C1 control bytes, bidi-control codepoints U+202A–202E + U+2066–2069, zero-width codepoints U+200B–200D + U+FEFF) and wrapping `reason` in a Markdown blockquote. New Inviolable Rule in `skills/squad/SKILL.md` Phase 12 instructs the orchestrator to refuse `because` clauses containing instruction-shaped patterns.
+
+Plus the surrounding Major cluster:
+
+- **`min_recurrence: 1` was a footgun** — promoted every singleton accept, defeating the "team policy" signal. Schema now rejects via `.refine` + runtime guard in the handler (covers programmatic callers that bypass the dispatcher). Acceptable values are `0` (disable) or `>= 2`.
+- **`unchanged_count` arithmetic was fragile** — relied on three simultaneous invariants holding. Replaced with a `Set<number>` of touched indices, robust under future refactoring.
+- **`SafeString` hardening was incomplete** — `branch` and `scope` accepted NUL bytes despite the v0.11.0 release-note claim. Promoted both at the tool boundary AND the store schema (defense-in-depth so a future caller bypassing the tool still gets rejected).
+- **`normalizeFindingTitle` accepted mismatched quote pairs** (`"foo'` → `foo`). Tightened to per-quote-class regex; only true pairs strip. Added `PASS ORDER IS LOAD-BEARING` block-comment to deter future reordering.
+- **Stats panel `📚` glyph contradicted its own single-cyan rule.** Rewrote panel item 2a to use `▸` directly; dropped the example emoji that walked itself back in prose.
+- **Orphan "Phase 14" references in `src/tools/record-learning.ts` and `skills/squad/SKILL.md:50`** updated to the current Phase 12 batched flow.
+
+Cycle-2 also pinned coverage gaps QA called out: `learnings.enabled: false` no-op in `prune_learnings`, schema round-trip for `archived` + `promoted` through `appendLearning`, promotion tie-break on identical ts, NUL-byte rejection on branch/scope.
+
+### Added
+
+- **Phase 12 batched "Save as precedents?" prompt** in `skills/squad/SKILL.md` — appears at the end of every `/squad:review` after `apply_consolidation_rules` returns. Groups findings by agent + severity (Blocker / Major / Minor; Suggestions discarded), surfaces a numbered list, parses casual responses (`accept 1,2,3` / `reject 4` / `all accept` / `skip` / `because <reason>`), and calls `record_learning` for each marked finding. The single record path — Phase 14's per-finding restate flow is REMOVED to avoid double-prompting.
+- **`prune_learnings` MCP tool** — lifecycle maintenance for `.squad/learnings.jsonl`. Two passes inside one atomic-rewrite under the file lock: (1) entries older than `max_age_days` are marked `archived: true` and suppressed from default `read_learnings`; (2) entries grouped by `normalizeFindingTitle` with ≥ `min_recurrence` accept decisions get `promoted: true` on the most-recent matching entry. Never auto-runs (`max_age_days` defaults to 0). `dry_run: true` for inspection without mutating.
+- **`archived: boolean` and `promoted: boolean` optional fields** added to the learning entry schema at the store level (not just the tool layer — critical to prevent round-trip data loss when prune rewrites the file). Both default to undefined, both are additive — a v0.10.x reader stripping them via Zod's default `strip-unknown` semantics is a tolerated downgrade.
+- **`src/learning/normalize.ts`** — single canonical `normalizeFindingTitle(s)` helper used by both `read_learnings` (matching live findings against past learnings) and `prune_learnings` (grouping for promotion-recurrence counting). lowercase + trim + strip trailing `.,;` + strip surrounding quotes/backticks + strip trailing parenthetical + collapse whitespace.
+- **`src/util/atomic-rewrite-jsonl.ts`** — shared atomic-rewrite primitive (lock + write `<file>.tmp` + rename `<file>` → `<file>.prev` + rename `<file>.tmp` → `<file>`). POSIX rename atomicity means concurrent readers see either the pre-rewrite or post-rewrite file in full, never a torn write. `.prev` is the rollback snapshot.
+- **⭐ PROMOTED tag** rendered inline by `formatLearningsForPrompt` for entries with `promoted: true`. Advisors are instructed in Phase 5 to treat promoted entries as team policy, not ordinary precedent.
+- **Stats panel learnings line** (`skills/stats/SKILL.md` §Panel order item 2a) — `learnings: <total> total · <promoted> promoted · <archived> archived` under the trend sparkline. Fetched via `read_learnings({limit: 0, include_archived: true, include_summary: true, include_rendered: false})` — the `limit: 0` short-circuits entry rendering and returns just the summary object. Omitted entirely when `total === 0`.
+- **`include_archived` and `include_summary` flags on `read_learnings`** — default false. `include_archived: true` opts back in to archived rows (debug / audit). `include_summary: true` returns a `summary` object with `{total, active, archived, promoted}` counts computed over the FULL file before any agent / decision / scope filter. Used by the stats panel and by future "you haven't pruned in a while" prompts.
+- **Past-decision interlock for advisors** — Phase 5 advisory prompt template (`skills/squad/SKILL.md`) gains an explicit section telling agents to honor ⭐ PROMOTED entries as binding and to use `normalizeFindingTitle`-style matching when judging whether a live finding restates a past learning. The advisor sees the rendered learning block inline, not via a separate tool call.
+
+### Changed
+
+- **`read_learnings` auto-filters archived rows by default.** Set `include_archived: true` to surface them. Promoted entries surface FIRST in the rendered markdown block regardless of `tailRecent` ordering — they represent crystallised team policy and always belong at the top.
+- **`read_learnings.limit` widened from `positive()` to `nonnegative().max(200)`.** `limit: 0` is a valid sentinel meaning "summary-only, no entries" — used by `/squad:stats` to fetch counts without paging the file. Hard cap 200 unchanged.
+- **Phase 14 (per-finding learning restate) REMOVED** from `skills/squad/SKILL.md`. The Phase 12 batched prompt is the single record path. Eliminates the double-prompt that would have asked the user about the same finding twice.
+- **`record_learning.finding` and `record_learning.reason` hardened with `SafeString`** — NUL-byte rejection at the tool boundary. `reason` flows verbatim from the user's natural-language Phase 12 response ("accept 1 because we have CSRF at the gateway"), so closing the injection surface at the schema edge is cheap defense in depth.
+
+### Schema migration
+
+- **Additive only.** New optional fields: `archived?: boolean`, `promoted?: boolean`. No schema_version bump. v0.10.x readers strip the unknown fields silently via Zod default behaviour and continue. v0.11.0 readers consume both fields. Recurrence count is NOT stored on the row (would create a write-while-write race when parallel advisors record); promotion is computed lazily inside `prune_learnings` under the lock.
+
+### Tests
+
+- `tests/learning-normalize.test.ts` (new) — `normalizeFindingTitle` cases: case folding, whitespace collapse, trailing punctuation, surrounding quotes/backticks, parenthetical line-numbers, idempotency, equivalence of common decoration variants.
+- `tests/atomic-rewrite-jsonl.test.ts` (new) — round-trip with shaped data, parent-dir creation, empty-rows edge case, `.prev` snapshot semantics, no stale `.tmp`, concurrent rewrites serialised under lock.
+- `tests/prune-learnings.test.ts` (new) — empty / no-op cases, age cutoff archival, idempotent re-runs (no double-archive, no double-promote), promotion grouping by normalised title, reject decisions ignored when counting, archived entries excluded from recurrence count, `dry_run` doesn't mutate, archived rows hidden from default read path, full-field preservation on rewrite (no data loss), backward compat with v0.10.x rows.
+- `tests/read-learnings-tool.test.ts` (new) — `include_summary` count correctness, `include_summary: false` omission, `limit: 0` short-circuit returning summary, `include_archived` default-off / opt-in, promoted-first ordering in entries array AND rendered block (⭐ PROMOTED tag emitted), backward compat with v0.10.x rows.
+- `tests/dispatch-tool.test.ts` — `record_learning` rejects NUL byte in `finding` and `reason` at the SafeString boundary; `prune_learnings` is registered and accepts a default-args call.
+- `tests/integration/server-lifecycle.test.ts` — tool list updated to include `prune_learnings` (25 tools total).
+
+### Known issues
+
+- The Phase 12 prompt is executed by the host LLM following the SKILL spec — there is no automated test that intercepts a real `/squad:review` response and verifies the batched parse produced the right `record_learning` calls. We rely on the LLM following the parsing grammar in `skills/squad/SKILL.md`. Same trust boundary as v0.10.0's debug / question / brainstorm telemetry hooks.
+- `prune_learnings` is never invoked automatically. Users who want regular housekeeping run `prune_learnings({max_age_days: 180, min_recurrence: 3})` themselves or wire it into a cron / pre-commit hook. The default no-op was a deliberate trade-off — surprising diff churn on repos that commit `.squad/learnings.jsonl` is worse than letting old entries sit there.
+
 ## [0.10.1] - 2026-05-11
 
 Patch release: pays the technical debt accumulated across v0.9.0 + v0.10.0. No new features, no schema change, no user-visible behavior change beyond `/squad:stats` now showing `/squad:question` and `/squad:brainstorm` invocations (they were in the enum but the SKILL files never emitted journal rows).

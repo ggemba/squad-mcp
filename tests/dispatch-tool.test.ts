@@ -116,6 +116,50 @@ describe("dispatchTool error mapping", () => {
     expect(body.error.code).toBe("INVALID_INPUT");
   });
 
+  it("record_learning rejects finding containing a NUL byte (SafeString boundary)", async () => {
+    const r = (await dispatchTool("record_learning", {
+      workspace_root: process.cwd(),
+      agent: "senior-dba",
+      finding: "csrf " + String.fromCharCode(0) + " token missing",
+      decision: "accept",
+    })) as { content: { text: string }[]; isError: boolean };
+    expect(r.isError).toBe(true);
+    const body = JSON.parse(r.content[0]!.text);
+    expect(body.error.code).toBe("INVALID_INPUT");
+    expect(body.error.message).toContain("NUL byte");
+  });
+
+  it("record_learning rejects reason containing a NUL byte (SafeString boundary)", async () => {
+    const r = (await dispatchTool("record_learning", {
+      workspace_root: process.cwd(),
+      agent: "senior-dba",
+      finding: "csrf token missing",
+      decision: "accept",
+      reason: "we shipped " + String.fromCharCode(0) + " it already",
+    })) as { content: { text: string }[]; isError: boolean };
+    expect(r.isError).toBe(true);
+    const body = JSON.parse(r.content[0]!.text);
+    expect(body.error.code).toBe("INVALID_INPUT");
+    expect(body.error.message).toContain("NUL byte");
+  });
+
+  it("prune_learnings is registered and accepts a default-args call", async () => {
+    const r = (await dispatchTool("prune_learnings", {
+      workspace_root: process.cwd(),
+    })) as { content: { text: string }[]; isError?: boolean };
+    // The tool may error if the workspace has no .squad.yaml, but the
+    // critical assertion is that it's NOT UNKNOWN_TOOL — i.e. registered.
+    if (r.isError) {
+      const body = JSON.parse(r.content[0]!.text);
+      expect(body.error.code).not.toBe("UNKNOWN_TOOL");
+    } else {
+      const body = JSON.parse(r.content[0]!.text);
+      expect(body.ok).toBe(true);
+      // Defaults: max_age_days=0 (disabled) → no archival on no-op.
+      expect(body.archived_count).toBe(0);
+    }
+  });
+
   it("PATH_TRAVERSAL_DENIED surfaces in select_squad low_confidence_files (does not abort batch)", async () => {
     const r = (await dispatchTool("select_squad", {
       work_type: "Bug Fix",

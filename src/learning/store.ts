@@ -25,8 +25,18 @@ const learningEntrySchema = z.object({
   ts: z.string().min(1).max(40),
   /** PR number when recorded from `/squad:review #N`; optional otherwise. */
   pr: z.number().int().positive().optional(),
-  /** Branch name when recorded from a local review (no PR ref). */
-  branch: z.string().min(1).max(255).optional(),
+  /**
+   * Branch name when recorded from a local review (no PR ref). v0.11.0
+   * cycle-2 (security Major M2): NUL-byte rejection mirrors the tool-edge
+   * `SafeString` so the store schema rejects a hostile row even if a
+   * future caller bypasses the tool.
+   */
+  branch: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((v) => v.indexOf("\0") === -1, "must not contain NUL byte")
+    .optional(),
   /** Which agent's finding this decision concerns. */
   agent: z.enum(AGENT_NAMES_TUPLE),
   /** Severity at the time of the decision (Blocker / Major / Minor / Suggestion). */
@@ -42,7 +52,33 @@ const learningEntrySchema = z.object({
    * absent, the decision applies repo-wide. Used by the formatter to filter
    * learnings down to those relevant to the current diff.
    */
-  scope: z.string().min(1).max(512).optional(),
+  scope: z
+    .string()
+    .min(1)
+    .max(512)
+    .refine((v) => v.indexOf("\0") === -1, "must not contain NUL byte")
+    .optional(),
+  /**
+   * v0.11.0+ lifecycle fields. All optional and additive — a v0.10.x reader
+   * encountering these fields silently strips them (Zod default), so the
+   * journal can be read by older clients without crashing. A v0.11.0+ reader
+   * uses them to suppress (archived) or surface (promoted) entries.
+   *
+   * - `archived: true` — entry is past `max_age_days` and is hidden from
+   *   default `readLearnings` output. Set by `prune_learnings`. The entry
+   *   stays on disk for forensics; not deleted.
+   * - `promoted: true` — entry has been accepted ≥ `min_recurrence` times
+   *   (across all agents, matched by `normalizeFindingTitle`) and is surfaced
+   *   FIRST in the rendered learnings block regardless of scope match.
+   *   Promoted entries represent crystallised team policy.
+   *
+   * Note: `recurrence_count` is NOT stored (planner cycle-1 Blocker B3 —
+   * storing it creates a write-while-write race when parallel advisors
+   * record). Promotion logic counts lazily inside `prune_learnings` and
+   * `read_learnings` rendering instead.
+   */
+  archived: z.boolean().optional(),
+  promoted: z.boolean().optional(),
 });
 
 export type LearningEntry = z.infer<typeof learningEntrySchema>;

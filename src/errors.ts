@@ -18,7 +18,14 @@ export type SquadErrorCode =
   // mechanism (5 cycle-2 advisors converged on the same Major) and
   // chose loud rejection at validation time: the caller retries with
   // shorter fields rather than the store silently splitting rows.
-  | "RECORD_TOO_LARGE";
+  | "RECORD_TOO_LARGE"
+  // Emitted by `src/util/atomic-rewrite-jsonl.ts` when the rename sequence
+  // (write tmp → rename source to .prev → rename tmp to source) fails at
+  // the final step. The rewrite primitive attempts to rollback by renaming
+  // .prev back to source; the error message embeds a manual recovery
+  // command (`mv <file>.prev <file>`) when even the rollback fails.
+  // v0.11.0 cycle-2 Blocker B2 fix.
+  | "ATOMIC_REWRITE_FAILED";
 
 export class SquadError extends Error {
   readonly code: SquadErrorCode;

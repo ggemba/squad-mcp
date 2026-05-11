@@ -8,6 +8,7 @@ import { scoreRubricTool } from "./score-rubric.js";
 import { readSquadConfigTool } from "./read-squad-config.js";
 import { readLearningsToolDef } from "./read-learnings.js";
 import { recordLearningToolDef } from "./record-learning.js";
+import { pruneLearningsToolDef } from "./prune-learnings.js";
 import { listTasksToolDef } from "./list-tasks.js";
 import { nextTaskToolDef } from "./next-task.js";
 import { recordTasksToolDef } from "./record-tasks.js";
@@ -51,6 +52,7 @@ export function registerTools(): void {
   register(readSquadConfigTool);
   register(readLearningsToolDef);
   register(recordLearningToolDef);
+  register(pruneLearningsToolDef);
   register(listTasksToolDef);
   register(nextTaskToolDef);
   register(recordTasksToolDef);

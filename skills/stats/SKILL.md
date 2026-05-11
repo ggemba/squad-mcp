@@ -90,6 +90,7 @@ The rendering layer lives in this skill (NOT in the MCP server). Architect contr
 
 1. **Header** — one cyan line: `squad-mcp stats · <N> runs · <since…now> · <mode>`
 2. **Trend sparkline** — one line: `↗ trend (<days>d) ▁▂▃▄▅▆▇█` with the last-30-day glyph series.
+   2a. **Learnings line (v0.11.0+)** — one line under the trend: `▸ learnings: <total> total · <promoted> promoted · <archived> archived`. The leading `▸` is the same single-cyan plain glyph used for the score-distribution section (panel 4) — do NOT use `📚` or any other emoji here; emojis carry their own platform colour and would break the single-cyan discipline (Inviolable Rule 4). Fetch via `read_learnings({workspace_root, limit: 0, include_archived: true, include_summary: true, include_rendered: false})` — the `limit: 0` short-circuits entry rendering and returns just the `summary` object. Omit the line entirely when `total === 0` (no journal yet).
 3. **Outcomes** — three rows (APPROVED / CHANGES_REQUIRED / REJECTED) with Unicode bar (width 24) + count + percentage. Use the symbols `✓ ⚠ ✗` (not coloured, just glyph).
 4. **Score distribution** — four rows (90-100 / 80-89 / 70-79 / <70) with bar + count. Section glyph is `▸` (single Unicode marker) — NOT `📊` or any other emoji, because emojis carry their own platform colour and would break the single-cyan discipline.
 5. **Invocations** — one line each (implement / review / task / question / brainstorm / debug) with count + bar (only non-zero invocations shown).

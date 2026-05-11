@@ -331,6 +331,96 @@ describe("appendLearning", () => {
   });
 });
 
+describe("appendLearning — v0.11.0+ schema fields (cycle-2 QA M3)", () => {
+  it("round-trips archived: true through append + read", async () => {
+    // The schema additions for archived/promoted live at the STORE level
+    // (not just the tool layer), so appending a row WITH those flags should
+    // preserve them on read. This pins the round-trip contract and catches
+    // a future refactor that narrows the schema (e.g. someone strict-modes
+    // the object and silently strips the new fields).
+    await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "old-archived",
+      decision: "accept",
+      archived: true,
+    });
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.archived).toBe(true);
+    expect(entries[0]!.promoted).toBeUndefined();
+  });
+
+  it("round-trips promoted: true through append + read", async () => {
+    await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "policy-finding",
+      decision: "accept",
+      promoted: true,
+    });
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.promoted).toBe(true);
+  });
+
+  it("round-trips BOTH archived and promoted on the same entry", async () => {
+    // An entry can legitimately be both promoted (in run N) and then archived
+    // (in run N+1 when it ages past max_age_days).
+    await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "aged-policy",
+      decision: "accept",
+      archived: true,
+      promoted: true,
+    });
+    // include_archived path needs to be exercised via the tool layer; here
+    // we just confirm the store preserves the bytes.
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.archived).toBe(true);
+    expect(entries[0]!.promoted).toBe(true);
+  });
+});
+
+describe("appendLearning — NUL-byte rejection on branch + scope (cycle-2 security M2)", () => {
+  it("rejects a NUL byte in branch", async () => {
+    let caught: unknown;
+    try {
+      await appendLearning(workspace, {
+        agent: "senior-dba",
+        finding: "x",
+        decision: "accept",
+        branch: "feat/" + String.fromCharCode(0) + "evil",
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(isSquadError(caught)).toBe(true);
+    if (isSquadError(caught)) {
+      expect(caught.code).toBe("INVALID_INPUT");
+      expect(caught.message).toContain("NUL byte");
+    }
+  });
+
+  it("rejects a NUL byte in scope", async () => {
+    let caught: unknown;
+    try {
+      await appendLearning(workspace, {
+        agent: "senior-dba",
+        finding: "x",
+        decision: "accept",
+        scope: "src/" + String.fromCharCode(0) + "evil/**",
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(isSquadError(caught)).toBe(true);
+    if (isSquadError(caught)) {
+      expect(caught.code).toBe("INVALID_INPUT");
+      expect(caught.message).toContain("NUL byte");
+    }
+  });
+});
+
 describe("tailRecent", () => {
   const entries: LearningEntry[] = [
     {
