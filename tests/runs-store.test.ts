@@ -120,12 +120,19 @@ describe("appendRun — happy path", () => {
     expect(raw.split("\n").filter((s) => s.length > 0)).toHaveLength(1);
   });
 
-  it("creates the file with mode 0o600 (user-only)", async () => {
-    await appendRun(workspace, baseInFlight());
-    const file = path.join(workspace, DEFAULT_RUNS_PATH);
-    const st = await fs.stat(file);
-    expect(st.mode & 0o777).toBe(0o600);
-  });
+  it.skipIf(process.platform === "win32")(
+    "creates the file with mode 0o600 (user-only)",
+    async () => {
+      // Skipped on Windows: NTFS does not honour POSIX file modes, and
+      // `fs.stat` always returns 0o666 regardless of the mode passed to
+      // `fs.open`. The mode contract is enforced on POSIX (Linux/macOS)
+      // where the runs journal might leak under multi-user filesystems.
+      await appendRun(workspace, baseInFlight());
+      const file = path.join(workspace, DEFAULT_RUNS_PATH);
+      const st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
 
   it("appends a second row in order", async () => {
     const a = baseInFlight({ id: "id-aaa" });

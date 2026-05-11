@@ -7,6 +7,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-05-11
+
+Patch release: closes the remaining CI breakages after v0.11.1 fixed the prettier drift. Two issues that v0.11.1's narrower scope did not surface:
+
+### Fixed
+
+- **`tests/smoke.mjs` had a stale tool list** that pre-dated v0.9.0 (no `record_run`, `list_runs`) and v0.11.0 (no `prune_learnings`). The mismatch surfaced as `SMOKE FAILED: tool count mismatch: 26 vs 23` on ubuntu jobs. Added the three missing names. The smoke script is now in sync with `tests/integration/server-lifecycle.test.ts`.
+- **`tests/runs-store.test.ts` "creates the file with mode 0o600"** asserted POSIX file modes which NTFS does not honour — `fs.stat` returns `0o666` on Windows regardless of the mode passed to `fs.open`. Wrapped with `it.skipIf(process.platform === "win32")` (matching the pattern already used by `tests/agent-loader.test.ts` for the same reason). The mode contract is still enforced on POSIX runners where multi-user filesystem leakage is the relevant risk.
+
+No source-code changes.
+
 ## [0.11.1] - 2026-05-11
 
 Patch release: CI was red since v0.10.0 because `prettier --check .` ran in CI but was not part of the local `npm run lint` script — a drift the v0.11.0 release surfaced when the user looked at the runs. Two root causes:
