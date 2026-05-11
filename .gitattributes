@@ -1,0 +1,17 @@
+# Force LF line endings on checkout for all text files. Without this,
+# Windows runners (`windows-latest` in CI) check out files with CRLF,
+# which fails `prettier --check .` because the repo declares
+# `endOfLine: lf` in `.prettierrc`. The `* text=auto eol=lf` rule keeps
+# the working copy LF regardless of the platform's git config.
+* text=auto eol=lf
+
+# Binary blobs — never normalize.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tgz binary
+*.gz binary

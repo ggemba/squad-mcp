@@ -7,6 +7,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-05-11
+
+Patch release: CI was red since v0.10.0 because `prettier --check .` ran in CI but was not part of the local `npm run lint` script — a drift the v0.11.0 release surfaced when the user looked at the runs. Two root causes:
+
+### Fixed
+
+- **`INSTALL.md` had non-conforming markdown table alignment** that `prettier --check .` flagged on every runner. Formatted in place. Pure whitespace inside the table-header separator row.
+- **Windows runners checked out CRLF line endings** while `.prettierrc` declares `endOfLine: lf`, so every text file failed the format-check on `windows-latest`. Added a `.gitattributes` with `* text=auto eol=lf` so the working copy stays LF regardless of the platform's git config. The 135-files-failed cascade on Windows traced back to this single root cause.
+- **`npm run lint` now includes `prettier --check .`** alongside `tsc --noEmit` and `eslint .`. Pre-push local validation now matches what CI runs — a v0.11.0 retrospective fix; the previous gap meant a release could be tagged "lint clean" while CI's stricter check was failing on the same commit.
+
+No source-code changes. No schema changes. No new tests required.
+
 ## [0.11.0] - 2026-05-11
 
 Closes the **learnings loop** end-to-end. Before v0.11.0, `read_learnings` was wired into Phase 5 of the squad skill but `record_learning` was a buried manual call — the write side of the cycle never fired in practice. v0.11.0 makes the cycle automatic: after `/squad:review` consolidates findings, the skill batches them into a single Phase 12 "Save as precedents?" prompt, the user picks accept/reject per finding, and the squad stops re-raising things the team already decided. Adds lifecycle plumbing (archive + promote), agent-visible past-decision inlining, and a `prune_learnings` MCP tool for housekeeping. Backward-compatible at the journal level — additive optional fields, v0.10.x readers see new fields as unknown and strip them.
