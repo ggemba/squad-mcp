@@ -303,10 +303,15 @@ describe("composeAdvisoryBundle", () => {
   // integration coverage. These tests exercise the full
   // detect → look-up → emit pipeline through composeAdvisoryBundle.
   describe("language-aware supplements (v0.13)", () => {
+    // POSIX-only paths so this fixture's behaviour is identical on
+    // Linux/macOS CI and Windows local. The Windows-backslash path is
+    // covered by a dedicated test below — keeping it out of the shared
+    // fixture avoids triggering Linux-side path-normalisation warns that
+    // distort the fail-soft warn-cardinality assertion.
     const tsChanged: DetectChangedFilesOutput = {
       files: [
         { path: "src/auth/jwt-validator.ts", status: "modified", raw_status: "M" },
-        { path: "src\\auth\\session.ts", status: "modified", raw_status: "M" },
+        { path: "src/auth/session.ts", status: "modified", raw_status: "M" },
         { path: "src/auth/types.ts", status: "added", raw_status: "A" },
         { path: "tests/jwt.test.ts", status: "added", raw_status: "A" },
       ],
@@ -448,6 +453,40 @@ describe("composeAdvisoryBundle", () => {
         supplementsSpy.mockRestore();
         warnSpy.mockRestore();
       }
+    });
+
+    it("detects languages from Windows-style backslash paths (cross-platform sanity)", async () => {
+      // QA round-2 polish: prove the language pipeline doesn't drop files
+      // whose paths arrive with backslash separators (Windows callers,
+      // git output on some configurations). Kept isolated from the shared
+      // tsChanged fixture so Linux-side path-normalisation logging cannot
+      // distort the fail-soft test's warn cardinality assertion.
+      const winPaths: DetectChangedFilesOutput = {
+        files: [
+          { path: "src\\auth\\jwt-validator.ts", status: "modified", raw_status: "M" },
+          { path: "src\\auth\\session.ts", status: "modified", raw_status: "M" },
+          { path: "src\\auth\\types.ts", status: "added", raw_status: "A" },
+        ],
+        base_ref: "HEAD~1",
+        staged_only: false,
+        invocation: "git diff --name-status --no-renames HEAD~1..HEAD",
+      };
+      detectChangedFilesMock.mockResolvedValue(winPaths);
+
+      const out = await composeAdvisoryBundle({
+        workspace_root: "C:/fake/workspace",
+        user_prompt: "harden jwt validation path",
+        plan: "Step 1: tighten audience claim. Step 2: tests.",
+        read_content: false,
+        staged_only: false,
+        force_agents: [],
+      });
+
+      // Detection treats backslashes as separators (see classifyByExtension)
+      // so all three .ts files contribute to the typescript bucket.
+      expect(out.detected_languages).toBeDefined();
+      expect(out.detected_languages!.primary).toBe("typescript");
+      expect(out.detected_languages!.confidence).toBe("high");
     });
 
     // v0.13.x — secondary-language file-count threshold. Prevents a single
