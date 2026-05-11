@@ -1,6 +1,6 @@
 {
   "name": "squad",
-  "version": "0.11.3",
+  "version": "0.13.1",
   "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server, native subagents, and the /squad:implement and /squad:review slash commands.",
   "license": "Apache-2.0",
   "author": {
@@ -21,7 +21,8 @@
     "./agents/senior-dev-security.md",
     "./agents/senior-qa.md",
     "./agents/code-explorer.md",
-    "./agents/senior-debugger.md"
+    "./agents/senior-debugger.md",
+    "./agents/senior-implementer.md"
   ],
   "commands": [
     "./commands/implement.md",
@@ -39,7 +40,7 @@
   "mcpServers": {
     "squad": {
       "command": "npx",
-      "args": ["-y", "@gempack/squad-mcp@0.11.3"]
+      "args": ["-y", "@gempack/squad-mcp@0.13.1"]
     }
   }
 }
