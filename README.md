@@ -6,7 +6,7 @@
 
 MCP server that exposes the `squad-dev` workflow as deterministic tools, prompts, and resources. It classifies a task, scores its risk, picks an advisory squad of specialist reviewers, slices the changed files per agent, validates the plan, and consolidates the advisory verdicts. The host LLM (Claude Code, Cursor, Warp, Claude Desktop, …) orchestrates; `squad-mcp` provides the building blocks.
 
-It also ships as a Claude Code plugin that bundles the MCP server, four slash commands (`/squad`, `/squad-review`, `/brainstorm`, `/commit-suggest`), and the matching skills behind a single `/plugin install`.
+It also ships as a Claude Code plugin that bundles the MCP server, four slash commands (`/squad:implement`, `/squad:review`, `/brainstorm`, `/commit-suggest`), and the matching skills behind a single `/plugin install`.
 
 ## Install
 
@@ -17,7 +17,7 @@ It also ships as a Claude Code plugin that bundles the MCP server, four slash co
 /plugin install squad@gempack
 ```
 
-The plugin bundles the MCP server plus four slash commands and skills (`/squad`, `/squad-review`, `/brainstorm`, `/commit-suggest`). After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
+The plugin bundles the MCP server plus four slash commands and skills (`/squad:implement`, `/squad:review`, `/brainstorm`, `/commit-suggest`). After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
 
 ### npm package (any MCP client)
 
@@ -71,33 +71,36 @@ npm run build
 node dist/index.js
 ```
 
-## Your first `/squad` in 60 seconds
+## Your first `/squad:implement` in 60 seconds
 
 After install, the plugin is silent until you invoke it. Drop into a repo with at least one staged or recently committed change and run:
 
 ```text
-/squad add a /health endpoint that returns {"status":"ok"}
+/squad:implement add a /health endpoint that returns {"status":"ok"}
 ```
 
 What happens, in order:
 
 1. **Classification.** `compose_squad_workflow` looks at your prompt + changed files and prints something like `work_type: Feature, risk: Low, agents: [senior-developer, senior-qa]`.
-2. **Plan.** The skill drafts an implementation plan and sends it to `tech-lead-planner` for review. You see the plan in chat.
-3. **Gate 1.** The skill **stops** and asks you to approve. Reply `approved`, `go`, or equivalent to proceed; anything else cancels.
-4. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
-5. **Consolidation.** `tech-lead-consolidator` produces a verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus a scorecard like:
+2. **Depth resolution.** It also picks an execution depth — `quick`, `normal`, or `deep` — and surfaces it as `mode` + `mode_source` on the output. Auto-detect rules: `deep` on `risk == High` / Security work / auth-money-migration signals; `quick` on Low-risk diffs with ≤5 files and no high-risk signals; `normal` otherwise. Pass `--quick` / `--normal` / `--deep` to override. If you force `--quick` on a high-risk diff, `senior-dev-security` is force-included and a structured `mode_warning` is set so the host can surface it.
+3. **Plan.** The skill drafts an implementation plan and sends it to `tech-lead-planner` for review (skipped in `quick`). You see the plan in chat.
+4. **Gate 1.** The skill **stops** and asks you to approve. Reply `approved`, `go`, or equivalent to proceed; anything else cancels.
+5. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection; capped at 2 for `quick`, expanded with architect+security for `deep`) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
+6. **Consolidation.** `tech-lead-consolidator` produces a verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus a scorecard like:
    ```
    SQUAD RUBRIC — weighted 82 / 100 (threshold 75)
    Application Code     ████████████████░░░░   82  ×18%  senior-developer
    Testing & QA         ███████████████░░░░░   78  ×14%  senior-qa
    ```
-6. **Implementation.** If approved, the skill writes code. **Never** commits or pushes — that's your call.
+   The `tech-lead-consolidator` persona is skipped in `quick` mode; `apply_consolidation_rules` still runs to produce the verdict.
+7. **Implementation.** If approved, the skill writes code. **Never** commits or pushes — that's your call.
 
-Other commands to try once `/squad` works:
+Other commands to try once `/squad:implement` works:
 
-- `/squad-review` — same agents, but on an existing diff or PR (no implementation).
-- `/squad-tasks docs/prd.md` — decompose a PRD into atomic tasks with confirmation before they land in `.squad/tasks.json`.
-- `/squad-next` — pick the next ready task; `/squad-task 3` — work on a specific one.
+- `/squad:review` — same agents, but on an existing diff or PR (no implementation).
+- `/squad:question <question>` — fast read-only code Q&A. Spawns the `code-explorer` subagent to grep + excerpt the relevant lines and answers with `file:line` citations. Use it for "where is X defined?", "what calls Y?", "how does the auth flow work?". No plan, no gates, no implementation.
+- `/squad:tasks docs/prd.md` — decompose a PRD into atomic tasks with confirmation before they land in `.squad/tasks.json`.
+- `/squad:next` — pick the next ready task; `/squad:task 3` — work on a specific one.
 - `/brainstorm <topic>` — exploratory Q&A, no code.
 - `/commit-suggest` — generate a Conventional Commits message for staged changes.
 
@@ -149,28 +152,29 @@ Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed
 
 The plugin auto-registers these skills via `skills/`:
 
-| Skill             | Trigger                     | Purpose                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/squad`          | implementation workflow     | Single skill, two modes. `/squad <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad-review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion. |
-| `/brainstorm`     | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad` implements, `/squad-review` reviews.                                                                                                                            |
-| `/commit-suggest` | commit message generator    | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                              |
+| Skill              | Trigger                     | Purpose                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/squad:implement` | implementation workflow     | Single skill, two modes. `/squad:implement <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad:review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion. |
+| `/squad:question`  | read-only code Q&A          | Spawns the `code-explorer` subagent (Haiku-class, read-only) to grep, glob, and excerpt the codebase, then synthesizes a `file:line`-cited answer. No plan, no gates, no implementation. Designed to be fast — single dispatch on the default `medium` budget, sub-second on `--quick`.                                                                                |
+| `/brainstorm`      | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad:implement` implements, `/squad:review` reviews.                                                                                                                            |
+| `/commit-suggest`  | commit message generator    | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                                        |
 
 ### Bundled subagents
 
-The plugin's `agents/` directory registers nine native Claude Code subagents you can also dispatch directly via `Task(subagent_type=…)`:
+The plugin's `agents/` directory registers ten native Claude Code subagents you can also dispatch directly via `Task(subagent_type=…)`:
 
-`product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`.
+`product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`, plus the utility `code-explorer` (fast read-only code search; Haiku-class; not an advisor — does not score the rubric, never auto-selected by the matrix; designed to be dispatched by the planner for context gathering or by `/squad:question` for direct Q&A).
 
-The `/squad` skill orchestrates them. For non-Claude-Code MCP clients (Cursor, Claude Desktop, Warp), the same role markdowns are accessible through the MCP `agent://…` resources and `get_agent_definition` tool.
+The `/squad:implement` skill orchestrates them. For non-Claude-Code MCP clients (Cursor, Claude Desktop, Warp), the same role markdowns are accessible through the MCP `agent://…` resources and `get_agent_definition` tool.
 
 Workflow positioning:
 
 ```
 /brainstorm   ->  decide what to build
      v
-/squad        ->  implement what was decided
+/squad:implement        ->  implement what was decided
      v
-/squad-review ->  review what was implemented
+/squad:review ->  review what was implemented
      v
 /commit-suggest -> craft the commit message
 ```
@@ -232,7 +236,7 @@ The file lives in git. Decisions are auditable in PR diffs.
 
 ### Recording decisions
 
-Inside Claude Code, after `/squad-review` produces the verdict, tell the skill to record:
+Inside Claude Code, after `/squad:review` produces the verdict, tell the skill to record:
 
 ```
 record reject senior-dev-security "missing CSRF on POST /api/refund"
@@ -315,7 +319,7 @@ The biggest source of token bloat in a long-running squad session is the squad r
 Inside Claude Code:
 
 ```
-/squad-tasks docs/prd-payments-refactor.md
+/squad:tasks docs/prd-payments-refactor.md
 ```
 
 The skill (Phase 0.5):
@@ -330,8 +334,8 @@ The parse is **pure-MCP**: the squad-mcp server never makes LLM calls. The host 
 ### Working tasks
 
 ```
-/squad-next                # picks the highest-priority ready task
-/squad-task 5              # explicit pick by id
+/squad:next                # picks the highest-priority ready task
+/squad:task 5              # explicit pick by id
 ```
 
 For each task:
@@ -373,7 +377,7 @@ The CLIs share `tools/_tasks-io.mjs` for read/write and require only node 18+. S
 
 ## Posting reviews to GitHub PRs
 
-Once the squad runs, you can post the verdict + scorecard as a `gh pr review` directly. The skill `/squad-review #42` runs the advisory and offers to post the result; default behaviour is **dry-run + confirmation** — Claude shows the exact `gh` command and the markdown body, then waits for your "go" before posting.
+Once the squad runs, you can post the verdict + scorecard as a `gh pr review` directly. The skill `/squad:review #42` runs the advisory and offers to post the result; default behaviour is **dry-run + confirmation** — Claude shows the exact `gh` command and the markdown body, then waits for your "go" before posting.
 
 ```bash
 # manual usage (outside the skill)
@@ -440,7 +444,7 @@ squad-mcp/
 ├── .github/workflows/          # CI + release workflows
 ├── agents/                     # Native subagents (one .md per subagent, kebab-case + frontmatter)
 ├── shared/                     # Severity matrix + skill specs (resources, not subagents — kept outside agents/ for the plugin manifest validator)
-├── commands/                   # Slash commands (/squad, /squad-review, /brainstorm, /commit-suggest)
+├── commands/                   # Slash commands (/squad:implement, /squad:review, /brainstorm, /commit-suggest)
 ├── skills/                     # Bundled skills
 │   ├── squad/                  # single skill, two modes (implement | review)
 │   ├── brainstorm/

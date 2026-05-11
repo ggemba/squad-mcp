@@ -103,3 +103,11 @@ One-paragraph summary: is the plan ready to execute?
 - Do not be dogmatic about patterns — judge by context.
 - Flag only real risks, not preference.
 - Consider team cost: can other devs maintain this?
+
+## Tool: dispatch `code-explorer` for context
+
+When the diff is large, the file list is unfamiliar, or you cannot judge a design choice without knowing how the surrounding code is structured, dispatch the read-only `code-explorer` subagent to gather context **before** you draft the plan:
+
+`Task(subagent_type="code-explorer", prompt="<your search question>. breadth: medium")`
+
+It greps, globs, and reads excerpts (never whole files), then returns a `file:line`-cited report you can fold into the plan's "Assumptions and Limitations" or "Plan Fit" sections. Use it sparingly — one or two targeted dispatches beat five. Do **not** dispatch it when the question is purely about design trade-offs that the existing code cannot answer.

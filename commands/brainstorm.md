@@ -1,6 +1,6 @@
 ---
-description: Collaborative brainstorm + deep web research. Takes a problem or decision; spawns specialist agents in parallel with targeted web queries; synthesizes findings into an options matrix with cited sources and a recommendation. Exploratory only — produces no code or file changes. Use BEFORE /squad to decide what to build.
-argument-hint: "[--depth quick|medium|deep] [--no-web] [--focus <domain>] [--sources <N>] <topic>"
+description: Collaborative brainstorm + deep web research. Takes a problem or decision; spawns specialist agents in parallel with targeted web queries; synthesizes findings into an options matrix with cited sources and a recommendation. Exploratory only — produces no code or file changes. Use BEFORE /squad:implement to decide what to build.
+argument-hint: "[--quick | --normal | --deep] [--no-web] [--focus <domain>] [--sources <N>] <topic>"
 ---
 
 You are running the `brainstorm` skill for the user.
@@ -8,6 +8,16 @@ You are running the `brainstorm` skill for the user.
 $ARGUMENTS
 
 Execute the skill exactly as specified at `skills/brainstorm/SKILL.md`. The full contract — Inviolable Rules, agent selection, web research budget, output template, and edge cases — lives there. This file is a thin trigger; the skill file is the source of truth.
+
+## Depth (`--quick` / `--normal` / `--deep`)
+
+Same vocabulary as `/squad:implement` and `/squad:review`. Pick a budget for the research, not just the squad size:
+
+- `--quick` → 1–2 specialists, ≤2 web queries, tight options matrix (2 options, terse pros/cons). Aim: sub-2-minute take on a low-stakes choice. Example: `/brainstorm --quick pick a date-fns alternative`.
+- `--normal` (the implicit default) → 3–4 specialists, full research budget per skill spec, ≥2 options with explicit pros/cons. Use when the decision is real but not strategic.
+- `--deep` → expand to 5+ specialists, raise the web-query ceiling, include long-tail/contrarian sources, and end with explicit `Open questions` and `Reversibility` lines. Use for architectural or roadmap-shaping decisions. Example: `/brainstorm --deep should we replace our queue layer`.
+
+If the user passes none, default to `--normal`. The flag is advisory — the skill body still owns the actual research budget and template.
 
 Critical reminders before you start:
 

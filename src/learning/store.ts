@@ -23,7 +23,7 @@ const MAX_ENTRY_BYTES = 4_000;
 const learningEntrySchema = z.object({
   /** ISO 8601 timestamp. Required for ordering. */
   ts: z.string().min(1).max(40),
-  /** PR number when recorded from `/squad-review #N`; optional otherwise. */
+  /** PR number when recorded from `/squad:review #N`; optional otherwise. */
   pr: z.number().int().positive().optional(),
   /** Branch name when recorded from a local review (no PR ref). */
   branch: z.string().min(1).max(255).optional(),

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { ToolDef } from "./registry.js";
-import { composeSquadWorkflow, type ComposeWorkflowOutput } from "./compose-squad-workflow.js";
+import {
+  composeSquadWorkflow,
+  EXEC_MODES,
+  type ComposeWorkflowOutput,
+} from "./compose-squad-workflow.js";
 import { sliceFilesForAgent, type SliceOutput } from "./slice-files.js";
 import { validatePlanText, type ValidatePlanOutput } from "./validate-plan-text.js";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
@@ -13,6 +17,12 @@ const schema = z.object({
   base_ref: safeString(200).optional(),
   staged_only: z.boolean().optional().default(false),
   read_content: z.boolean().optional().default(true),
+  /**
+   * Execution depth. Omit to let `selectMode` auto-detect from
+   * classify+risk signals. Pass explicitly to override the auto-detect.
+   * See compose-squad-workflow.ts for the resolution rules.
+   */
+  mode: z.enum(EXEC_MODES).optional(),
   force_work_type: z
     .enum(["Feature", "Bug Fix", "Refactor", "Performance", "Security", "Business Rule"])
     .optional(),
@@ -47,6 +57,7 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
   if (input.base_ref !== undefined) workflowInput.base_ref = input.base_ref;
   if (input.force_work_type !== undefined) workflowInput.force_work_type = input.force_work_type;
   if (input.risk_signals !== undefined) workflowInput.risk_signals = input.risk_signals;
+  if (input.mode !== undefined) workflowInput.mode = input.mode;
 
   const workflow = await composeSquadWorkflow(workflowInput);
 

@@ -145,9 +145,15 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
     }
   }
 
-  const sortedAgents = Array.from(selected).sort();
+  // Preserve insertion order: core agents from the matrix come first, then
+  // content/path signals, then user force_agents last. This is the "ranked"
+  // order downstream consumers (notably `shapeSquadForMode` in
+  // compose-squad-workflow.ts when mode === "quick") rely on. Prior versions
+  // sorted alphabetically and silently shipped a top-2 that didn't match
+  // the docstring contract.
+  const rankedAgents = Array.from(selected);
   return {
-    agents: sortedAgents,
+    agents: rankedAgents,
     rationale,
     evidence,
     low_confidence_files: lowConfidence,

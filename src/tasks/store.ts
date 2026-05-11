@@ -60,7 +60,7 @@ const taskSchema = z.object({
    */
   scope: z.string().min(1).max(512).optional(),
   /**
-   * Subset of squad agents most relevant for this task. Used by /squad-task
+   * Subset of squad agents most relevant for this task. Used by /squad:task
    * to narrow the advisory squad. Optional — without hints, the task uses
    * the standard select_squad heuristic.
    */

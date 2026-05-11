@@ -7,6 +7,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-10
+
+Three themes: **execution depth** (the user can size each run), **command surface cleanup** (no more stuttering `/squad:squad`), and **fast code Q&A** (new `code-explorer` subagent + `/squad:question` skill).
+
+### Added
+
+- **Execution depth `--quick` / `--normal` / `--deep`.** New `mode` field on `compose_squad_workflow` (optional, stable contract). Either the caller passes it explicitly or `selectMode` auto-detects from classify + risk signals: `deep` on High risk / Security work / auth-money-migration; `quick` on Low risk + ≤5 files + no high-risk signals; `normal` otherwise. Output carries `mode`, `mode_source` (`"user"` / `"auto"`), and a structured `mode_warning` (`{ code, message }`) when forced flags clash with risk shape or when `quick`'s 2-agent cap drops user `force_agents`. Same vocabulary on `/squad:implement`, `/squad:review`, and `/brainstorm`.
+- **Squad shaping per mode.** `quick` caps the advisory squad to 2 (force-includes `senior-developer` for code-touching work types, `senior-dev-security` as a safety override when forced over a high-risk diff); `deep` force-includes `senior-architect` + `senior-dev-security`; `normal` is unchanged. Reject-loop ceiling rises from 2 to 3 in `deep`, drops to 1 in `quick`. `tech-lead-planner` and the `tech-lead-consolidator` persona are skipped in `quick` (the `apply_consolidation_rules` MCP tool still runs).
+- **`src/tools/mode/exec-mode.ts`** module. Mode resolution and squad shaping live in their own bounded-context module with named constants (`QUICK_AUTO_MAX_FILES`, `TIEBREAKER_AGENT`, `FALLBACK_SECONDARY`, `DEEP_REQUIRED`), a structured `ModeWarning` type, and a `ModeWarningCode` enum. `compose-squad-workflow.ts` re-exports for backward-compat.
+- **`code-explorer` subagent** (`agents/code-explorer.md`). Fast read-only code search specialist pinned to `model: haiku`. Tools restricted to `Read` / `Glob` / `Grep` + a read-only `Bash` allowlist (`git log` / `show` / `blame` / `grep` / `ls-files`); no `Edit` / `Write` / `NotebookEdit`. Accepts a `breadth` flag (`quick` / `medium` / `thorough`) that caps the search budget (≤5 / ≤12 / ≤25 tool calls). Returns `file:line` citations with 3–10 line excerpts — never full-file dumps. **Not an advisor** — has weight 0 in the rubric and is never auto-selected by `SQUAD_BY_TYPE` / `PATH_HINTS` / `CONTENT_SIGNALS`. Dispatched explicitly via `Task(subagent_type="code-explorer", …)` by the `/squad:question` skill or by `tech-lead-planner` for upfront context gathering.
+- **Model strategy by mode.** Each agent declares its preferred model in its own frontmatter. `quick` and `normal` modes respect the frontmatter pin; `deep` mode **overrides every dispatch** with `model: "opus"` (planner, advisory, consolidator, and any code-explorer sub-dispatch). The `--deep` flag is the explicit user signal that depth matters more than cost or latency — there are no per-agent exceptions in `deep`.
+- **Pinned models on three Sonnet-friendly advisors**: `product-owner`, `senior-dev-reviewer`, and `senior-qa` switched from `model: inherit` to `model: sonnet`. Their work is rubric-guided pattern recognition rather than open-ended reasoning, so Sonnet entrains 95% of the output quality at roughly half the per-call cost on `quick` / `normal` runs. `--deep` upgrades them back to opus per the global override. The other advisors (`senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-security`) keep `model: inherit` — their reasoning is high-stakes enough that downgrading by default risks the squad's verdict quality.
+- **`/squad:question` skill** (`skills/question/SKILL.md` + `commands/question.md`). Read-only code Q&A entry point. Takes a free-form question (`/squad:question [--quick|--thorough] <question>`), dispatches `code-explorer` with the resolved breadth, surfaces the cited report. No plan, no gates, no implementation. Built to be the fast path for "where is X defined?", "what calls Y?", "how does the auth flow work?" — questions where invoking the full `/squad:implement` ceremony was overkill.
+- **`tech-lead-planner` may dispatch `code-explorer`.** New "Tool: dispatch `code-explorer` for context" section in `agents/tech-lead-planner.md` and a Phase 2 note in `skills/squad/SKILL.md` orient the planner persona on when to use it: large diff / unfamiliar file list / can't judge a design choice without grounded context. Use sparingly — one or two targeted dispatches beat five.
+
+### Changed
+
+- **BREAKING — slash commands renamed.** The whole `/squad:*` family now uses verbs instead of the stuttering `squad-*` prefix:
+  - `/squad:squad` → `/squad:implement`
+  - `/squad:squad-review` → `/squad:review`
+  - `/squad:squad-tasks` → `/squad:tasks`
+  - `/squad:squad-next` → `/squad:next`
+  - `/squad:squad-task` → `/squad:task`
+
+  `/squad:brainstorm` and `/squad:commit-suggest` are unchanged. No backward-compatible aliases — old invocations will return `command not found`. Migration is one-shot: update muscle memory, scripts, and CI snippets. Skill names and MCP tool names are unchanged.
+
+- **`selectSquad` agent list is now insertion-ordered, not alphabetical.** Pre-v0.8.0 the output was sorted, contradicting the "ranked" contract in the docstring and silently shipping a `quick`-mode top-2 that did not match the matrix order (`core agents → signals → user force_agents`). Downstream consumers that key off ordering (notably `shapeSquadForMode` in `quick` mode) now get the order the docstring promises.
+
+### Removed
+
+- **`loc_changed` risk-signal heuristic.** Was a tautological `files_count × 30` constant that added no information past the `files_count` cap and could be foot-gunned by single-file giant rewrites. The auto-detect threshold for `quick` is now purely `files_count <= QUICK_AUTO_MAX_FILES` plus the no-high-risk gate.
+
 ## [0.7.0] - 2026-05-10
 
 Six-phase response to the full-repo `/squad-review`. Verdict was REJECTED with 3 blockers + 20 majors; this release lands all of them.

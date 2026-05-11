@@ -8,5 +8,12 @@ coverage/
 .vscode/
 .idea/
 
+# squad-mcp internal snapshot backups — regenerated on every write by the
+# file-lock safety path. Tracking them just spams the diff.
+.squad/*.prev
+
+# JSONL quarantine files from the learning store (corrupted-line side files)
+.squad/*.corrupt-*.jsonl
+
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs

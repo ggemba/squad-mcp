@@ -7,7 +7,8 @@ export type AgentName =
   | "senior-developer"
   | "senior-dev-reviewer"
   | "senior-dev-security"
-  | "senior-qa";
+  | "senior-qa"
+  | "code-explorer";
 
 export const AGENT_NAMES: AgentName[] = [
   "product-owner",
@@ -19,6 +20,7 @@ export const AGENT_NAMES: AgentName[] = [
   "senior-dev-reviewer",
   "senior-dev-security",
   "senior-qa",
+  "code-explorer",
 ];
 
 export const AGENT_NAMES_TUPLE = AGENT_NAMES as [AgentName, ...AgentName[]];
@@ -154,6 +156,22 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     conventions: ["*Tests.cs", "*Test.cs", "*/Tests/*"],
     weight: 14,
     dimension: "Testing & QA",
+  },
+  "code-explorer": {
+    name: "code-explorer",
+    role: "Fast read-only code search and exploration",
+    owns: [
+      "Locating files by name, path, or pattern",
+      "Greping for symbols, keywords, and references",
+      "Producing file:line citations and short excerpts",
+    ],
+    conventions: [],
+    // Weight 0 — utility role like tech-lead-*. The code-explorer never scores
+    // a rubric dimension; it just hands context to other agents (or to the
+    // /squad:question skill). Keeping it out of the rubric prevents it from
+    // diluting the advisory dimensions on every run.
+    weight: 0,
+    dimension: "",
   },
 };
 

@@ -1,7 +1,7 @@
 ---
 name: senior-dev-reviewer
 description: Senior code reviewer. Focuses on readability, code smells, naming, idioms, async/await correctness, and error handling.
-model: inherit
+model: sonnet
 ---
 
 # Senior-Dev-Reviewer

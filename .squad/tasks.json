@@ -120,6 +120,48 @@
       "subtasks": [],
       "created_at": "2026-05-10T15:58:38.251Z",
       "updated_at": "2026-05-10T22:12:18.746Z"
+    },
+    {
+      "id": 7,
+      "title": "Fase 7 — quick/deep modes + auto-detect",
+      "description": "Add --quick (cap-2 agents, skip planner+consolidator persona) and --deep (force-include architect+security, raise reject-loop) modes to /squad and /squad-review, with auto-detection from classify+risk signals when no flag is passed.",
+      "status": "done",
+      "dependencies": [
+        6
+      ],
+      "priority": "high",
+      "details": "Plan approved at Gate 1 by user after tech-lead-planner review. Apply 5 planner revisions: (1) constants QUICK_AUTO_MAX_FILES=5, QUICK_AUTO_MAX_LOC=150 with companion loc clause; (2) drop hardcoded priority, use select_squad top-2 with senior-developer tiebreaker; (3) force-include senior-dev-security in quick when high-risk override; (4) document `mode` as stable public contract from 0.8.0; (5) rollback test (mode absent == v0.7.0 output). Schema additive, no migration, version bump 0.8.0.",
+      "test_strategy": "9 new tests: low-risk Feature 1-file -> quick (2 agents); high-risk + auth -> deep (architect+security); user forces deep on low-risk -> mode=deep; user forces quick on high-risk -> mode=quick + mode_warning + security force-included; rollback test mode-absent input produces v0.7.0-identical output; dispatchTool roundtrip with mode field. Plus smoke run validates new flags surface in tools/list schema.",
+      "scope": "src/tools/compose-squad-workflow.ts src/tools/compose-advisory-bundle.ts src/tools/select-squad.ts src/tools/consolidate.ts skills/squad/SKILL.md commands/squad.md commands/squad-review.md tests/compose-squad-workflow.test.ts tests/dispatch-tool.test.ts",
+      "agent_hints": [
+        "senior-developer",
+        "senior-architect",
+        "senior-qa"
+      ],
+      "subtasks": [],
+      "created_at": "2026-05-11T00:21:14.169Z",
+      "updated_at": "2026-05-11T00:26:51.025Z"
+    },
+    {
+      "id": 8,
+      "title": "Fase 7.1 — arrumar tudo do squad-review (10 Majors)",
+      "description": "Address all 10 Majors from /squad-review --normal verdict CHANGES_REQUIRED (score 74.7). MUST-FIX (Tema A+C+D.3) + SHOULD-FIX (A.3, D.1, D.2, E.1) + NICE-TO-FIX (Tema B refactor src/tools/mode, E.2 README).",
+      "status": "in-progress",
+      "dependencies": [
+        7
+      ],
+      "priority": "high",
+      "details": "Tema A.1 select-squad.ts preserve rank. Tema A.2 senior-developer tiebreaker garantido. Tema A.3 remover duplicação. Tema B extrair src/tools/mode/. Tema C dropar loc_changed (tautológico). Tema D.1 snapshot mode_warning. Tema D.2 teste force_agents>2. Tema D.3 dispatchTool roundtrip. Tema E.1 commands/brainstorm.md body. Tema E.2 README walkthrough.",
+      "test_strategy": "Re-run /squad-review --normal at the end; score deve subir acima de 75. Test suite 320+ passa. Smoke OK.",
+      "scope": "src/tools/mode/ src/tools/select-squad.ts src/tools/compose-squad-workflow.ts tests/compose-squad-workflow.test.ts tests/dispatch-tool.test.ts commands/brainstorm.md README.md",
+      "agent_hints": [
+        "senior-architect",
+        "senior-developer",
+        "senior-qa"
+      ],
+      "subtasks": [],
+      "created_at": "2026-05-11T00:46:27.345Z",
+      "updated_at": "2026-05-11T00:46:32.325Z"
     }
   ]
 }

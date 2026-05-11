@@ -1,6 +1,6 @@
 {
   "name": "@gempack/squad-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "license": "Apache-2.0",

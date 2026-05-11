@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Collaborative brainstorm and research skill. Takes a problem, decision, or implementation topic; runs deep web research in parallel; spawns specialist agents for multi-domain perspectives; synthesizes findings into an options matrix with pros/cons/risks/sources and a recommendation. Output is a decision aid, NOT code. Use this BEFORE /squad to decide what to build; use /squad after to implement. Trigger when the user types /brainstorm or asks to "brainstorm", "research approaches", "explore options", "help me think through", "what does the industry use", or "best practices for".
+description: Collaborative brainstorm and research skill. Takes a problem, decision, or implementation topic; runs deep web research in parallel; spawns specialist agents for multi-domain perspectives; synthesizes findings into an options matrix with pros/cons/risks/sources and a recommendation. Output is a decision aid, NOT code. Use this BEFORE /squad:implement to decide what to build; use /squad:implement after to implement. Trigger when the user types /brainstorm or asks to "brainstorm", "research approaches", "explore options", "help me think through", "what does the industry use", or "best practices for".
 ---
 
 # Skill: Brainstorm
@@ -12,8 +12,8 @@ Help the user think through a problem, decision, or implementation idea by runni
 Position in the workflow:
 
 - **`/brainstorm`** → decide what to build (this skill)
-- **`/squad`** → implement what was decided
-- **`/squad-review`** → review what was implemented
+- **`/squad:implement`** → implement what was decided
+- **`/squad:review`** → review what was implemented
 
 ## Skill Name
 
@@ -32,13 +32,13 @@ Position in the workflow:
 
 The skill takes one required argument (the topic) and optional flags:
 
-| Param              | Default  | Description                                                                                                                                      |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `<topic>`          | required | Free-form text describing the problem, decision, or idea to brainstorm                                                                           |
-| `--depth <level>`  | `medium` | `quick` (3 web queries, 1 agent), `medium` (6 queries, 2-3 agents), `deep` (10+ queries, 4 agents + tech-lead)                                   |
-| `--no-web`         | off      | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase.                                    |
-| `--focus <domain>` | auto     | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords. |
-| `--sources <N>`    | 5        | Cap on web sources cited per section. Avoids dump of every result.                                                                               |
+| Param                             | Default    | Description                                                                                                                                                            |
+| --------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<topic>`                         | required   | Free-form text describing the problem, decision, or idea to brainstorm                                                                                                 |
+| `--quick` / `--normal` / `--deep` | `--normal` | `--quick` (3 web queries, 1 agent), `--normal` (6 queries, 2-3 agents), `--deep` (10+ queries, 4 agents + tech-lead). Same vocabulary as `/squad:implement` and `/squad:review`. |
+| `--no-web`                        | off        | Skip web research entirely. Agents-only mode. Use when offline or when the topic is purely internal-codebase.                                                          |
+| `--focus <domain>`                | auto       | Force a domain bias: `frontend`, `backend`, `infra`, `data`, `security`, `business`, `mobile`. Auto-detection scans the topic text for keywords.                       |
+| `--sources <N>`                   | 5          | Cap on web sources cited per section. Avoids dump of every result.                                                                                                     |
 
 ## Step 1: Topic Understanding
 
@@ -58,7 +58,7 @@ Build a research plan with:
 
 ### Web queries (skip if `--no-web`)
 
-Construct 3-10 targeted queries (count from `--depth`). Use the **current year** in queries that benefit from recency:
+Construct 3-10 targeted queries (count from the depth flag: 3 for `--quick`, 6 for `--normal`, 10+ for `--deep`). Use the **current year** in queries that benefit from recency:
 
 - `{topic} best practices {year}`
 - `{topic} {dominant_stack} examples`
@@ -76,7 +76,7 @@ Avoid:
 
 ### Agents
 
-Pick agents based on detected domains. For `--depth quick`: pick the single most relevant. For `medium`: 2-3. For `deep`: 4 + tech-lead. Mapping:
+Pick agents based on detected domains. For `--quick`: pick the single most relevant. For `--normal`: 2-3. For `--deep`: 4 + tech-lead. Mapping:
 
 | Domain       | Primary agent                          |
 | ------------ | -------------------------------------- |
@@ -89,7 +89,7 @@ Pick agents based on detected domains. For `--depth quick`: pick the single most
 | testing      | senior-qa                              |
 | code quality | senior-dev-reviewer                    |
 
-`tech-lead` is included only at `--depth deep` (or whenever 3+ agents participate, to consolidate).
+`tech-lead` is included only at `--deep` (or whenever 3+ agents participate, to consolidate).
 
 ## Step 3: Parallel Research and Agent Spawn
 
@@ -163,7 +163,7 @@ One collapsible section per agent that participated:
 
 ## Step 5: Tech-Lead Recommendation
 
-If `--depth deep` (or 3+ agents participated), spawn the `tech-lead` agent with:
+If `--deep` (or 3+ agents participated), spawn the `tech-lead` agent with:
 
 ```
 You are consolidating a brainstorm. Pick one option and justify.
@@ -184,12 +184,12 @@ You are consolidating a brainstorm. Pick one option and justify.
 1. Pick ONE option from the matrix as the recommendation.
 2. Explain in 3-5 sentences why this option, with the trade-offs you accepted.
 3. List the top 2-3 open questions that must be answered before implementation begins.
-4. Suggest the immediate next step (e.g., spike, prototype, more research, /squad implement).
+4. Suggest the immediate next step (e.g., spike, prototype, more research, /squad:implement implement).
 
 Format: at most 400 words. No long template. No scorecard.
 ```
 
-For `quick` and `medium` depth, the synthesizing skill itself produces the recommendation directly (no separate tech-lead spawn).
+For `--quick` and `--normal`, the synthesizing skill itself produces the recommendation directly (no separate tech-lead spawn).
 
 ## Step 6: Delivery
 
@@ -239,7 +239,7 @@ Output in this format:
 - {gap 3}
 
 ## Next steps
-- `/squad implement {selected option}` to execute
+- `/squad:implement implement {selected option}` to execute
 - `/brainstorm --focus {domain} {sub-topic}` to deep-dive on a specific concern
 - Spike / prototype: {1-2 line description if appropriate}
 - Continue research on: {gap}
@@ -252,7 +252,7 @@ Sources used:
 
 If `--no-web` was passed, omit "Market research" section and replace with a one-line note: `Web research disabled — agents-only brainstorm.`
 
-If the user passed `--depth quick`, output is condensed: skip "Agent perspectives" details, drop the matrix to 2-3 options, and replace the recommendation paragraph with one sentence.
+If the user passed `--quick`, output is condensed: skip "Agent perspectives" details, drop the matrix to 2-3 options, and replace the recommendation paragraph with one sentence.
 
 ## Edge Cases
 
@@ -261,7 +261,7 @@ If the user passed `--depth quick`, output is condensed: skip "Agent perspective
 - **Topic touches a regulated domain** (PCI, HIPAA, GDPR, SOX) → flag the regulatory angle in the Open questions section even if the user did not mention it. Do not produce legal/compliance advice — point at the right specialists/docs.
 - **Web search returns thin results** → state honestly: "Web research surfaced limited material; the recommendation leans on agent perspectives and codebase context." Do not invent citations.
 - **Agent reports "not enough context"** → record it and proceed; do not retry with more context just to force an opinion.
-- **The user wants implementation, not brainstorm** → redirect: "This sounds like a `/squad` task. `/brainstorm` is for pre-implementation exploration."
+- **The user wants implementation, not brainstorm** → redirect: "This sounds like a `/squad:implement` task. `/brainstorm` is for pre-implementation exploration."
 
 ## Boundaries
 
@@ -275,15 +275,17 @@ If the user passed `--depth quick`, output is condensed: skip "Agent perspective
 
 ### Cost vs depth
 
-- `quick`: ~3 web queries + 1 agent. Roughly 5-10K tokens. Useful for quick reality-checks.
-- `medium` (default): ~6 queries + 2-3 agents. ~20-40K tokens. Useful for genuine option exploration.
-- `deep`: ~10+ queries + 4 agents + tech-lead. ~60-100K tokens. Useful for high-stakes decisions where multiple stakeholders need to align.
+Same vocabulary as `/squad:implement` and `/squad:review` (`--quick` / `--normal` / `--deep`) — three flags, three modes, no per-skill variants.
+
+- `--quick`: ~3 web queries + 1 agent. Roughly 5-10K tokens. Useful for quick reality-checks.
+- `--normal` (default): ~6 queries + 2-3 agents. ~20-40K tokens. Useful for genuine option exploration.
+- `--deep`: ~10+ queries + 4 agents + tech-lead. ~60-100K tokens. Useful for high-stakes decisions where multiple stakeholders need to align.
 
 ### When to use vs alternatives
 
 - Use `/brainstorm` when: deciding _what_ to build, comparing approaches, scanning industry, exploring a problem space.
-- Use `/squad` when: you've decided and want to implement.
-- Use `/squad-review` when: implementation is done and you want a multi-perspective review.
+- Use `/squad:implement` when: you've decided and want to implement.
+- Use `/squad:review` when: implementation is done and you want a multi-perspective review.
 - Use `WebSearch` directly when: you need one specific answer, not a brainstorm framing.
 
 ### Sources reliability

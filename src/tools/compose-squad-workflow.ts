@@ -16,6 +16,21 @@ import {
   type ResolvedSquadConfig,
 } from "../config/squad-yaml.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
+import { EXEC_MODES, selectMode, shapeSquadForMode, type ModeWarning } from "./mode/exec-mode.js";
+
+// Re-export the public mode contract from its dedicated module so downstream
+// callers (tests, CI integrations, .squad.yaml consumers) can keep importing
+// from compose-squad-workflow while the implementation lives in src/tools/mode/.
+export {
+  EXEC_MODES,
+  QUICK_AUTO_MAX_FILES,
+  selectMode,
+  shapeSquadForMode,
+  TIEBREAKER_AGENT,
+  FALLBACK_SECONDARY,
+  DEEP_REQUIRED,
+} from "./mode/exec-mode.js";
+export type { ExecMode, ModeWarning, ModeWarningCode } from "./mode/exec-mode.js";
 
 const schema = z.object({
   workspace_root: safeString(4096),
@@ -23,6 +38,11 @@ const schema = z.object({
   base_ref: safeString(200).optional(),
   staged_only: z.boolean().optional().default(false),
   read_content: z.boolean().optional().default(true),
+  /**
+   * Execution depth. Omit to let `selectMode` auto-detect from
+   * classify+risk signals. Pass explicitly to override the auto-detect.
+   */
+  mode: z.enum(EXEC_MODES).optional(),
   force_work_type: z
     .enum(["Feature", "Bug Fix", "Refactor", "Performance", "Security", "Business Rule"])
     .optional(),
@@ -46,6 +66,26 @@ export interface ComposeWorkflowOutput {
   risk: RiskOutput;
   squad: SelectSquadOutput;
   work_type: WorkType;
+  /**
+   * Resolved execution depth. Either the user's `mode` input or the value
+   * `selectMode` chose. Stable contract from v0.8.0.
+   */
+  mode: import("./mode/exec-mode.js").ExecMode;
+  /**
+   * "user" when caller passed `mode` explicitly, "auto" when `selectMode`
+   * derived it from risk+files_count signals. Useful for surfacing to the
+   * user why the run was sized the way it was.
+   */
+  mode_source: "user" | "auto";
+  /**
+   * Structured warning produced by mode resolution or squad shaping. Stable
+   * contract from v0.8.0 — consumers can switch on `code` rather than
+   * regex-parsing `message`. Absent on the common path.
+   *
+   *   forced_quick_on_high_risk — user passed --quick on auth/money/migration
+   *   force_agents_truncated    — quick-mode cap dropped some force_agents
+   */
+  mode_warning?: ModeWarning;
   inferred_risk_signals: {
     touches_auth: boolean;
     touches_money: boolean;
@@ -149,22 +189,52 @@ export async function composeSquadWorkflow(input: Input): Promise<ComposeWorkflo
   // caller intent. Same precedence as scoring weights.
   const filteredAgents = applyDisableAgents(squad.agents, config.disable_agents);
   const disabledAgents = squad.agents.filter((a) => !filteredAgents.includes(a));
-  const filteredSquad: SelectSquadOutput = {
+
+  // Resolve execution depth (quick / normal / deep). Either honours the
+  // user's flag or auto-detects from classify+risk.
+  const modeResolution = selectMode({
+    userMode: input.mode,
+    riskLevel: risk.level,
+    workType,
+    signals: riskSignals,
+  });
+
+  // Reshape the squad per resolved mode. Cap-to-2 for quick, force-include
+  // architect+security for deep. `force_agents` from the caller still wins
+  // because shapeSquadForMode treats `userForcedAgents` with precedence inside
+  // the cap and may emit `force_agents_truncated` when the cap dropped some.
+  const shaping = shapeSquadForMode(filteredAgents, modeResolution.mode, {
+    workType,
+    signals: riskSignals,
+    userForcedAgents: input.force_agents ?? [],
+  });
+  const shapedSquad: SelectSquadOutput = {
     ...squad,
-    agents: filteredAgents,
+    agents: shaping.agents,
   };
 
-  return {
+  // Precedence: mode-resolution warning wins (it explains a safety override
+  // the user actively forced); shaping warnings (truncation) only surface
+  // when there isn't already a louder reason to alert.
+  const warning: ModeWarning | undefined = modeResolution.warning ?? shaping.warning;
+
+  const output: ComposeWorkflowOutput = {
     changed_files: changed,
     classification,
     risk,
-    squad: filteredSquad,
+    squad: shapedSquad,
     work_type: workType,
+    mode: modeResolution.mode,
+    mode_source: modeResolution.source,
     inferred_risk_signals: riskSignals,
     config,
     skipped_paths: skippedPaths,
     disabled_agents: disabledAgents,
   };
+  if (warning !== undefined) {
+    output.mode_warning = warning;
+  }
+  return output;
 }
 
 export const composeSquadWorkflowTool: ToolDef<typeof schema> = {

@@ -8,8 +8,8 @@ After install you get:
 - 12 MCP resources (`agent://*`, `severity://*`)
 - 3 MCP prompts (`squad_orchestration`, `agent_advisory`, `consolidator`)
 - 4 slash commands — Claude Code only:
-  - `/squad <task>` — implementation workflow
-  - `/squad-review [target]` — advisory-only review of an existing diff/branch/PR
+  - `/squad:implement <task>` — implementation workflow
+  - `/squad:review [target]` — advisory-only review of an existing diff/branch/PR
   - `/brainstorm <topic>` — pre-implementation research
   - `/commit-suggest` — Conventional Commits message suggester (read-only)
 - Two on-disk stores under `.squad/` (versioned in git):
@@ -49,24 +49,24 @@ The plugin bundles the MCP server, the slash commands, and the agent definitions
 
    Wait for `plugin installed`.
 
-3. **Restart Claude Code** (close and reopen). The slash-command registry is populated at startup, so the new `/squad` and `/squad-review` commands and the `squad` MCP server only become available after a restart.
+3. **Restart Claude Code** (close and reopen). The slash-command registry is populated at startup, so the new `/squad:implement` and `/squad:review` commands and the `squad` MCP server only become available after a restart.
 
 4. **Verify the install.** In a fresh prompt:
-   - Type `/squad ` (with the trailing space) — the autocomplete should suggest `/squad <task description>`.
-   - Type `/squad-review` — same check.
+   - Type `/squad:implement ` (with the trailing space) — the autocomplete should suggest `/squad:implement <task description>`.
+   - Type `/squad:review` — same check.
    - Open Settings → MCP. You should see `squad` listed and connected.
    - Ask Claude to call the `list_agents` tool from the `squad` MCP server. It should return 9 agents (`product-owner`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
 
 5. **Use it.**
 
    ```text
-   /squad add a /health endpoint that returns build SHA and uptime
-   /squad-review
-   /squad-review 1234        # PR number
-   /squad-review feature/x   # branch
+   /squad:implement add a /health endpoint that returns build SHA and uptime
+   /squad:review
+   /squad:review 1234        # PR number
+   /squad:review feature/x   # branch
    ```
 
-   `/squad` runs the full Phase 0–12 orchestration (classify → score risk → pick agents → plan → Gate 1 → advisory squad → Gate 2 → implement → consolidate). `/squad-review` is review-only — it never implements, commits, or pushes.
+   `/squad:implement` runs the full Phase 0–12 orchestration (classify → score risk → pick agents → plan → Gate 1 → advisory squad → Gate 2 → implement → consolidate). `/squad:review` is review-only — it never implements, commits, or pushes.
 
 ### Updating the plugin
 
@@ -284,7 +284,7 @@ learnings:
   max_recent: 50
   enabled: true
 
-# PR posting (used by /squad-review with PR refs).
+# PR posting (used by /squad:review with PR refs).
 pr_posting:
   auto_post: false
   request_changes_below_score: 60
@@ -300,7 +300,7 @@ The squad's biggest source of token bloat is re-analysing the whole repo on ever
 **Decompose a PRD (Claude Code):**
 
 ```
-/squad-tasks docs/my-prd.md
+/squad:tasks docs/my-prd.md
 ```
 
 The skill:
@@ -313,8 +313,8 @@ The skill:
 **Work tasks:**
 
 ```
-/squad-next        # picks the highest-priority ready task
-/squad-task 5      # explicit pick by id
+/squad:next        # picks the highest-priority ready task
+/squad:task 5      # explicit pick by id
 ```
 
 For each task, `slice_files_for_task` narrows the changed-files list to the task's `scope` glob; `compose_squad_workflow` runs against that slice with `agent_hints` as `force_agents` so only the relevant specialists wake up. When done, the skill flips status via `update_task_status`.
@@ -332,7 +332,7 @@ The tasks file (`.squad/tasks.json` by default) is intended to live in git so th
 
 ## Path E — Using the learnings store
 
-Once `/squad-review` produces a verdict, you can record per-finding decisions (accept / reject + reason) into `.squad/learnings.jsonl`. Future advisory runs read the recent tail and inject it into agent + consolidator prompts so the squad stops re-raising findings the team has already considered.
+Once `/squad:review` produces a verdict, you can record per-finding decisions (accept / reject + reason) into `.squad/learnings.jsonl`. Future advisory runs read the recent tail and inject it into agent + consolidator prompts so the squad stops re-raising findings the team has already considered.
 
 **Record a decision (Claude Code):**
 
@@ -357,9 +357,9 @@ node tools/record-learning.mjs --reject \
 
 The journal is append-only by design — corrections are appended, never amended.
 
-## Path F — Posting `/squad-review` to GitHub PRs
+## Path F — Posting `/squad:review` to GitHub PRs
 
-When `/squad-review #42` runs, the verdict + scorecard can be posted to the PR via `gh pr review`. Default behaviour: dry-run + confirmation.
+When `/squad:review #42` runs, the verdict + scorecard can be posted to the PR via `gh pr review`. Default behaviour: dry-run + confirmation.
 
 ```bash
 echo '<consolidation JSON>' | node tools/post-review.mjs --pr 42 --dry-run
@@ -480,7 +480,7 @@ The plugin ships these skills under `skills/` (auto-registered when the plugin i
 
 | Skill            | Trigger                                                                                         | Purpose                                                                                                                                                                                                                           |
 | ---------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `squad`          | `/squad <task>`, `/squad-review [tgt]`, `/squad-tasks <prd>`, `/squad-next`, `/squad-task <id>` | Single skill, three modes. Implement runs the full orchestration. Review runs the advisory portion only on an existing diff/branch/PR. Tasks decomposes a PRD into atomic tasks and runs the squad on one task's scope at a time. |
+| `squad`          | `/squad:implement <task>`, `/squad:review [tgt]`, `/squad:tasks <prd>`, `/squad:next`, `/squad:task <id>` | Single skill, three modes. Implement runs the full orchestration. Review runs the advisory portion only on an existing diff/branch/PR. Tasks decomposes a PRD into atomic tasks and runs the squad on one task's scope at a time. |
 | `commit-suggest` | `/commit-suggest`                                                                               | Read-only Conventional Commits message suggester. No AI co-author trailers.                                                                                                                                                       |
 | `brainstorm`     | `/brainstorm <topic>`                                                                           | Pre-implementation exploration. Web research + multi-agent perspectives + options matrix with cited sources. Produces no code.                                                                                                    |
 
@@ -489,9 +489,9 @@ Workflow positioning:
 ```
 /brainstorm   ->  decide what to build (research + options)
      v
-/squad        ->  implement what was decided
+/squad:implement        ->  implement what was decided
      v
-/squad-review ->  review what was implemented
+/squad:review ->  review what was implemented
      v
 /commit-suggest -> craft the commit message
 ```
@@ -520,7 +520,7 @@ After install, regardless of host:
 - [ ] `list_agents` tool returns 9 agents (names: `product-owner`, `tech-lead-planner`, `tech-lead-consolidator`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`).
 - [ ] `compose_squad_workflow` with arguments `{"workspace_root": "<absolute path to a git repo>", "user_prompt": "smoke"}` returns `work_type`, `risk`, `squad.agents`. Requires a git repo with at least one prior commit (the tool defaults `base_ref` to `HEAD~1` internally). **`workspace_root` must be an absolute path** — relative paths are rejected with `PATH_INVALID`.
 - [ ] Resources `agent://senior-architect` and `severity://_severity-and-ownership` are readable.
-- [ ] (Claude Code only) `/squad`, `/squad-review`, `/brainstorm`, and `/commit-suggest` autocomplete.
+- [ ] (Claude Code only) `/squad:implement`, `/squad:review`, `/brainstorm`, and `/commit-suggest` autocomplete.
 
 ## Troubleshooting
 
@@ -560,7 +560,7 @@ Two layers of cache:
 **`/plugin install` fails with `Validation errors: agents: Invalid input`.**
 Plugin-author issue (will not affect users on a published release). The `agents` and `commands` fields in `.claude-plugin/plugin.json` must be **arrays of `.md` file paths**, not directory strings. Only `skills` accepts a directory. See [the plugin reference](https://code.claude.com/docs/en/plugins-reference.md). For `squad-mcp` itself this was fixed in v0.6.3.
 
-**Plugin installed but `/squad` does not appear.**
+**Plugin installed but `/squad:implement` does not appear.**
 Restart Claude Code. The slash command registry is populated at startup. If still missing, run `/plugin list` and confirm `squad@gempack` is listed and enabled.
 
 **`Failed to reconnect to plugin:squad:squad` after `/plugin install`.**

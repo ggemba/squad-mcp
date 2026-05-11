@@ -81,7 +81,7 @@ export const readLearningsToolDef: ToolDef<typeof schema> = {
     "Read recent team decisions from `.squad/learnings.jsonl` (path overridable via .squad.yaml.learnings.path). " +
     "Returns the filtered entries plus a pre-rendered markdown block ready to inject into agent / consolidator prompts. " +
     "Filters: agent, decision (accept|reject), changed_files (matches scoped entries against these paths). " +
-    "Used by the /squad-review skill in Phase 5 (advisory) and Phase 10 (consolidation) to make the squad less repetitive over time.",
+    "Used by the /squad:review skill in Phase 5 (advisory) and Phase 10 (consolidation) to make the squad less repetitive over time.",
   schema,
   handler: readLearningsTool,
 };

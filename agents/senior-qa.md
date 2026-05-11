@@ -1,7 +1,7 @@
 ---
 name: senior-qa
 description: Quality and testing specialist. Assesses coverage, test strategy, reliability, mocks, and missing scenarios.
-model: inherit
+model: sonnet
 ---
 
 # Senior-QA

@@ -47,7 +47,7 @@ const squadYamlSchema = z.object({
   disable_agents: z.array(z.enum(AGENT_NAMES_TUPLE)).max(20).optional(),
   /**
    * Optional GitHub PR posting policy used by `tools/post-review.mjs` and the
-   * `/squad-review` skill. Default behaviour without this section: dry-run.
+   * `/squad:review` skill. Default behaviour without this section: dry-run.
    * The skill prepares the post and shows the user — never posts unsolicited.
    *
    * - `auto_post`: when true, the skill posts without asking for confirmation

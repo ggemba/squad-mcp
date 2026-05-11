@@ -6,14 +6,14 @@ Skill that takes a user prompt, interprets intent, selects the relevant agents, 
 
 ## Skill Name
 
-`/squad-review`
+`/squad:review`
 
 ## How It Works
 
 ### General Flow
 
 ```
-User -> /squad-review {prompt}
+User -> /squad:review {prompt}
                 |
                 v
       [1. Prompt Analysis]
@@ -62,42 +62,42 @@ The user can request a generic review or target a focus area. The skill maps the
 All specialized agents + TechLead-Consolidator.
 
 - **When**: Complete PR review, branch ready to merge
-- **Triggers**: `/squad-review`, `/squad-review PR`, `/squad-review branch`
+- **Triggers**: `/squad:review`, `/squad:review PR`, `/squad:review branch`
 
 #### Code Squad
 
 `senior-dev-reviewer` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
 
 - **When**: Focused review on code quality and correctness
-- **Triggers**: `/squad-review code`
+- **Triggers**: `/squad:review code`
 
 #### Data Squad
 
 `senior-dba` + `senior-developer` + `tech-lead-consolidator`
 
 - **When**: Changes to queries, migrations, cache, EF
-- **Triggers**: `/squad-review data`
+- **Triggers**: `/squad:review data`
 
 #### Security Squad
 
 `senior-dev-security` + `senior-developer` + `senior-dev-reviewer` + `tech-lead-consolidator`
 
 - **When**: Focused security review
-- **Triggers**: `/squad-review security`
+- **Triggers**: `/squad:review security`
 
 #### Architecture Squad
 
 `senior-architect` + `senior-developer` + `senior-dba` + `tech-lead-consolidator`
 
 - **When**: Structural changes, new modules, large refactors
-- **Triggers**: `/squad-review arch`
+- **Triggers**: `/squad:review arch`
 
 #### Business Squad
 
 `po` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
 
 - **When**: New feature, business-rule change
-- **Triggers**: `/squad-review business`
+- **Triggers**: `/squad:review business`
 
 ### Automatic Squad Detection
 
@@ -317,25 +317,25 @@ Verdict: APPROVED — no Blocker or Major findings.
 ## Usage Examples
 
 ```
-/squad-review
+/squad:review
 -> Auto-detects the squad; reviews diff of current branch vs. master
 
-/squad-review security
+/squad:review security
 -> Security squad; reviews current branch diff
 
-/squad-review arch Services/ParameterService.cs
+/squad:review arch Services/ParameterService.cs
 -> Architecture squad; focused on the specified file
 
-/squad-review full
+/squad:review full
 -> Every agent; complete review
 
-/squad-review --quick
+/squad:review --quick
 -> Quick mode: 1 specialist + tech-lead, terse prompts, condensed output
 
-/squad-review --quick code
+/squad:review --quick code
 -> Quick code-quality review (senior-dev-reviewer + tech-lead)
 
-/squad-review --quick --codex
+/squad:review --quick --codex
 -> Error: --quick is mutually exclusive with --codex
 ```
 

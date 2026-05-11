@@ -2,11 +2,11 @@
 
 ## Objective
 
-Development skill that takes a user prompt, builds an implementation plan, runs gated advisory with specialized agents, implements, and consolidates via TechLead-Consolidator. Codex is optional (`/squad --codex`) and may be auto-suggested when the plan is high-risk.
+Development skill that takes a user prompt, builds an implementation plan, runs gated advisory with specialized agents, implements, and consolidates via TechLead-Consolidator. Codex is optional (`/squad:implement --codex`) and may be auto-suggested when the plan is high-risk.
 
 ## Skill Name
 
-`/squad`
+`/squad:implement`
 
 ## Agent Registry
 
@@ -25,7 +25,7 @@ Development skill that takes a user prompt, builds an implementation plan, runs 
 ## General Flow
 
 ```
-User -> /squad {prompt}
+User -> /squad:implement {prompt}
        |
        v
 [0. Pre-Check]
@@ -378,21 +378,21 @@ Critical-change auto-fallback: if scope touches `auth`, `crypto`, `permissions`,
 ## Usage Examples
 
 ```
-/squad implement dollar balance endpoint
+/squad:implement implement dollar balance endpoint
 -> No Codex
 -> Plan + Planner -> User approves -> Advisory -> Implement -> Consolidator
 
-/squad --codex fix cache bug in ParameterService
+/squad:implement --codex fix cache bug in ParameterService
 -> With Codex
 -> Plan + Planner -> Codex validates -> User approves -> Advisory -> Implement -> Codex reviews -> Consolidator
 
-/squad refactor ExchangeUsdService to split responsibilities
+/squad:implement refactor ExchangeUsdService to split responsibilities
 -> Plan + Planner -> User approves -> Advisory -> Implement -> Consolidator
 
-/squad --quick rename a misspelled local variable in BalanceController
+/squad:implement --quick rename a misspelled local variable in BalanceController
 -> Quick mode: condensed plan, 1 specialist + tech-lead, terse prompts, condensed delivery
 
-/squad --quick --codex anything
+/squad:implement --quick --codex anything
 -> Error: --quick is mutually exclusive with --codex
 ```
 

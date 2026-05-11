@@ -1,7 +1,7 @@
 ---
 name: product-owner
 description: Product Owner. Validates business value, functional requirements, and UX. Use for features, business-rule changes, and user-facing surfaces.
-model: inherit
+model: sonnet
 ---
 
 # PO (Product Owner)

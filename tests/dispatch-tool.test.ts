@@ -78,6 +78,44 @@ describe("dispatchTool error mapping", () => {
     expect(body.error.message).toContain("NUL byte");
   });
 
+  it("compose_squad_workflow accepts a `mode` flag and roundtrips it on the output", async () => {
+    // Round-trip: the new `mode` field must survive the dispatcher/Zod boundary
+    // and surface back on the structured output. Uses `force_work_type` so the
+    // test is not coupled to classifier heuristics.
+    const r = (await dispatchTool("compose_squad_workflow", {
+      workspace_root: process.cwd(),
+      user_prompt: "tiny tweak",
+      mode: "deep",
+      force_work_type: "Refactor",
+      read_content: false,
+      staged_only: false,
+    })) as { content: { text: string }[]; isError?: boolean };
+    // `detectChangedFiles` may yield zero files on a shallow CI clone; we are
+    // only asserting the mode field survives — not that the diff matters.
+    if (r.isError) {
+      const body = JSON.parse(r.content[0]!.text);
+      expect(body.error.code).not.toBe("INVALID_INPUT");
+      return;
+    }
+    const body = JSON.parse(r.content[0]!.text);
+    expect(body.mode).toBe("deep");
+    expect(body.mode_source).toBe("user");
+    expect(["normal", "quick", "deep"]).toContain(body.mode);
+  });
+
+  it("compose_squad_workflow rejects an unknown mode value", async () => {
+    const r = (await dispatchTool("compose_squad_workflow", {
+      workspace_root: process.cwd(),
+      user_prompt: "tiny tweak",
+      mode: "thinking",
+      read_content: false,
+      staged_only: false,
+    })) as { content: { text: string }[]; isError: boolean };
+    expect(r.isError).toBe(true);
+    const body = JSON.parse(r.content[0]!.text);
+    expect(body.error.code).toBe("INVALID_INPUT");
+  });
+
   it("PATH_TRAVERSAL_DENIED surfaces in select_squad low_confidence_files (does not abort batch)", async () => {
     const r = (await dispatchTool("select_squad", {
       work_type: "Bug Fix",

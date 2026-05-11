@@ -1,7 +1,7 @@
 {
   "name": "squad",
-  "version": "0.7.0",
-  "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server, native subagents, and the /squad and /squad-review slash commands.",
+  "version": "0.8.0",
+  "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server, native subagents, and the /squad:implement and /squad:review slash commands.",
   "license": "Apache-2.0",
   "author": {
     "name": "Gustavo",
@@ -19,14 +19,16 @@
     "./agents/senior-developer.md",
     "./agents/senior-dev-reviewer.md",
     "./agents/senior-dev-security.md",
-    "./agents/senior-qa.md"
+    "./agents/senior-qa.md",
+    "./agents/code-explorer.md"
   ],
   "commands": [
-    "./commands/squad.md",
-    "./commands/squad-review.md",
-    "./commands/squad-tasks.md",
-    "./commands/squad-next.md",
-    "./commands/squad-task.md",
+    "./commands/implement.md",
+    "./commands/review.md",
+    "./commands/tasks.md",
+    "./commands/next.md",
+    "./commands/task.md",
+    "./commands/question.md",
     "./commands/brainstorm.md",
     "./commands/commit-suggest.md"
   ],
@@ -34,7 +36,7 @@
   "mcpServers": {
     "squad": {
       "command": "npx",
-      "args": ["-y", "@gempack/squad-mcp@0.7.0"]
+      "args": ["-y", "@gempack/squad-mcp@0.8.0"]
     }
   }
 }

@@ -9,15 +9,23 @@ async function tmpDir() {
 }
 
 describe("selectSquad — extended", () => {
-  it("returns deterministic agent ordering (sorted)", async () => {
+  it("returns deterministic agent ordering (insertion / rank — core first, then signals, then forced)", async () => {
     const r = await selectSquad({
       work_type: "Feature",
       files: [],
       read_content: false,
       force_agents: ["senior-dba", "senior-architect"],
     });
-    const sorted = [...r.agents].sort();
-    expect(r.agents).toEqual(sorted);
+    // Feature core matrix is [product-owner, senior-developer, senior-qa] in
+    // that order; force_agents come last. Insertion-order is the contract
+    // since v0.8.0 so shapeSquadForMode can take top-2 by rank.
+    expect(r.agents).toEqual([
+      "product-owner",
+      "senior-developer",
+      "senior-qa",
+      "senior-dba",
+      "senior-architect",
+    ]);
   });
 
   it("handles empty file list with only core agents", async () => {

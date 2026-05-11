@@ -7,7 +7,7 @@ You are running the `squad` skill in **task-implement** mode for the user's requ
 
 $ARGUMENTS
 
-Execute Phase 0.6 of the skill at `skills/squad/SKILL.md` (Pick a task to work on — `/squad-task <id>` branch). Parse the task id from `$ARGUMENTS`. Call `list_tasks` to find the matching task. Confirm it is `pending` or `blocked` (not already done/cancelled). Show it to the user, ask for confirmation, then flip to `in-progress` via `update_task_status`.
+Execute Phase 0.6 of the skill at `skills/squad/SKILL.md` (Pick a task to work on — `/squad:task <id>` branch). Parse the task id from `$ARGUMENTS`. Call `list_tasks` to find the matching task. Confirm it is `pending` or `blocked` (not already done/cancelled). Show it to the user, ask for confirmation, then flip to `in-progress` via `update_task_status`.
 
 Then run the squad on that task's scope:
 

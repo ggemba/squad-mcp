@@ -17,7 +17,7 @@ const schema = z.object({
   severity: z.enum(["Blocker", "Major", "Minor", "Suggestion"]).optional(),
   /** Free-form rationale. Surfaces in the consolidator prompt. */
   reason: z.string().max(4096).optional(),
-  /** PR number when recorded from `/squad-review #N`. */
+  /** PR number when recorded from `/squad:review #N`. */
   pr: z.number().int().positive().optional(),
   /** Branch name when recorded from a local review. */
   branch: z.string().min(1).max(255).optional(),
