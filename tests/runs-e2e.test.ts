@@ -410,6 +410,70 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
     expect((outcomes.verdict_counts as Record<string, number>).APPROVED).toBe(1);
   });
 
+  // TODO(separate-ticket): /squad:stats does not yet surface phase_timings.
+  // `src/runs/aggregate.ts` ignores `record.phase_timings` so the dashboard
+  // won't show phase data until aggregate.ts is updated. The D2 fix below
+  // only repairs the tool-boundary drop; downstream rendering is a follow-up.
+  describe("phase_timings — tool boundary (D2 fix)", () => {
+    it("persists phase_timings end-to-end (no silent drop at tool boundary)", async () => {
+      const id = generateRunId();
+      await dispatchOk("record_run", {
+        workspace_root: workspace,
+        record: {
+          ...completedRecord(id),
+          phase_timings: {
+            phase_1_classify_ms: 100,
+            phase_5_advisory_ms: 5000,
+            phase_10_consolidator_ms: 2000,
+          },
+        },
+      });
+      // Read raw JSONL bytes — bypassing readRuns()/Zod so any silent drop at
+      // the writer would surface here. (readRuns re-parses through the schema
+      // and would re-add an absent field as `undefined`, masking the bug.)
+      const raw = await fs.readFile(path.join(workspace, DEFAULT_RUNS_PATH), "utf8");
+      const lines = raw.split("\n").filter((l) => l.length > 0);
+      expect(lines).toHaveLength(1);
+      const parsed = JSON.parse(lines[0]!) as RunRecord;
+      expect(parsed.phase_timings).toBeDefined();
+      expect(parsed.phase_timings!.phase_1_classify_ms).toBe(100);
+      expect(parsed.phase_timings!.phase_5_advisory_ms).toBe(5000);
+      expect(parsed.phase_timings!.phase_10_consolidator_ms).toBe(2000);
+    });
+
+    it("rejects negative phase_timings values at the tool boundary (refinement enforced)", async () => {
+      const id = generateRunId();
+      const r = (await dispatchTool("record_run", {
+        workspace_root: workspace,
+        record: {
+          ...completedRecord(id),
+          phase_timings: { phase_1_classify_ms: -1 },
+        },
+      })) as { content: { text: string }[]; isError?: boolean };
+      expect(r.isError).toBe(true);
+      const body = JSON.parse(r.content[0]!.text);
+      // The error message should mention the validation failure. We don't pin
+      // exact phrasing (Zod wording can shift across minor versions), only
+      // that the tool-boundary schema rejected the bad value instead of
+      // silently stripping it the way the old redeclared schema did.
+      const text = JSON.stringify(body).toLowerCase();
+      expect(text).toMatch(/invalid|nonnegative|negative|validation|schema/);
+    });
+
+    it("omitted phase_timings persists as absent (optional field preserved)", async () => {
+      const id = generateRunId();
+      await dispatchOk("record_run", {
+        workspace_root: workspace,
+        record: completedRecord(id), // no phase_timings
+      });
+      const raw = await fs.readFile(path.join(workspace, DEFAULT_RUNS_PATH), "utf8");
+      const lines = raw.split("\n").filter((l) => l.length > 0);
+      expect(lines).toHaveLength(1);
+      const parsed = JSON.parse(lines[0]!) as Record<string, unknown>;
+      expect("phase_timings" in parsed).toBe(false);
+    });
+  });
+
   it("v0.10.1: --deep debug record shape — 3 agents at Phase C (store-level roundtrip)", async () => {
     // v0.10.0 QA Suggestion: the --deep mode's 3-agent record (code-explorer
     // + senior-debugger + senior-developer/opus) had no test. This asserts

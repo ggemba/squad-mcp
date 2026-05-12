@@ -1,8 +1,7 @@
 import { z } from "zod";
 import type { ToolDef } from "./registry.js";
 import { SafeString } from "./_shared/schemas.js";
-import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
-import { appendRun, INVOCATION_VALUES, type RunRecord } from "../runs/store.js";
+import { appendRun, runRecordSchema } from "../runs/store.js";
 
 /**
  * SINGLE WRITER CONTRACT (plan v4, cycle 2 architect A-4; extended in v0.10.0,
@@ -43,83 +42,10 @@ import { appendRun, INVOCATION_VALUES, type RunRecord } from "../runs/store.js";
  * security-class SquadError codes to the user (Security #7).
  */
 
-// Re-use the runs store's Zod tuple via the shared schema definitions.
-// We can't import the runRecordSchema directly because it's a structured
-// instance; instead we redefine the inputs here as the tool boundary. The
-// store re-validates inside `appendRun`, so any drift between the two
-// schemas trips at the store layer rather than silently passing.
-
-const InvocationEnum = z.enum(INVOCATION_VALUES);
-const ModeEnum = z.enum(["quick", "normal", "deep"]);
-const ModeSourceEnum = z.enum(["user", "auto"]);
-const StatusEnum = z.enum(["in_flight", "completed", "aborted"]);
-const WorkTypeEnum = z.enum([
-  "Feature",
-  "Bug Fix",
-  "Refactor",
-  "Performance",
-  "Security",
-  "Business Rule",
-]);
-const VerdictEnum = z.enum(["APPROVED", "CHANGES_REQUIRED", "REJECTED"]);
-const ModelEnum = z.enum(["haiku", "sonnet", "opus", "inherit"]);
-
-const AgentMetricsSchema = z.object({
-  name: z.enum(AGENT_NAMES_TUPLE),
-  model: ModelEnum,
-  score: z.number().int().min(0).max(100).nullable(),
-  severity_score: z.number().int().min(0).max(9999).nullable(),
-  batch_duration_ms: z.number().int().nonnegative().finite(),
-  prompt_chars: z.number().int().nonnegative().finite(),
-  response_chars: z.number().int().nonnegative().finite(),
-});
-
+// Schema imported from src/runs/store.ts (single source of truth — D2 fix v0.14.x). The store re-validates in appendRun as defense-in-depth for non-tool callers.
 const schema = z.object({
   workspace_root: SafeString(4096),
-  record: z.object({
-    schema_version: z.literal(1),
-    id: SafeString(40),
-    status: StatusEnum,
-    started_at: SafeString(40),
-    completed_at: SafeString(40).optional(),
-    duration_ms: z.number().int().nonnegative().finite().optional(),
-    invocation: InvocationEnum,
-    mode: ModeEnum,
-    mode_source: ModeSourceEnum,
-    work_type: WorkTypeEnum.optional(),
-    git_ref: z
-      .object({
-        kind: z.enum(["head", "diff_base", "pr_head"]),
-        value: SafeString(200),
-      })
-      .nullable(),
-    files_count: z.number().int().nonnegative().finite(),
-    agents: z.array(AgentMetricsSchema).max(20),
-    verdict: VerdictEnum.nullable().optional(),
-    weighted_score: z.number().min(0).max(100).nullable().optional(),
-    est_tokens_method: z.literal("chars-div-3.5"),
-    mode_warning: z
-      .object({
-        code: SafeString(64),
-        message: SafeString(512),
-      })
-      .nullable()
-      .optional(),
-    /**
-     * v0.13+ language-aware bundling telemetry. Mirrors the shape in
-     * `src/runs/store.ts`'s `runRecordSchema`. Mirroring (not importing)
-     * is intentional per the comment at the top of this file — drift is
-     * caught by the store's re-validation.
-     */
-    language_supplements: z
-      .object({
-        injected: z.boolean(),
-        detected: z.array(SafeString(20)).max(13),
-        confidence: z.enum(["high", "medium", "low", "none"]),
-        agents_with_supplement: z.array(z.enum(AGENT_NAMES_TUPLE)).max(8),
-      })
-      .optional(),
-  }),
+  record: runRecordSchema,
 });
 
 type Input = z.infer<typeof schema>;
@@ -132,7 +58,7 @@ interface RecordRunOutput {
 }
 
 async function handler(input: Input): Promise<RecordRunOutput> {
-  const result = await appendRun(input.workspace_root, input.record as RunRecord);
+  const result = await appendRun(input.workspace_root, input.record);
   return {
     ok: true,
     file: result.filePath,
