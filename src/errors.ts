@@ -25,7 +25,15 @@ export type SquadErrorCode =
   // .prev back to source; the error message embeds a manual recovery
   // command (`mv <file>.prev <file>`) when even the rollback fails.
   // v0.11.0 cycle-2 Blocker B2 fix.
-  | "ATOMIC_REWRITE_FAILED";
+  | "ATOMIC_REWRITE_FAILED"
+  // Emitted by `src/tools/record-learning.ts` when the `reason` field
+  // contains LLM-instruction-shaped text (e.g. "ignore previous
+  // instructions", role-token tags like `<|im_start|>`, `[INST]`, or
+  // turn-marker prefixes). REFUSE is applied to `reason` only — `finding`
+  // may legitimately quote injection patterns and is sanitised at render
+  // time instead. The error message MUST NOT leak the matching regex
+  // source. v0.14.x deep-review D4 fix.
+  | "INSTRUCTION_SHAPED_PAYLOAD";
 
 export class SquadError extends Error {
   readonly code: SquadErrorCode;
