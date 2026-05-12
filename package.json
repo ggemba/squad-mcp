@@ -31,7 +31,8 @@
   },
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "npm run typecheck && npm run bundle && chmod +x dist/index.js",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=none --log-level=warning",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
@@ -43,6 +44,7 @@
     "lint": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "prepare": "[ -d node_modules/esbuild ] && [ -d node_modules/typescript ] && npm run build || echo 'prepare: skipping build (devDeps absent — relying on prepublishOnly or shipped dist/)'",
     "prepublishOnly": "npm run build"
   },
   "files": [
@@ -85,6 +87,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "esbuild": "^0.28.0",
     "eslint": "^9.0.0",
     "prettier": "^3.3.0",
     "tsx": "^4.19.0",
