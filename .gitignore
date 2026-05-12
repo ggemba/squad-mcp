@@ -21,5 +21,12 @@ coverage/
 .squad/runs.jsonl.lock
 .squad/.stats-seen
 
+# squad-mcp task store — local task decomposition per /squad:tasks. The SKILL
+# leaves trackable-or-not to each repo's discretion. For this repo (which IS
+# the squad-mcp project) we don't want internal task snapshots shipping with
+# releases — remove this line if your team wants to share decompositions.
+.squad/tasks.json
+.squad/tasks.json.prev
+
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs
