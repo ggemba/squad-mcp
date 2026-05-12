@@ -32,9 +32,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "npm run typecheck && npm run bundle && chmod +x dist/index.js",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=none --log-level=warning",
+    "bundle": "esbuild src/index.ts --bundle --minify --sourcemap=external --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=none --log-level=warning",
     "watch": "tsc --watch",
-    "start": "node dist/index.js",
+    "start": "node --enable-source-maps dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
