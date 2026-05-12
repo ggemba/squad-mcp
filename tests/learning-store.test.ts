@@ -421,6 +421,132 @@ describe("appendLearning — NUL-byte rejection on branch + scope (cycle-2 secur
   });
 });
 
+describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
+  it.skipIf(process.platform === "win32")(
+    "creates learnings.jsonl with mode 0o600 (user-only)",
+    async () => {
+      // The migrated path now goes through JsonlStore which enforces 0o600
+      // both on create (fs.open mode arg) and defensively via fh.chmod even
+      // on pre-existing files. Pin the create-time mode here.
+      const r = await appendLearning(workspace, {
+        agent: "senior-dba",
+        finding: "x",
+        decision: "accept",
+      });
+      const st = await fs.stat(r.filePath);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "enforces 0o600 via fchmod on a pre-existing 0o644 learnings.jsonl (legacy upgrade)",
+    async () => {
+      // Simulate a file left at 0o644 by an older squad-mcp version. The
+      // first append after upgrade must defensively re-stamp 0o600 so the
+      // journal stops being world-readable.
+      const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      const legacyRow = {
+        schema_version: 1,
+        ts: "2026-05-01T00:00:00Z",
+        agent: "senior-dba",
+        finding: "legacy",
+        decision: "accept",
+      };
+      await fs.writeFile(file, JSON.stringify(legacyRow) + "\n", { mode: 0o644 });
+      let st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o644);
+
+      await appendLearning(workspace, {
+        agent: "senior-dba",
+        finding: "after-upgrade",
+        decision: "accept",
+      });
+      st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it("backward-compat: reads rows that lack schema_version (defaults to 1)", async () => {
+    // Older squad-mcp versions wrote learning rows without the
+    // schema_version field. The new schema uses .default(1) so the read
+    // path coerces them transparently. This pins that contract.
+    const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const legacyRow = {
+      ts: "2026-04-01T00:00:00Z",
+      agent: "senior-dba",
+      finding: "no-version-field",
+      decision: "accept",
+    };
+    await fs.writeFile(file, JSON.stringify(legacyRow) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.schema_version).toBe(1);
+    expect(entries[0]!.finding).toBe("no-version-field");
+  });
+
+  it("skips (does not quarantine) rows with future schema_version", async () => {
+    // A future v2 writer's rows must be filtered out by the version
+    // pre-check, NOT quarantined as corrupt. This lets a v1 reader survive
+    // running alongside a v2 writer without bricking.
+    const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const future = {
+      schema_version: 2,
+      ts: "2027-01-01T00:00:00Z",
+      agent: "senior-dba",
+      finding: "from-the-future",
+      decision: "accept",
+    };
+    const current = {
+      schema_version: 1,
+      ts: "2026-01-01T00:00:00Z",
+      agent: "senior-dba",
+      finding: "current",
+      decision: "accept",
+    };
+    await fs.writeFile(file, JSON.stringify(future) + "\n" + JSON.stringify(current) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.finding).toBe("current");
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);
+  });
+
+  it("__resetLearningStoreCacheForTests still resets cache (legacy export name preserved)", async () => {
+    // The migration MUST preserve this exact export name — tests at
+    // prune-learnings.test.ts and read-learnings-tool.test.ts import it
+    // by string. This test asserts the function actually clears the cache
+    // (not just that it exists and is callable).
+    await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "a",
+      decision: "accept",
+    });
+    const a = await readLearnings(workspace);
+    __resetLearningStoreCacheForTests();
+    const b = await readLearnings(workspace);
+    // After reset, the next read re-stats and produces a new array reference.
+    expect(b).not.toBe(a);
+    expect(b).toEqual(a);
+  });
+
+  it("appendLearning return shape preserved: { entry, filePath }", async () => {
+    // Pin the public-API return shape so a future refactor inside the
+    // JsonlStore wrapper can't break documented callers.
+    const r = await appendLearning(workspace, {
+      agent: "senior-dba",
+      finding: "shape-check",
+      decision: "accept",
+    });
+    expect(r.filePath).toMatch(/learnings\.jsonl$/);
+    expect(r.entry.finding).toBe("shape-check");
+    expect(r.entry.schema_version).toBe(1);
+    expect(r.entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
 describe("tailRecent", () => {
   const entries: LearningEntry[] = [
     {

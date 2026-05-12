@@ -84,6 +84,13 @@ export const DEFAULT_TASKS_PATH = ".squad/tasks.json";
 
 interface CacheEntry {
   mtimeMs: number;
+  /**
+   * File size at the time of caching. Combined with `mtimeMs` to guard
+   * against same-millisecond writes that mtime alone cannot distinguish —
+   * mirrors the discipline in `src/runs/store.ts` and `JsonlStore`. v0.14.x
+   * deep-review D1 hygiene fix (dba Minor → unanimous).
+   */
+  size: number;
   filePath: string;
   data: TasksFile;
 }
@@ -125,7 +132,12 @@ export async function readTasks(
   }
 
   const cached = cache.get(absRoot);
-  if (cached && cached.filePath === filePath && cached.mtimeMs === stat.mtimeMs) {
+  if (
+    cached &&
+    cached.filePath === filePath &&
+    cached.mtimeMs === stat.mtimeMs &&
+    cached.size === stat.size
+  ) {
     return cached.data;
   }
 
@@ -160,6 +172,7 @@ export async function readTasks(
 
   cache.set(absRoot, {
     mtimeMs: stat.mtimeMs,
+    size: stat.size,
     filePath,
     data: validated.data,
   });
@@ -178,7 +191,10 @@ async function writeTasks(
 ): Promise<string> {
   const filePath = resolveTasksFile(workspaceRoot, configuredPath);
   const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
+  // Directory mode 0o700 — user-only. mkdir-recursive is idempotent on an
+  // existing dir's mode, so this stamps the mode only on creation. Mirrors
+  // the discipline in `runs/store.ts` and `JsonlStore` (v0.14.x D1).
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
 
   const validated = tasksFileSchema.safeParse(data);
   if (!validated.success) {
@@ -192,13 +208,23 @@ async function writeTasks(
   // same process don't collide on the same millisecond.
   writeCounter += 1;
   const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}.${writeCounter}`;
-  await fs.writeFile(tmp, JSON.stringify(ordered, null, 2) + "\n", "utf8");
+  // Mode 0o600 on the tmp file — POSIX rename preserves source mode, so
+  // both the new file AND the .prev snapshot inherit this discipline. The
+  // explicit 0o600 also protects against world-readable defaults on shared
+  // workstations (the tasks file embeds details/test_strategy that may
+  // describe internal-only flows).
+  await fs.writeFile(tmp, JSON.stringify(ordered, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 
   // Snapshot the prior generation so a future corruption (or accidental edit)
   // has at least one recoverable backup. Best-effort: if the original is
   // missing or rename fails, swallow — the new write is still atomic.
+  let prevSnapshotted = false;
   try {
     await fs.rename(filePath, `${filePath}.prev`);
+    prevSnapshotted = true;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       // Non-fatal — log via stderr but proceed; the new file will land.
@@ -210,8 +236,28 @@ async function writeTasks(
       });
     }
   }
+  // Defensive chmod on the .prev snapshot. POSIX rename preserves the source
+  // file's mode, which on a pre-existing 0o644 task file would carry 0o644
+  // forward into the .prev. Re-stamp 0o600 so the snapshot doesn't leak.
+  // Best-effort — chmod failures on Windows / unsupported filesystems are
+  // ignored since the mode is not enforced there anyway.
+  if (prevSnapshotted) {
+    try {
+      await fs.chmod(`${filePath}.prev`, 0o600);
+    } catch {
+      // Mode not enforced on this filesystem; carry on.
+    }
+  }
 
   await fs.rename(tmp, filePath);
+  // Defensive chmod on the swapped-in file too. The mode came from the tmp
+  // file (we created it 0o600) so this is belt-and-braces against future
+  // refactors that change the writeFile mode default.
+  try {
+    await fs.chmod(filePath, 0o600);
+  } catch {
+    // Mode not enforced; carry on.
+  }
 
   // Invalidate cache.
   cache.delete(path.resolve(workspaceRoot));

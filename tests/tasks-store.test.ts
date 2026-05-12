@@ -264,6 +264,110 @@ describe("readTasks — caching", () => {
   });
 });
 
+describe("v0.14.x D1 hygiene — file mode + cache size key", () => {
+  it.skipIf(process.platform === "win32")(
+    "writes tasks.json with mode 0o600 (user-only)",
+    async () => {
+      // Pin the create-time mode on the swapped-in file. The atomic-rewrite
+      // path now writes the tmp with mode 0o600 and defensively chmods the
+      // final file after rename — both paths converge on 0o600.
+      await recordTasks(workspace, [{ title: "a" }]);
+      const file = path.join(workspace, DEFAULT_TASKS_PATH);
+      const st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "writes tasks.json.prev with mode 0o600 after a second write",
+    async () => {
+      // POSIX rename preserves source mode, which on a pre-existing 0o644
+      // file would carry 0o644 forward into .prev. The defensive fs.chmod
+      // after the rename re-stamps 0o600.
+      await recordTasks(workspace, [{ title: "first" }]);
+      await recordTasks(workspace, [{ title: "second" }]);
+      const file = path.join(workspace, DEFAULT_TASKS_PATH);
+      const stPrev = await fs.stat(`${file}.prev`);
+      expect(stPrev.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "re-stamps 0o600 on .prev even when the prior generation was 0o644 (legacy)",
+    async () => {
+      // Simulate an upgrade scenario: an older squad-mcp left the tasks
+      // file at 0o644. The next write moves source → .prev (rename inherits
+      // 0o644) and then we must defensively re-stamp .prev to 0o600.
+      const file = path.join(workspace, DEFAULT_TASKS_PATH);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      const legacyBody = JSON.stringify({ version: 1, tasks: [] }) + "\n";
+      await fs.writeFile(file, legacyBody, { mode: 0o644 });
+      let st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o644);
+
+      await recordTasks(workspace, [{ title: "after-upgrade" }]);
+      const stPrev = await fs.stat(`${file}.prev`);
+      expect(stPrev.mode & 0o777).toBe(0o600);
+      st = await fs.stat(file);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it("race regression: stale cache (same mtime, different size) re-reads under lock", async () => {
+    // This exercises the LOGIC of the new (mtime, size) cache key — same
+    // mtime + different size used to falsely return the cached data. With
+    // size in the cache key, the read re-stats and reloads.
+    //
+    // Strategy: do a first recordTasks() to populate cache, then mutate the
+    // file on disk WITHOUT bumping mtime (utimes pin), and call readTasks
+    // again — it should re-read and surface the new entry.
+    await recordTasks(workspace, [{ title: "first" }]);
+    const file = path.join(workspace, DEFAULT_TASKS_PATH);
+    const first = await readTasks(workspace);
+    expect(first.tasks).toHaveLength(1);
+
+    // Build a new on-disk shape with two tasks, pinned to the previous mtime.
+    const originalStat = await fs.stat(file);
+    const newBody =
+      JSON.stringify(
+        {
+          version: 1,
+          tasks: [
+            {
+              id: 1,
+              title: "first",
+              status: "pending",
+              dependencies: [],
+              priority: "medium",
+              subtasks: [],
+              created_at: "2026-05-11T10:00:00Z",
+              updated_at: "2026-05-11T10:00:00Z",
+            },
+            {
+              id: 2,
+              title: "second",
+              status: "pending",
+              dependencies: [],
+              priority: "medium",
+              subtasks: [],
+              created_at: "2026-05-11T10:00:00Z",
+              updated_at: "2026-05-11T10:00:00Z",
+            },
+          ],
+        },
+        null,
+        2,
+      ) + "\n";
+    await fs.writeFile(file, newBody);
+    // Pin mtime back to original — simulates the same-millisecond race.
+    await fs.utimes(file, originalStat.atime, originalStat.mtime);
+
+    const second = await readTasks(workspace);
+    expect(second.tasks).toHaveLength(2);
+    expect(second.tasks[1]!.title).toBe("second");
+  });
+});
+
 describe("on-disk format", () => {
   it("writes pretty-printed JSON sorted by id", async () => {
     await recordTasks(workspace, [

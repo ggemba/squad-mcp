@@ -1,16 +1,18 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js";
 import { SquadError } from "../errors.js";
-import { ensureRelativeInsideRoot } from "../util/path-safety.js";
-import { withFileLock } from "../util/file-lock.js";
-import { logger } from "../observability/logger.js";
+import { JsonlStore } from "../util/jsonl-store.js";
 
 /**
  * Hard cap per JSONL entry so a single line fits in POSIX PIPE_BUF
  * (4096 bytes) and `fs.appendFile` remains atomic w.r.t. concurrent
  * appenders. Length includes serialised JSON + trailing newline.
+ *
+ * Identical to the cap inside `JsonlStore` (4000), exposed here for the
+ * binary-search truncation that runs BEFORE the store-level write. We keep
+ * truncation at this layer (not inside JsonlStore) because the soft-truncate
+ * behaviour is learning-specific — runs/store rejects oversize records hard,
+ * which is also the JsonlStore default.
  */
 const MAX_ENTRY_BYTES = 4_000;
 
@@ -19,8 +21,15 @@ const MAX_ENTRY_BYTES = 4_000;
  * rewritten, just superseded by later ones with the same (agent, finding,
  * scope) tuple. Keep the schema small; rich query semantics are out of
  * scope for V1 (the consolidator does free-text recall, not vector search).
+ *
+ * v0.14.x deep-review D1: `schema_version` added as the FIRST field with
+ * `.default(1)`. Legacy rows that lack this field are coerced to v1 on read
+ * via the Zod default. Future v2 rows are filtered at the JsonlStore
+ * schema_version pre-check (skip+log, not quarantine).
  */
 const learningEntrySchema = z.object({
+  /** Schema version. Bump when breaking changes ship. Legacy rows default to 1. */
+  schema_version: z.literal(1).default(1),
   /** ISO 8601 timestamp. Required for ordering. */
   ts: z.string().min(1).max(40),
   /** PR number when recorded from `/squad:review #N`; optional otherwise. */
@@ -90,142 +99,72 @@ export type LearningEntry = z.infer<typeof learningEntrySchema>;
  */
 export const DEFAULT_LEARNING_PATH = ".squad/learnings.jsonl";
 
-interface CacheEntry {
-  mtimeMs: number;
-  filePath: string;
-  /** Parsed entries in file order (oldest first). Slice tail-N from end. */
-  entries: LearningEntry[];
-}
-const cache = new Map<string, CacheEntry>();
+/**
+ * Module-scope singleton. The JsonlStore class is generic and per-instance —
+ * instantiating per public-function call would throw away the per-process
+ * cache on every call. We instantiate ONCE at module load and have the
+ * legacy `appendLearning` / `readLearnings` / `__resetLearningStoreCacheForTests`
+ * wrappers delegate to it. The `maxRecordBytes` ceiling is left at the
+ * JsonlStore default (4000); the consumer-side soft truncation in
+ * `appendLearning` keeps lines well under that.
+ */
+const store = new JsonlStore<LearningEntry>({
+  defaultPath: DEFAULT_LEARNING_PATH,
+  schema: learningEntrySchema,
+  maxRecordBytes: MAX_ENTRY_BYTES,
+  settingName: "learnings.path",
+  label: "learnings",
+});
 
 /** Test-only: clear the per-process cache. Production code MUST NOT call this. */
 export function __resetLearningStoreCacheForTests(): void {
-  cache.clear();
-}
-
-function resolveLearningFile(workspaceRoot: string, configuredPath: string | undefined): string {
-  const rel = configuredPath ?? DEFAULT_LEARNING_PATH;
-  if (configuredPath !== undefined) {
-    ensureRelativeInsideRoot(workspaceRoot, rel, "learnings.path");
-  }
-  return path.resolve(workspaceRoot, rel);
+  store.__resetCacheForTests();
 }
 
 /**
  * Read all learnings from the JSONL file. Returns [] if the file does not exist
- * (a fresh repo with no decisions recorded is the common case). Throws on
- * parse failure of any individual line — callers may want to soft-fail, but
- * silent corruption is worse than loud rejection.
+ * (a fresh repo with no decisions recorded is the common case). Corrupt rows
+ * are quarantined to a timestamped sibling file; rows with unknown
+ * `schema_version` are skipped and logged. The surviving entries return in
+ * append order.
  */
 export async function readLearnings(
   workspaceRoot: string,
   options: { configuredPath?: string } = {},
 ): Promise<LearningEntry[]> {
-  const filePath = resolveLearningFile(workspaceRoot, options.configuredPath);
-  const absRoot = path.resolve(workspaceRoot);
-
-  let stat;
-  try {
-    stat = await fs.stat(filePath);
-  } catch {
-    // No file — first run, no learnings yet.
-    return [];
-  }
-  if (!stat.isFile()) {
-    return [];
-  }
-
-  const cached = cache.get(absRoot);
-  if (cached && cached.filePath === filePath && cached.mtimeMs === stat.mtimeMs) {
-    return cached.entries;
-  }
-
-  let raw: string;
-  try {
-    raw = await fs.readFile(filePath, "utf8");
-  } catch (err) {
-    throw new SquadError(
-      "CONFIG_READ_FAILED",
-      `failed to read learnings file ${filePath}: ${(err as Error).message}`,
-      { source: filePath },
-    );
-  }
-
-  const lines = raw.split(/\r?\n/);
-  const entries: LearningEntry[] = [];
-  const corruptLines: { line: number; raw: string; reason: string }[] = [];
-  let lineNo = 0;
-  for (const line of lines) {
-    lineNo++;
-    const trimmed = line.trim();
-    if (trimmed === "") continue; // skip blank lines (trailing newline, spacing)
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (err) {
-      // Quarantine bad line, keep reading. Earlier behaviour threw and bricked
-      // the whole store for one bad line — a hand-edit or partial write would
-      // make every read fail. Now we move the line aside and continue.
-      corruptLines.push({
-        line: lineNo,
-        raw: trimmed,
-        reason: `invalid JSON: ${(err as Error).message}`,
-      });
-      continue;
-    }
-    const validated = learningEntrySchema.safeParse(parsed);
-    if (!validated.success) {
-      corruptLines.push({
-        line: lineNo,
-        raw: trimmed,
-        reason: `schema violation: ${validated.error.message}`,
-      });
-      continue;
-    }
-    entries.push(validated.data);
-  }
-
-  if (corruptLines.length > 0) {
-    // Move corrupt lines to a timestamped quarantine file alongside the source.
-    // Best-effort: if the write fails we still surface the warning so the
-    // operator notices. The original file is left untouched.
-    const quarantinePath = `${filePath}.corrupt-${Date.now()}.jsonl`;
-    try {
-      const body = corruptLines.map((c) => `# line ${c.line}: ${c.reason}\n${c.raw}\n`).join("");
-      await fs.writeFile(quarantinePath, body, "utf8");
-    } catch {
-      // Swallow — quarantine write is diagnostic, not load-bearing.
-    }
-    logger.warn("learnings: corrupt lines quarantined", {
-      details: {
-        file: filePath,
-        quarantine: quarantinePath,
-        count: corruptLines.length,
-        lines: corruptLines.map((c) => c.line),
-      },
-    });
-  }
-
-  cache.set(absRoot, { mtimeMs: stat.mtimeMs, filePath, entries });
-  return entries;
+  return store.read(workspaceRoot, options);
 }
 
 /**
  * Append a new learning entry to the JSONL file. Creates the directory and
- * file if needed. Atomic at the append level (single fs.appendFile call —
- * Node serialises this on POSIX); concurrent appenders may interleave entries
- * but never corrupt them line-wise.
+ * file if needed. Atomic at the append level (single write under file lock);
+ * concurrent appenders serialise via the cross-process lock.
  *
  * Stamps the timestamp here if the caller did not supply one — gives a single
  * source of clock truth and prevents stale ts in CLI invocations.
+ *
+ * Soft-truncates `reason` then `finding` when the serialised line exceeds
+ * MAX_ENTRY_BYTES, so realistic legitimate entries always land instead of
+ * throwing RECORD_TOO_LARGE. Truncated fields gain a "…[truncated]" marker.
  */
 export async function appendLearning(
   workspaceRoot: string,
-  entry: Omit<LearningEntry, "ts"> & { ts?: string },
+  entry: Omit<LearningEntry, "ts" | "schema_version"> & {
+    ts?: string;
+    schema_version?: 1;
+  },
   options: { configuredPath?: string } = {},
 ): Promise<{ filePath: string; entry: LearningEntry }> {
   const ts = entry.ts ?? new Date().toISOString();
-  const candidate: LearningEntry = { ...entry, ts };
+  // Always set schema_version: 1 explicitly before delegating. The Zod
+  // `.default(1)` would handle a missing field on READ, but on WRITE we want
+  // the field present in the JSON line so older readers (and grep tooling)
+  // see it directly without relying on schema defaults.
+  const candidate: LearningEntry = {
+    ...entry,
+    schema_version: 1,
+    ts,
+  };
 
   const validated = learningEntrySchema.safeParse(candidate);
   if (!validated.success) {
@@ -236,14 +175,11 @@ export async function appendLearning(
     );
   }
 
-  const filePath = resolveLearningFile(workspaceRoot, options.configuredPath);
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-
-  // Cap the serialised line at MAX_ENTRY_BYTES so `fs.appendFile` stays atomic
-  // w.r.t. concurrent appenders (POSIX guarantees atomicity for writes <=
-  // PIPE_BUF, typically 4096B). When the entry exceeds the cap we truncate
-  // `reason` first, then `finding`, until it fits.
+  // Cap the serialised line at MAX_ENTRY_BYTES so the line stays atomic
+  // w.r.t. concurrent appenders. When the entry exceeds the cap we truncate
+  // `reason` first, then `finding`, until it fits. Same binary-search shrink
+  // as the v0.14.0 implementation — keeps tests/learning-store.test.ts'
+  // oversize case passing.
   let toWrite = { ...validated.data };
   let line = JSON.stringify(toWrite) + "\n";
   for (const field of ["reason", "finding"] as const) {
@@ -269,27 +205,10 @@ export async function appendLearning(
     line = JSON.stringify(toWrite) + "\n";
   }
 
-  // Cross-process lock around the append. Even though appendFile is atomic
-  // for writes <= PIPE_BUF, two processes hitting the same file simultaneously
-  // can still produce interleaved bytes near the boundary on some filesystems.
-  // The lock makes that race impossible at a cheap cost.
-  await withFileLock(filePath, async () => {
-    await fs.appendFile(filePath, line, "utf8");
-  });
-
-  // Invalidate cache so next readLearnings reflects the append.
-  const absRoot = path.resolve(workspaceRoot);
-  cache.delete(absRoot);
-
-  logger.info("learning appended", {
-    details: {
-      file: filePath,
-      agent: toWrite.agent,
-      decision: toWrite.decision,
-    },
-  });
-
-  return { filePath, entry: toWrite };
+  // Delegate to the JsonlStore which owns the lock, mode-0o600 discipline,
+  // and cache invalidation. We pass the already-truncated entry; JsonlStore
+  // re-validates (cheap) and writes the canonical JSON.
+  return store.append(workspaceRoot, toWrite, options);
 }
 
 /**
