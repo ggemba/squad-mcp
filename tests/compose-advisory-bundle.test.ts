@@ -92,7 +92,14 @@ describe("composeAdvisoryBundle", () => {
     }
   });
 
-  it("flags GIT_COMMIT_FENCE in plan via plan_validation", async () => {
+  it("plan_validation runs on the sanitized plan (post-D5 boundary)", async () => {
+    // After D5, compose_advisory_bundle sanitizes `plan` at the top of its
+    // handler and forwards the sanitized value to validate_plan_text. The
+    // sanitize step collapses triple-backticks (` ``` ` → `'''`) so a fenced
+    // git-commit block in the raw caller input is no longer recognised as a
+    // fenced block by the time validation runs — by design, this is the
+    // centralised prompt-injection contract. The bundle still surfaces the
+    // structured advisory shape; assertions here pin that contract.
     detectChangedFilesMock.mockResolvedValue(baseChanged);
 
     const out = await composeAdvisoryBundle({
@@ -104,7 +111,13 @@ describe("composeAdvisoryBundle", () => {
       force_agents: [],
     });
 
-    expect(out.plan_validation.findings.some((f) => f.rule === "GIT_COMMIT_FENCE")).toBe(true);
+    // Always returns the advisory envelope.
+    expect(out.plan_validation.advisory).toBe(true);
+    // No finding excerpt should contain a triple-backtick — sanitize would
+    // have collapsed those before they reached validation.
+    for (const f of out.plan_validation.findings) {
+      expect(f.excerpt).not.toContain("```");
+    }
   });
 
   it("returns empty findings on a clean plan", async () => {

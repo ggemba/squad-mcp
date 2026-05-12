@@ -3,11 +3,15 @@ import type { ToolDef } from "./registry.js";
 import { readTasks, type Task } from "../tasks/store.js";
 import { readSquadYaml } from "../config/squad-yaml.js";
 import { resolveSafePath, createSafePathContext } from "../util/path-safety.js";
+import { sanitizeForPrompt } from "../util/prompt-sanitize.js";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
 
 const schema = z.object({
   workspace_root: z.string().min(1).max(4096),
-  /** PRD text. Free-form; the LLM is responsible for extracting structure. */
+  /**
+   * PRD text. Free-form; the LLM is responsible for extracting structure.
+   * Sanitized for prompt-injection codepoints before interpolation.
+   */
   prd_text: z.string().min(1).max(200_000),
   /** Optional max number of tasks to extract (soft hint passed to the LLM). */
   max_tasks: z.number().int().positive().max(200).optional().default(40),
@@ -79,7 +83,10 @@ function renderExisting(existing: Task[]): string {
   if (existing.length === 0) {
     return "_(no existing tasks — this is a fresh decomposition)_";
   }
-  const lines = existing.map((t) => `- ${t.id}. [${t.status}] ${t.title}`);
+  // Task titles are stored user input that flows verbatim into the PRD prompt
+  // template. Sanitize at the prompt boundary — strips invisibles, role tokens,
+  // normalises NFKC. See src/util/prompt-sanitize.ts.
+  const lines = existing.map((t) => `- ${t.id}. [${t.status}] ${sanitizeForPrompt(t.title)}`);
   return lines.join("\n");
 }
 
@@ -96,6 +103,10 @@ export async function composePrdParseTool(input: Input): Promise<ComposePrdParse
   const ctx = createSafePathContext();
   const safeRoot = await resolveSafePath(input.workspace_root, ".", ctx);
   const config = await readSquadYaml(safeRoot);
+
+  // Sanitize at the prompt boundary — strips invisibles, role tokens, normalises NFKC.
+  // See src/util/prompt-sanitize.ts.
+  const safePrdText = sanitizeForPrompt(input.prd_text);
 
   const existingFile = input.include_existing
     ? await readTasks(safeRoot, { configuredPath: config.tasks.path })
@@ -172,7 +183,7 @@ ${existingSection}
 
 ## PRD
 
-${input.prd_text}
+${safePrdText}
 
 ## Now emit the JSON
 

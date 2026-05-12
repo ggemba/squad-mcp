@@ -14,6 +14,7 @@ import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js
 import { isSquadError } from "../errors.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
 import { createSafePathContext, resolveSafePath } from "../util/path-safety.js";
+import { sanitizeForPrompt } from "../util/prompt-sanitize.js";
 import { logger } from "../observability/logger.js";
 
 /**
@@ -39,8 +40,10 @@ export const LANGUAGE_AWARE_AGENTS: readonly AgentName[] = [
 
 const schema = z.object({
   workspace_root: safeString(4096),
+  /** User prompt. Sanitized for prompt-injection codepoints before interpolation. */
   user_prompt: safeString(8192),
-  plan: z.string().max(65_536),
+  /** Plan text. Sanitized for prompt-injection codepoints before interpolation. */
+  plan: safeString(65_536),
   base_ref: safeString(200).optional(),
   staged_only: z.boolean().optional().default(false),
   read_content: z.boolean().optional().default(true),
@@ -175,9 +178,15 @@ export interface AdvisoryBundleOutput {
 }
 
 export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundleOutput> {
+  // Sanitize at the prompt boundary — strips invisibles, role tokens, normalises NFKC.
+  // See src/util/prompt-sanitize.ts. Apply once at the top of the handler; downstream
+  // calls (composeSquadWorkflow, validatePlanText) receive the sanitized values.
+  const safeUserPrompt = sanitizeForPrompt(input.user_prompt);
+  const safePlan = sanitizeForPrompt(input.plan);
+
   const workflowInput: Parameters<typeof composeSquadWorkflow>[0] = {
     workspace_root: input.workspace_root,
-    user_prompt: input.user_prompt,
+    user_prompt: safeUserPrompt,
     staged_only: input.staged_only,
     read_content: input.read_content,
     force_agents: input.force_agents,
@@ -338,7 +347,7 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
     }
   }
 
-  const plan_validation = validatePlanText({ plan: input.plan });
+  const plan_validation = validatePlanText({ plan: safePlan });
 
   const out: AdvisoryBundleOutput = {
     workflow,

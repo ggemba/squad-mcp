@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { __sanitizeForPromptForTests as sanitize } from "../src/learning/format.js";
+import { sanitizeForPrompt as sanitize } from "../src/util/prompt-sanitize.js";
 
 /**
  * Property tests for `sanitizeForPrompt`. Two invariants:

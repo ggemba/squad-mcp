@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { __sanitizeForPromptForTests as sanitize } from "../src/learning/format.js";
+import { sanitizeForPrompt as sanitize } from "../src/util/prompt-sanitize.js";
 
 /**
  * Table-driven sanitiser tests. Inputs use `String.fromCodePoint(...)` for

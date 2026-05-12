@@ -16,6 +16,7 @@ import {
   type ResolvedSquadConfig,
 } from "../config/squad-yaml.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
+import { sanitizeForPrompt } from "../util/prompt-sanitize.js";
 import { EXEC_MODES, selectMode, shapeSquadForMode, type ModeWarning } from "./mode/exec-mode.js";
 
 // Re-export the public mode contract from its dedicated module so downstream
@@ -61,6 +62,14 @@ const schema = z.object({
 type Input = z.infer<typeof schema>;
 
 export interface ComposeWorkflowOutput {
+  /**
+   * Sanitized user prompt as it was used for classification and as it will be
+   * embedded in downstream agent prompts. Equals
+   * `sanitizeForPrompt(input.user_prompt)` (idempotent — sanitizing already-
+   * sanitized input is a no-op). Exposed so callers and tests can verify the
+   * prompt-injection-codepoint strip happened before the value left this tool.
+   */
+  user_prompt: string;
   changed_files: DetectChangedFilesOutput;
   classification: ClassifyOutput;
   risk: RiskOutput;
@@ -146,6 +155,11 @@ function inferRiskSignals(
 }
 
 export async function composeSquadWorkflow(input: Input): Promise<ComposeWorkflowOutput> {
+  // Sanitize at the prompt boundary — strips invisibles, role tokens, normalises NFKC.
+  // See src/util/prompt-sanitize.ts. Idempotent — if `compose_advisory_bundle` already
+  // sanitized before delegating, this is a no-op (proven in D4 property tests).
+  const safeUserPrompt = sanitizeForPrompt(input.user_prompt);
+
   const detectInput: {
     workspace_root: string;
     base_ref?: string;
@@ -178,7 +192,7 @@ export async function composeSquadWorkflow(input: Input): Promise<ComposeWorkflo
   const { kept: filePaths, skipped: skippedPaths } = applySkipPaths(allPaths, config.skip_paths);
 
   const classification = classifyWorkType({
-    user_prompt: input.user_prompt,
+    user_prompt: safeUserPrompt,
     files: filePaths,
   });
   const workType: WorkType = input.force_work_type ?? classification.work_type;
@@ -232,6 +246,7 @@ export async function composeSquadWorkflow(input: Input): Promise<ComposeWorkflo
   const warning: ModeWarning | undefined = modeResolution.warning ?? shaping.warning;
 
   const output: ComposeWorkflowOutput = {
+    user_prompt: safeUserPrompt,
     changed_files: changed,
     classification,
     risk,

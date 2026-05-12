@@ -69,6 +69,15 @@ function lineOfMatch(text: string, idx: number): number {
 
 export function validatePlanText(input: Input): ValidatePlanOutput {
   const findings: ValidationFinding[] = [];
+  // NOTE: this tool intentionally does NOT apply `sanitizeForPrompt`. It is a
+  // VALIDATOR that searches for dangerous patterns INSIDE markdown code fences
+  // (`extractCodeBlocks` below depends on the triple-backtick syntax surviving),
+  // not a RENDERER that interpolates the value into an LLM prompt. The render
+  // boundary for `plan` is handled upstream by `compose_advisory_bundle` (which
+  // sanitizes before passing the plan to LLM-prompt builders). NUL-byte defence
+  // here is provided by `SafeString(65_536)` on the schema (line 7). Adding
+  // sanitize here would collapse the fences this validator is supposed to
+  // inspect — see v0.14.x deep-review D5 Gate-8 halt.
   const text = input.plan;
 
   const blocks = extractCodeBlocks(text);
