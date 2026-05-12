@@ -44,8 +44,17 @@
     "lint": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "[ -d node_modules/esbuild ] && [ -d node_modules/typescript ] && npm run build || echo 'prepare: skipping build (devDeps absent — relying on prepublishOnly or shipped dist/)'",
+    "prepare": "([ -d node_modules/husky ] && husky || true) && ([ -d node_modules/esbuild ] && [ -d node_modules/typescript ] && npm run build || echo 'prepare: skipping build (devDeps absent — relying on prepublishOnly or shipped dist/)')",
     "prepublishOnly": "npm run build"
+  },
+  "lint-staged": {
+    "*.{ts,mjs,js,cjs}": [
+      "prettier --write",
+      "eslint --fix --max-warnings=0"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "files": [
     "dist",
@@ -89,6 +98,8 @@
     "@vitest/coverage-v8": "^2.1.0",
     "esbuild": "^0.28.0",
     "eslint": "^9.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
     "prettier": "^3.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
