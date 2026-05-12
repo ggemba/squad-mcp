@@ -40,9 +40,9 @@ export interface LogEntry {
 
 const FREE_FORM_LIMIT = 256;
 
-function truncate(value: unknown): unknown {
+function truncate<T>(value: T): T {
   if (typeof value === "string" && value.length > FREE_FORM_LIMIT) {
-    return value.slice(0, FREE_FORM_LIMIT) + "…";
+    return (value.slice(0, FREE_FORM_LIMIT) + "…") as T;
   }
   return value;
 }
@@ -95,28 +95,37 @@ export const logger = {
     log({ level: "debug", msg, ...fields }),
 };
 
+let handlersInstalled = false;
+
+/**
+ * Test-only: clear the idempotency flag so a subsequent
+ * `setupProcessHandlers()` call re-registers listeners. Production code must
+ * not call this; the guard exists to keep tests deterministic when they
+ * exercise the registration path multiple times.
+ */
+export function __resetProcessHandlersForTests(): void {
+  handlersInstalled = false;
+}
+
 export function setupProcessHandlers(): void {
+  // Idempotency guard: avoid double-registering listeners when tests or
+  // re-init paths call this more than once.
+  if (handlersInstalled) return;
+  handlersInstalled = true;
+
+  // Intentional asymmetry:
+  //   - unhandledRejection: log + CONTINUE. MCP server is long-lived; a
+  //     rejection in a peripheral path (e.g. swallow-on-failure quarantine
+  //     write in runs/store.ts) should not take the whole server down.
+  //   - uncaughtException: log + EXIT. A synchronous exception that escaped
+  //     all try/catch implies corrupt state; Node's default behavior of
+  //     terminating is the correct response.
   process.on("unhandledRejection", (reason) => {
     const message = reason instanceof Error ? reason.message : String(reason);
-    process.stderr.write(
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        level: "error",
-        msg: "unhandledRejection",
-        details: { message: truncate(message) },
-      }) + "\n",
-    );
-    process.exit(1);
+    logger.error("unhandledRejection", { details: { message } });
   });
   process.on("uncaughtException", (err) => {
-    process.stderr.write(
-      JSON.stringify({
-        ts: new Date().toISOString(),
-        level: "error",
-        msg: "uncaughtException",
-        details: { message: truncate(err.message), name: err.name },
-      }) + "\n",
-    );
+    logger.error("uncaughtException", { details: { message: err.message, name: err.name } });
     process.exit(1);
   });
 }
