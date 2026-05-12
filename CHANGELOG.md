@@ -7,6 +7,164 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-12
+
+First stable release. Bundles the v0.14 work (engines bump, husky pre-commit,
+launch.mjs first-run wrapper) with a deep-review-driven P0 sprint that closed
+13 sub-Major findings clustered around prompt-injection defence, JSONL store
+hygiene, and MCP-tool schema discipline.
+
+The 1.0 line commits to API stability across the MCP tool surface, the agent
+markdown contract, and the skill-orchestration phases. One v1.x roadmap item
+deferred from the architect's deep-review projection: the run-token capability
+that would replace the documented single-writer honour-system contract for
+`record_run`. Tracked as a follow-up; the current contract remains source-level
+documentation.
+
+### Security
+
+- **Prompt-injection defence centralised at every MCP-tool boundary.**
+  `sanitizeForPrompt` extracted to `src/util/prompt-sanitize.ts` (was previously
+  living only inside `src/learning/format.ts`). Wired into `compose_prd_parse`
+  (prd_text + task titles in renderExisting), `compose_advisory_bundle`
+  (user_prompt + plan), and `compose_squad_workflow` (user_prompt at handler
+  entry — closes the direct-call bypass that the bundle's wrapper missed).
+  `validate_plan_text` intentionally NOT wired in: it inspects code fences, so
+  collapsing them would break the validator. JSDoc note inline so a future
+  refactor doesn't reintroduce the call. (Refs: deep-review D5.)
+- **Sanitiser strip-set extended.** Added six codepoint classes
+  (line/paragraph separators U+2028/2029, variation selectors,
+  Unicode tag block U+E0000-E007F, Hangul/Khmer/Braille fillers,
+  soft hyphen, CGJ, word joiner, invisible operators) plus role-token shape
+  removal (`</system>`, `[INST]`, `<|im_start|>`, EOS tokens) and
+  triple-backtick collapse. NFKC normalisation applied at render only — on-disk
+  journal retains original codepoints for audit. (Refs: deep-review D4.)
+- **REFUSE rule enforced at record-time.** `record_learning` rejects eight
+  instruction-shaped patterns on the `reason` field with
+  `SquadError("INSTRUCTION_SHAPED_PAYLOAD")` before any disk side-effect. The
+  `finding` field is intentionally not REFUSE-checked — it may legitimately
+  quote injection patterns in titles. Error message and details never include
+  the matched regex source — leaking the pattern would help an attacker craft
+  bypasses. (Refs: deep-review D4.)
+- **File-mode hygiene backported across stores.** `learnings.jsonl`,
+  `tasks.json`, and `tasks.json.prev` now created at mode 0o600 with a
+  defensive `fchmod` inside the lock to fix pre-existing 0o644 files from
+  earlier versions. `.squad/` directory created at 0o700. Mirrors the
+  discipline `runs/store.ts` already shipped. (Refs: deep-review D1.)
+
+### Added
+
+- `src/util/jsonl-store.ts` — generic `JsonlStore<T extends { schema_version: 1 }>`
+  base class. Cache key is `(mtime, size)`. `schema_version` pre-check skips
+  unknown versions before Zod parse (forward-compat with future schema bumps —
+  v2 rows are skipped+logged, not quarantined as corrupt). Quarantine writer
+  uses mode 0o600. `learning/store.ts` migrated onto it as a module-scope
+  singleton, all legacy exports preserved (`appendLearning`, `readLearnings`,
+  `__resetLearningStoreCacheForTests`, etc.). `tasks/store.ts` stays separate
+  (single-JSON with `.prev` rotation) but receives the same hygiene fixes
+  surgically. `runs/store.ts` intentionally not migrated; consolidation is
+  tracked as a follow-up. (Refs: deep-review D1.)
+- `src/util/prompt-sanitize.ts` — centralised sanitiser exported for use at
+  every MCP-tool boundary, not just learnings render.
+- `LearningEntry.schema_version: z.literal(1).default(1)` — old rows without
+  the field default to v1 on read; new writes emit explicit. Forward-compat
+  hook for future schema bumps.
+- `INSTRUCTION_SHAPED_PAYLOAD` SquadError code in `src/errors.ts`.
+- `fast-check` devDependency. First property tests in the repo: sanitiser
+  idempotency + strip-set coverage (D4) and `JsonlStore` append/read roundtrip
+  (D1). Seeds the testing-property layer noted as a P2 follow-up.
+- `phase_timings` round-trip end-to-end on the MCP wire. Was being silently
+  stripped by a redeclared schema in `record_run`'s tool layer; the tool now
+  imports `runRecordSchema` from `src/runs/store.ts` directly. Three new
+  `tests/runs-e2e.test.ts` cases assert the field survives via raw-JSONL byte
+  inspection (not via `readRuns`, which would Zod-parse and could mask a silent
+  drop). (Refs: deep-review D2.)
+
+### Changed
+
+- **`record_run` tool no longer redeclares `runRecordSchema`.** Imports from
+  `src/runs/store.ts` (single source of truth). Drops 60+ lines of duplicated
+  enum/schema declarations and a redundant `as RunRecord` cast. The store
+  re-validates in `appendRun` as defense-in-depth for non-tool callers.
+  (Refs: deep-review D2.)
+- **`compose_advisory_bundle` `plan` schema** upgraded from `z.string().max(65_536)`
+  to `SafeString(65_536)` — closes the NUL-byte gap that `user_prompt`
+  already defended against.
+- **`compose_squad_workflow` output** gains `user_prompt: string` field
+  carrying the post-sanitize value. Stable contract addition; needed so the
+  property test `composeAdvisoryBundle.workflow.user_prompt === sanitizeForPrompt(x)`
+  can verify the wiring.
+- **`tasks/store.ts` cache key** extended from `(mtime)` to `(mtime, size)` —
+  closes the same-millisecond race the cycle-2 fix already closed for
+  `runs/store.ts`. (Refs: deep-review D1.)
+
+### Fixed
+
+- **`unhandledRejection` no longer kills the MCP server.** A peripheral
+  promise rejection (e.g. swallow-on-failure in the journal quarantine path)
+  used to take down every in-flight tool dispatch via `process.exit(1)`.
+  Now logs at error level and continues. `uncaughtException` still exits
+  (synchronous escaped exception implies state corruption — Node default).
+  Asymmetry documented inline with rationale. (Refs: deep-review D8.)
+- `truncate` made generic to drop an unsound `as string` cast in the
+  observability logger.
+- Idempotency guard added against double `setupProcessHandlers` registration;
+  test-only reset hook for deterministic re-registration in vitest.
+- `.squad/tasks.json` untracked from git history — was a stale v0.8.0 snapshot
+  shipping with releases. The SKILL.md leaves it opt-in per repo; for the
+  squad-mcp repo itself, individual contributors run `/squad:tasks` ad-hoc
+  and don't need to share decompositions.
+
+### Engineering / DX (carried forward from v0.14)
+
+- Minimum Node bumped to 22 (active LTS). CI matrix runs Node 22 + 24 across
+  Ubuntu and Windows.
+- Husky + lint-staged pre-commit hook (prettier + eslint on staged TS/MJS).
+- `bin/launch.mjs` first-run wrapper builds `dist/` via `npm run build` if
+  missing, so a fresh `claude plugin install` boots without manual `npm run build`.
+- `scripts/prepare.mjs` replaces a fragile shell one-liner in `package.json`'s
+  `prepare` script — POSIX `[ -d ... ]` doesn't survive `cmd.exe` dispatch on
+  Windows runners.
+
+### Tests
+
+- 822 passing (up from 649 at v0.13.1). 31 new tests in the P0 sprint:
+  - `tests/jsonl-store.test.ts` (NEW, 26 cases including a fast-check property
+    roundtrip)
+  - `tests/prompt-sanitize.test.ts` (renamed from `learning-format-sanitize.test.ts`)
+  - `tests/prompt-sanitize-property.test.ts` (renamed)
+  - `tests/prompt-sanitize-boundary.test.ts` (NEW, 21 cases covering 4 tool
+    boundaries × 3 attack vectors plus position-ordering, NUL refusal, and
+    fast-check passthrough property)
+  - `tests/record-learning-refuse.test.ts` (NEW, 12 cases for the REFUSE rule)
+  - `tests/logger-process-handlers.test.ts` (NEW, 4 cases for the unhandledRejection
+    behaviour change)
+  - `tests/runs-e2e.test.ts` extended with `phase_timings` describe block (3 cases)
+  - `tests/learning-store.test.ts` extended with backward-compat + mode 0o600 cases
+  - `tests/tasks-store.test.ts` extended with race regression for the size+mtime cache
+
+### Known limitations / follow-ups
+
+- **`/squad:stats` does not yet surface `phase_timings`.** The wire is fixed
+  (D2) but `src/runs/aggregate.ts` doesn't read the field — `--profile` runs
+  persist phase data correctly but the panel won't display it until the
+  aggregator is updated. TODO comment lives in `tests/runs-e2e.test.ts` above
+  the new describe block.
+- **`runs/store.ts` not migrated to `JsonlStore<T>`.** Already had the
+  cycle-2 hardening; consolidation is DRY-only, not a bug fix. Tracked as a
+  v1.x follow-up.
+- **`record_run` single-writer contract is documentation-only.** The
+  architect's deep-review projection had a run-token capability gating
+  v1.0; we shipped 1.0 with the documented honour system instead.
+- **D3 (`zodToJsonSchema` lossy)**, **D6 (`util/finding-fingerprint` →
+  `learning/normalize` inversion)**, **D11 (sequential slice loop in
+  `compose_advisory_bundle`)**, **D13 (no e2e test of compose-workflow →
+  bundle → consolidate chain)** — P1 follow-ups from the deep review.
+- **D7/D9/D10/D12** — P2 continuous-improvement items
+  (`LANGUAGE_AWARE_AGENTS` manifest-driven, `SERVER_VERSION` derived from
+  `package.json`, magic `8192` constant deduplication, broader property
+  test layer).
+
 ## [0.13.1] - 2026-05-11
 
 Patch release: bump-only marker for the next dev cycle on top of v0.13.0.
@@ -1050,7 +1208,8 @@ update at commit `052c2ad`.
 - Smoke test (`tests/smoke.mjs`) plus initial unit tests for `score_risk`,
   `select_squad`, `consolidate`.
 
-[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ggemba/squad-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ggemba/squad-mcp/releases/tag/v1.0.0
 [0.5.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ggemba/squad-mcp/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ggemba/squad-mcp/releases/tag/v0.3.1
