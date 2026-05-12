@@ -39,8 +39,8 @@
   "skills": "./skills/",
   "mcpServers": {
     "squad": {
-      "command": "npx",
-      "args": ["-y", "@gempack/squad-mcp@0.13.1"]
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"]
     }
   }
 }
