@@ -41,6 +41,7 @@
     "test:coverage": "vitest run --coverage",
     "smoke": "node tests/smoke.mjs",
     "migrate-jsonl-agents": "node tools/migrate-jsonl-agents.mjs",
+    "bump-version": "node scripts/bump-version.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
