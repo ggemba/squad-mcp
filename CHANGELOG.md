@@ -7,6 +7,106 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-05-13
+
+### BREAKING — agent identifier rename (`senior-*` → bare names)
+
+All eight advisory + utility agents drop the `senior-` prefix. The four
+non-`senior-*` agents (`product-owner`, `tech-lead-planner`,
+`tech-lead-consolidator`, `code-explorer`) are unchanged. Rename mapping:
+
+| Before                | After         |
+| --------------------- | ------------- |
+| `senior-architect`    | `architect`   |
+| `senior-dba`          | `dba`         |
+| `senior-debugger`     | `debugger`    |
+| `senior-developer`    | `developer`   |
+| `senior-dev-reviewer` | `reviewer`    |
+| `senior-dev-security` | `security`    |
+| `senior-implementer`  | `implementer` |
+| `senior-qa`           | `qa`          |
+
+#### Public MCP resource URIs (breaking)
+
+The eight `agent://` MCP resources rotate URIs in lockstep with the rename:
+
+- `agent://senior-architect` → `agent://architect`
+- `agent://senior-dba` → `agent://dba`
+- `agent://senior-debugger` → `agent://debugger`
+- `agent://senior-developer` → `agent://developer`
+- `agent://senior-dev-reviewer` → `agent://reviewer`
+- `agent://senior-dev-security` → `agent://security`
+- `agent://senior-implementer` → `agent://implementer`
+- `agent://senior-qa` → `agent://qa`
+
+External consumers that pin `agent://senior-*` resource URIs in scripts or
+dashboards must update to the bare form. The four unchanged URIs
+(`agent://product-owner`, `agent://tech-lead-planner`,
+`agent://tech-lead-consolidator`, `agent://code-explorer`) are unaffected.
+
+#### SARIF rule-id + canonical-hash rotation
+
+`src/format/sarif.ts` builds `ruleId` as `${agent}:${severity.toLowerCase()}`
+and feeds `agent` into `partialFingerprints.canonicalHash` via
+`fingerprintFinding`. Both rotate with the rename — any previously-suppressed
+finding keyed on `senior-developer:major` (or any other old combination) will
+re-fire as a new finding under `developer:major`. Suppressions tracked in
+GitHub/Bitbucket/SonarQube will need to be re-applied once after the upgrade.
+
+#### Journal `schema_version` bumped v1 → v2
+
+`.squad/runs.jsonl` and `.squad/learnings.jsonl` both move from
+`schema_version: 1` → `2`. New rows go out as v2 with the new agent names.
+Existing v1 rows (which carry the OLD `senior-*` agent names) hit the pre-Zod
+gate at `src/util/jsonl-store.ts` and `src/runs/store.ts` and are **skip+logged,
+not quarantined**. They stay on disk for forensics; the aggregator just
+ignores them.
+
+#### Migration tool: `tools/migrate-jsonl-agents.mjs`
+
+A Node-built-in-only migration tool rewrites the three affected files in
+place:
+
+```
+node tools/migrate-jsonl-agents.mjs --workspace-root <path>
+```
+
+Flags: `--dry-run` (report without writing), `--yes` (skip prompts).
+What it does:
+
+- For `.squad/runs.jsonl` and `.squad/learnings.jsonl`: parses each row,
+  rewrites every string value matching one of the 8 old agent names to the
+  new name, AND bumps `schema_version` from 1 → 2. Writes atomically via
+  temp+rename.
+- For `.squad.yaml`: regex-rewrites the same 8 identifiers (preserves
+  comments and structure).
+
+The `npm run migrate-jsonl-agents` script is the same entry point.
+
+Manual `sed` alternative for `.squad.yaml` only (does NOT touch the JSONL
+schema_version):
+
+```
+sed -i 's/senior-architect/architect/g; s/senior-dba/dba/g; \
+        s/senior-debugger/debugger/g; s/senior-developer/developer/g; \
+        s/senior-dev-reviewer/reviewer/g; s/senior-dev-security/security/g; \
+        s/senior-implementer/implementer/g; s/senior-qa/qa/g' .squad.yaml
+```
+
+#### What you need to do
+
+1. Pull the new release.
+2. If you have `.squad/runs.jsonl`, `.squad/learnings.jsonl`, or `.squad.yaml`:
+   run `node tools/migrate-jsonl-agents.mjs --workspace-root .` once.
+3. If you have CI rules/dashboards keyed on `agent://senior-*` resource URIs
+   or SARIF rule ids: update them to the bare names.
+4. If you have a `.squad.yaml` with `weights.senior-*` or
+   `disable_agents: [senior-*]` entries that the migration tool didn't catch
+   (custom layout), rename them manually.
+
+The four non-`senior-*` agent names are unchanged. The bundled subagent
+markdown files in `agents/` were renamed via `git mv` so blame survives.
+
 ## [1.0.0] - 2026-05-12
 
 First stable release. Bundles the v0.14 work (engines bump, husky pre-commit,

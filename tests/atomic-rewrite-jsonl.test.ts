@@ -206,7 +206,7 @@ describe("atomicRewriteJsonl — round-trip with shaped data", () => {
     const file = path.join(workspace, "shaped.jsonl");
     const row = {
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "missing index",
       decision: "accept",
       archived: false,

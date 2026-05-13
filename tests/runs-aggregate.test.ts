@@ -21,7 +21,7 @@ import { type RunRecord, type AgentMetrics } from "../src/runs/store.js";
 
 function rec(over: Partial<RunRecord> = {}): RunRecord {
   return {
-    schema_version: 1,
+    schema_version: 2,
     id: over.id ?? "r1",
     status: "completed",
     started_at: "2026-05-11T10:00:00.000Z",
@@ -34,7 +34,7 @@ function rec(over: Partial<RunRecord> = {}): RunRecord {
     git_ref: { kind: "head", value: "abc" },
     files_count: 3,
     agents: over.agents ?? [
-      agent("senior-developer", { prompt_chars: 3500, response_chars: 700, score: 82 }),
+      agent("developer", { prompt_chars: 3500, response_chars: 700, score: 82 }),
     ],
     verdict: "APPROVED",
     weighted_score: 82,
@@ -80,8 +80,8 @@ describe("getEstTokens + getEstTokensPerAgent", () => {
   it("sums input and output independently", () => {
     const r = rec({
       agents: [
-        agent("senior-developer", { prompt_chars: 700, response_chars: 0 }),
-        agent("senior-qa", { prompt_chars: 0, response_chars: 350 }),
+        agent("developer", { prompt_chars: 700, response_chars: 0 }),
+        agent("qa", { prompt_chars: 0, response_chars: 350 }),
       ],
     });
     const t = getEstTokens(r);
@@ -93,14 +93,14 @@ describe("getEstTokens + getEstTokensPerAgent", () => {
   it("rolls up tokens per-agent across runs", () => {
     const r1 = rec({
       id: "x",
-      agents: [agent("senior-developer", { prompt_chars: 700, response_chars: 350 })],
+      agents: [agent("developer", { prompt_chars: 700, response_chars: 350 })],
     });
     const r2 = rec({
       id: "y",
-      agents: [agent("senior-developer", { prompt_chars: 1400, response_chars: 0 })],
+      agents: [agent("developer", { prompt_chars: 1400, response_chars: 0 })],
     });
     const per = getEstTokensPerAgent([r1, r2]);
-    const dev = per.get("senior-developer");
+    const dev = per.get("developer");
     expect(dev).toBeDefined();
     expect(dev!.input).toBe(estimateTokens(700) + estimateTokens(1400));
   });
@@ -392,8 +392,8 @@ describe("aggregateLanguageSupplementImpact", () => {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-developer"],
-        agents: [agent("senior-developer", { score: 80 })],
+        agents_with_supplement: ["developer"],
+        agents: [agent("developer", { score: 80 })],
       }),
       // in_flight row with the same agent — must NOT contribute
       {
@@ -401,14 +401,14 @@ describe("aggregateLanguageSupplementImpact", () => {
           injected: true,
           detected: ["typescript"],
           confidence: "high",
-          agents_with_supplement: ["senior-developer"],
-          agents: [agent("senior-developer", { score: 99 })],
+          agents_with_supplement: ["developer"],
+          agents: [agent("developer", { score: 99 })],
         }),
         status: "in_flight",
       },
     ];
     const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
-    const dev = out.find((r) => r.agent === "senior-developer")!;
+    const dev = out.find((r) => r.agent === "developer")!;
     expect(dev.with_supplement.n).toBe(1);
     expect(dev.with_supplement.avg_score).toBe(80);
   });
@@ -419,11 +419,11 @@ describe("aggregateLanguageSupplementImpact", () => {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-developer", "senior-qa"],
+        agents_with_supplement: ["developer", "qa"],
         agents: [
-          agent("senior-developer", { score: 90, severity_score: 100 }),
-          agent("senior-qa", { score: 80, severity_score: 200 }),
-          agent("senior-architect", { score: 70, severity_score: 300 }),
+          agent("developer", { score: 90, severity_score: 100 }),
+          agent("qa", { score: 80, severity_score: 200 }),
+          agent("architect", { score: 70, severity_score: 300 }),
         ],
       }),
       langRec("r2", {
@@ -434,13 +434,13 @@ describe("aggregateLanguageSupplementImpact", () => {
         confidence: "high",
         agents_with_supplement: [],
         agents: [
-          agent("senior-developer", { score: 70, severity_score: 400 }),
-          agent("senior-qa", { score: 60, severity_score: 500 }),
+          agent("developer", { score: 70, severity_score: 400 }),
+          agent("qa", { score: 60, severity_score: 500 }),
         ],
       }),
     ];
     const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
-    const dev = out.find((r) => r.agent === "senior-developer")!;
+    const dev = out.find((r) => r.agent === "developer")!;
     expect(dev.with_supplement.n).toBe(1);
     expect(dev.with_supplement.avg_score).toBe(90);
     expect(dev.without_supplement.n).toBe(1);
@@ -448,7 +448,7 @@ describe("aggregateLanguageSupplementImpact", () => {
     expect(dev.delta_score).toBe(20);
     expect(dev.delta_severity_score).toBe(-300); // 100 − 400, lower severity is better
 
-    const qa = out.find((r) => r.agent === "senior-qa")!;
+    const qa = out.find((r) => r.agent === "qa")!;
     expect(qa.delta_score).toBe(20); // 80 − 60
   });
 
@@ -458,19 +458,19 @@ describe("aggregateLanguageSupplementImpact", () => {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-developer"],
-        agents: [agent("senior-developer", { score: 90 })],
+        agents_with_supplement: ["developer"],
+        agents: [agent("developer", { score: 90 })],
       }),
       langRec("r2", {
         injected: false,
         detected: ["go"],
         confidence: "high",
         agents_with_supplement: [],
-        agents: [agent("senior-developer", { score: 70 })],
+        agents: [agent("developer", { score: 70 })],
       }),
     ];
     const out = aggregateLanguageSupplementImpact(records, { min_n: 5 });
-    const dev = out.find((r) => r.agent === "senior-developer")!;
+    const dev = out.find((r) => r.agent === "developer")!;
     expect(dev.with_supplement.n).toBe(1);
     expect(dev.without_supplement.n).toBe(1);
     expect(dev.delta_score).toBeNull();
@@ -487,7 +487,7 @@ describe("aggregateLanguageSupplementImpact", () => {
         detected: [],
         confidence: "none",
         agents_with_supplement: [],
-        agents: [agent("senior-developer", { score: 50 })],
+        agents: [agent("developer", { score: 50 })],
       }),
     ];
     const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
@@ -500,19 +500,19 @@ describe("aggregateLanguageSupplementImpact", () => {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-developer"],
-        agents: [agent("senior-developer", { score: null, severity_score: null })],
+        agents_with_supplement: ["developer"],
+        agents: [agent("developer", { score: null, severity_score: null })],
       }),
       langRec("b", {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-developer"],
-        agents: [agent("senior-developer", { score: 80, severity_score: 100 })],
+        agents_with_supplement: ["developer"],
+        agents: [agent("developer", { score: 80, severity_score: 100 })],
       }),
     ];
     const out = aggregateLanguageSupplementImpact(records, { min_n: 1 });
-    const dev = out.find((r) => r.agent === "senior-developer")!;
+    const dev = out.find((r) => r.agent === "developer")!;
     expect(dev.with_supplement.n).toBe(2); // both rows count toward n
     expect(dev.with_supplement.avg_score).toBe(80); // but only the non-null contributes
   });
@@ -523,11 +523,11 @@ describe("aggregateLanguageSupplementImpact", () => {
         injected: true,
         detected: ["typescript"],
         confidence: "high",
-        agents_with_supplement: ["senior-qa", "senior-developer", "senior-implementer"],
+        agents_with_supplement: ["qa", "developer", "implementer"],
         agents: [
-          agent("senior-qa", { score: 80 }),
-          agent("senior-developer", { score: 80 }),
-          agent("senior-implementer", { score: 80 }),
+          agent("qa", { score: 80 }),
+          agent("developer", { score: 80 }),
+          agent("implementer", { score: 80 }),
         ],
       }),
     ];

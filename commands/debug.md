@@ -1,5 +1,5 @@
 ---
-description: Read-only bug investigation. Dispatches code-explorer + senior-debugger to emit ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence and verification steps. Never writes code. Follow up with /squad:implement to fix.
+description: Read-only bug investigation. Dispatches code-explorer + debugger to emit ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence and verification steps. Never writes code. Follow up with /squad:implement to fix.
 argument-hint: "[--quick | --normal | --deep] <bug description> [stack trace] [repro steps]"
 ---
 
@@ -9,7 +9,7 @@ $ARGUMENTS
 
 Execute the skill exactly as specified at `skills/debug/SKILL.md`. The full contract — Inviolable Rules, three-phase flow (orient → hypothesize → present), output format, and edge cases — lives there. This file is a thin trigger; the skill file is the source of truth.
 
-The skill dispatches the `code-explorer` subagent (Phase A) and then the `senior-debugger` subagent (Phase B), then presents ranked hypotheses with verification steps (Phase C). **No file writes. No commits. No implementation.** If the user replies "fix it" after reviewing the hypotheses, redirect them to `/squad:implement`.
+The skill dispatches the `code-explorer` subagent (Phase A) and then the `debugger` subagent (Phase B), then presents ranked hypotheses with verification steps (Phase C). **No file writes. No commits. No implementation.** If the user replies "fix it" after reviewing the hypotheses, redirect them to `/squad:implement`.
 
 Critical reminders:
 

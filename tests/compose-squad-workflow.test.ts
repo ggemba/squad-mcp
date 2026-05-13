@@ -43,7 +43,7 @@ describe("composeSquadWorkflow", () => {
     expect(out.work_type).toBe(out.classification.work_type);
     expect(out.risk).toBeDefined();
     expect(out.squad).toBeDefined();
-    expect(out.squad.agents).toEqual(expect.arrayContaining(["senior-developer", "senior-qa"]));
+    expect(out.squad.agents).toEqual(expect.arrayContaining(["developer", "qa"]));
   });
 
   it("infers risk signals from changed file paths", async () => {
@@ -101,12 +101,12 @@ describe("composeSquadWorkflow", () => {
     const out = await composeSquadWorkflow({
       workspace_root: "C:/fake/workspace",
       user_prompt: "add feature",
-      force_agents: ["senior-qa"],
+      force_agents: ["qa"],
       read_content: false,
       staged_only: false,
     });
 
-    expect(out.squad.agents).toContain("senior-qa");
+    expect(out.squad.agents).toContain("qa");
   });
 
   it("detects migrations folder as touches_migration", async () => {
@@ -158,7 +158,7 @@ describe("composeSquadWorkflow", () => {
       expect(out.mode_source).toBe("auto");
       expect(out.mode_warning).toBeUndefined();
       expect(out.squad.agents.length).toBeLessThanOrEqual(2);
-      expect(out.squad.agents).toContain("senior-developer");
+      expect(out.squad.agents).toContain("developer");
     });
 
     it("auto-detects deep on a High-risk auth change", async () => {
@@ -174,8 +174,8 @@ describe("composeSquadWorkflow", () => {
 
       expect(out.mode).toBe("deep");
       expect(out.mode_source).toBe("auto");
-      expect(out.squad.agents).toContain("senior-architect");
-      expect(out.squad.agents).toContain("senior-dev-security");
+      expect(out.squad.agents).toContain("architect");
+      expect(out.squad.agents).toContain("security");
     });
 
     it("user-forced deep on a trivial diff wins over auto-detect", async () => {
@@ -192,11 +192,11 @@ describe("composeSquadWorkflow", () => {
 
       expect(out.mode).toBe("deep");
       expect(out.mode_source).toBe("user");
-      expect(out.squad.agents).toContain("senior-architect");
-      expect(out.squad.agents).toContain("senior-dev-security");
+      expect(out.squad.agents).toContain("architect");
+      expect(out.squad.agents).toContain("security");
     });
 
-    it("user-forced quick on high-risk emits mode_warning and force-includes senior-dev-security", async () => {
+    it("user-forced quick on high-risk emits mode_warning and force-includes security", async () => {
       detectChangedFilesMock.mockResolvedValue(highRiskAuth);
 
       const out = await composeSquadWorkflow({
@@ -217,10 +217,10 @@ describe("composeSquadWorkflow", () => {
       // re-phrasing should fail loudly. Bump the snapshot deliberately if the
       // copy is intentionally updated.
       expect(out.mode_warning?.message).toMatchInlineSnapshot(
-        `"user forced --quick on a high-risk diff; senior-dev-security force-included in the 2-agent cap as a safety override"`,
+        `"user forced --quick on a high-risk diff; security force-included in the 2-agent cap as a safety override"`,
       );
       expect(out.squad.agents).toHaveLength(2);
-      expect(out.squad.agents).toContain("senior-dev-security");
+      expect(out.squad.agents).toContain("security");
     });
 
     it("quick-mode cap drops force_agents beyond 2 and emits force_agents_truncated", async () => {
@@ -234,7 +234,7 @@ describe("composeSquadWorkflow", () => {
         mode: "quick",
         staged_only: false,
         read_content: false,
-        force_agents: ["senior-dba", "senior-architect", "senior-dev-security"],
+        force_agents: ["dba", "architect", "security"],
       });
 
       expect(out.mode).toBe("quick");
@@ -243,7 +243,7 @@ describe("composeSquadWorkflow", () => {
       expect(out.mode_warning?.code).toBe("force_agents_truncated");
       expect(out.mode_warning?.message).toMatch(/quick mode caps the squad at 2/);
       // Earlier force_agents win the two slots; the last gets dropped.
-      expect(out.squad.agents).toEqual(["senior-dba", "senior-architect"]);
+      expect(out.squad.agents).toEqual(["dba", "architect"]);
     });
 
     it("rollback contract: omitting mode still selects normal for a Medium-risk diff", async () => {

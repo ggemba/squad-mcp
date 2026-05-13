@@ -1,4 +1,4 @@
-# Senior-Implementer — C# / .NET supplement
+# Implementer — C# / .NET supplement
 
 Use alongside the core role.
 

@@ -111,8 +111,8 @@ describe("server lifecycle", () => {
     const callRes = await handle.recv(2);
     const text = (callRes.result as { content: { text: string }[] }).content[0]!.text;
     const parsed = JSON.parse(text) as { agents: string[] };
-    expect(parsed.agents).toContain("senior-dev-security");
-    expect(parsed.agents).toContain("senior-dba");
-    expect(parsed.agents).toContain("senior-developer");
+    expect(parsed.agents).toContain("security");
+    expect(parsed.agents).toContain("dba");
+    expect(parsed.agents).toContain("developer");
   }, 15_000);
 });

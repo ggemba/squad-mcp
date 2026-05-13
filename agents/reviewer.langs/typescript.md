@@ -1,4 +1,4 @@
-# Senior-Dev-Reviewer — TypeScript / JavaScript supplement
+# Reviewer — TypeScript / JavaScript supplement
 
 Use this checklist alongside the core role. The core covers WHAT you review; this covers HOW that looks in TypeScript code specifically. Skip items that don't apply to the diff at hand.
 

@@ -54,7 +54,7 @@ describe("formatSarif — finding mapping", () => {
     const log = formatSarif(
       makeConsolidation({
         verdict: "REJECTED",
-        blockers: [{ agent: "senior-architect", title: "Module boundary violated" }],
+        blockers: [{ agent: "architect", title: "Module boundary violated" }],
         severity_counts: { Blocker: 1, Major: 0, Minor: 0, Suggestion: 0 },
       }),
     );
@@ -62,15 +62,15 @@ describe("formatSarif — finding mapping", () => {
     const r = log.runs[0].results[0];
     expect(r.level).toBe("error");
     expect(r.message.text).toBe("Module boundary violated");
-    expect(r.ruleId).toBe("senior-architect:blocker");
+    expect(r.ruleId).toBe("architect:blocker");
     expect(r.partialFingerprints.canonicalHash).toMatch(/^[0-9a-f]{16}$/);
-    expect(r.properties).toEqual({ severity: "Blocker", agent: "senior-architect" });
+    expect(r.properties).toEqual({ severity: "Blocker", agent: "architect" });
   });
 
   it("maps unjustified majors to error level", () => {
     const log = formatSarif(
       makeConsolidation({
-        majors_unjustified: [{ agent: "senior-developer", title: "Async error handling missing" }],
+        majors_unjustified: [{ agent: "developer", title: "Async error handling missing" }],
         severity_counts: { Blocker: 0, Major: 1, Minor: 0, Suggestion: 0 },
       }),
     );
@@ -83,23 +83,23 @@ describe("formatSarif — finding mapping", () => {
     const log = formatSarif(
       makeConsolidation({
         blockers: [
-          { agent: "senior-developer", title: "X" },
-          { agent: "senior-developer", title: "Y" },
+          { agent: "developer", title: "X" },
+          { agent: "developer", title: "Y" },
         ],
-        majors_unjustified: [{ agent: "senior-developer", title: "Z" }],
+        majors_unjustified: [{ agent: "developer", title: "Z" }],
         severity_counts: { Blocker: 2, Major: 1, Minor: 0, Suggestion: 0 },
       }),
     );
     const rules = log.runs[0].tool.driver.rules.map((r) => r.id);
-    expect(rules).toEqual(["senior-developer:blocker", "senior-developer:major"]);
+    expect(rules).toEqual(["developer:blocker", "developer:major"]);
   });
 
   it("identical findings produce the same fingerprint (idempotent dedup signal)", () => {
     const log = formatSarif(
       makeConsolidation({
         blockers: [
-          { agent: "senior-architect", title: "Cycle in dependency graph" },
-          { agent: "senior-architect", title: "Cycle in dependency graph" },
+          { agent: "architect", title: "Cycle in dependency graph" },
+          { agent: "architect", title: "Cycle in dependency graph" },
         ],
         severity_counts: { Blocker: 2, Major: 0, Minor: 0, Suggestion: 0 },
       }),

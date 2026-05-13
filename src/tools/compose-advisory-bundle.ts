@@ -32,10 +32,10 @@ import { logger } from "../observability/logger.js";
  * `tests/agent-language-supplements.test.ts`, which fails CI on any drift.
  */
 export const LANGUAGE_AWARE_AGENTS: readonly AgentName[] = [
-  "senior-developer",
-  "senior-dev-reviewer",
-  "senior-qa",
-  "senior-implementer",
+  "developer",
+  "reviewer",
+  "qa",
+  "implementer",
 ] as const;
 
 const schema = z.object({

@@ -14,9 +14,9 @@ describe("selectSquad — extended", () => {
       work_type: "Feature",
       files: ["src/components/Login.tsx"], // user-facing — keeps PO in core (v0.12 C2)
       read_content: false,
-      force_agents: ["senior-dba", "senior-architect"],
+      force_agents: ["dba", "architect"],
     });
-    // Feature core matrix is [product-owner, senior-developer, senior-qa] in
+    // Feature core matrix is [product-owner, developer, qa] in
     // that order; force_agents come last. Insertion-order is the contract
     // since v0.8.0 so shapeSquadForMode can take top-2 by rank.
     //
@@ -24,13 +24,7 @@ describe("selectSquad — extended", () => {
     // surface. A .tsx component qualifies; this test now uses a tsx fixture
     // so the ordering contract is exercised in isolation from the demotion
     // rule (which has dedicated tests in select-squad.test.ts).
-    expect(r.agents).toEqual([
-      "product-owner",
-      "senior-developer",
-      "senior-qa",
-      "senior-dba",
-      "senior-architect",
-    ]);
+    expect(r.agents).toEqual(["product-owner", "developer", "qa", "dba", "architect"]);
   });
 
   it("handles empty file list with only core agents", async () => {
@@ -40,7 +34,7 @@ describe("selectSquad — extended", () => {
       read_content: false,
       force_agents: [],
     });
-    expect(r.agents).toEqual(expect.arrayContaining(["senior-developer", "senior-qa"]));
+    expect(r.agents).toEqual(expect.arrayContaining(["developer", "qa"]));
     expect(r.evidence).toHaveLength(0);
     expect(r.low_confidence_files).toHaveLength(0);
   });
@@ -78,8 +72,8 @@ describe("selectSquad — extended", () => {
       workspace_root: dir,
       force_agents: [],
     });
-    expect(r.agents).toContain("senior-developer");
-    expect(r.agents).toContain("senior-dev-security");
+    expect(r.agents).toContain("developer");
+    expect(r.agents).toContain("security");
   });
 
   it("detects GORM in Go via ext-gated signal", async () => {
@@ -96,7 +90,7 @@ describe("selectSquad — extended", () => {
       workspace_root: dir,
       force_agents: [],
     });
-    expect(r.agents).toContain("senior-dba");
+    expect(r.agents).toContain("dba");
   });
 
   it("detects Go test files via path hint", async () => {
@@ -106,6 +100,6 @@ describe("selectSquad — extended", () => {
       read_content: false,
       force_agents: [],
     });
-    expect(r.agents).toContain("senior-qa");
+    expect(r.agents).toContain("qa");
   });
 });

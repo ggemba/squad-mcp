@@ -29,7 +29,7 @@ afterEach(async () => {
 
 function baseInFlight(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
-    schema_version: 1,
+    schema_version: 2,
     id: overrides.id ?? generateRunId(),
     status: "in_flight",
     started_at: "2026-05-11T10:00:00.000Z",
@@ -41,7 +41,7 @@ function baseInFlight(overrides: Partial<RunRecord> = {}): RunRecord {
     files_count: 3,
     agents: [
       {
-        name: "senior-developer",
+        name: "developer",
         model: "inherit",
         score: null,
         severity_score: null,
@@ -57,7 +57,7 @@ function baseInFlight(overrides: Partial<RunRecord> = {}): RunRecord {
 
 function baseCompleted(id: string, overrides: Partial<RunRecord> = {}): RunRecord {
   return {
-    schema_version: 1,
+    schema_version: 2,
     id,
     status: "completed",
     started_at: "2026-05-11T10:00:00.000Z",
@@ -71,7 +71,7 @@ function baseCompleted(id: string, overrides: Partial<RunRecord> = {}): RunRecor
     files_count: 3,
     agents: [
       {
-        name: "senior-developer",
+        name: "developer",
         model: "sonnet",
         score: 82,
         severity_score: severityScore({ Blocker: 0, Major: 1, Minor: 2, Suggestion: 1 }),
@@ -159,7 +159,7 @@ describe("appendRun — validation + size cap", () => {
     });
     rec.git_ref = { kind: "head", value: ref200chars };
     rec.agents = Array.from({ length: 20 }).map(() => ({
-      name: "senior-developer" as const,
+      name: "developer" as const,
       model: "inherit" as const,
       score: null,
       severity_score: null,
@@ -179,7 +179,7 @@ describe("appendRun — validation + size cap", () => {
   });
 
   it("throws INVALID_INPUT when the record fails Zod validation", async () => {
-    const bad = { ...baseInFlight(), schema_version: 2 } as unknown as RunRecord;
+    const bad = { ...baseInFlight(), schema_version: 3 } as unknown as RunRecord;
     let err: unknown;
     try {
       await appendRun(workspace, bad);

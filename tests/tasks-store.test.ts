@@ -150,12 +150,12 @@ describe("recordTasks", () => {
       {
         title: "auth",
         scope: "src/auth/**",
-        agent_hints: ["senior-dev-security", "senior-developer"],
+        agent_hints: ["security", "developer"],
       },
     ]);
     const f = await readTasks(workspace);
     expect(f.tasks[0]!.scope).toBe("src/auth/**");
-    expect(f.tasks[0]!.agent_hints).toEqual(["senior-dev-security", "senior-developer"]);
+    expect(f.tasks[0]!.agent_hints).toEqual(["security", "developer"]);
   });
 
   it("rejects empty input", async () => {

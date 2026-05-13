@@ -15,12 +15,12 @@ Development skill that takes a user prompt, builds an implementation plan, runs 
 | `po`                     | Business value, UX, requirements fit         |
 | `tech-lead-planner`      | Pre-implementation trade-offs and viability  |
 | `tech-lead-consolidator` | Post-implementation final verdict            |
-| `senior-architect`       | Boundaries, DI, scalability                  |
-| `senior-dba`             | Queries, migrations, EF, cache               |
-| `senior-developer`       | Correctness, robustness, APIs, observability |
-| `senior-dev-reviewer`    | Readability, idioms, naming                  |
-| `senior-dev-security`    | OWASP, authz, sensitive data                 |
-| `senior-qa`              | Test coverage, strategy, reliability         |
+| `architect`              | Boundaries, DI, scalability                  |
+| `dba`                    | Queries, migrations, EF, cache               |
+| `developer`              | Correctness, robustness, APIs, observability |
+| `reviewer`               | Readability, idioms, naming                  |
+| `security`               | OWASP, authz, sensitive data                 |
+| `qa`                     | Test coverage, strategy, reliability         |
 
 ## General Flow
 
@@ -199,21 +199,21 @@ Present the final plan and wait for explicit approval. Do not proceed without it
 
 **Selection by work type:**
 
-| Work Type     | Core Agents                                      | Conditional Agents                                                                     |
-| ------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Feature       | po, senior-developer, senior-qa                  | +senior-dba if data, +senior-architect if new module, +senior-dev-security if endpoint |
-| Bug Fix       | senior-developer, senior-qa                      | +senior-dba if query/cache, +senior-dev-security if security bug                       |
-| Refactor      | senior-architect, senior-dev-reviewer, senior-qa | +senior-developer if behavior changes                                                  |
-| Performance   | senior-developer, senior-dba                     | +senior-architect if structural                                                        |
-| Security      | senior-dev-security, senior-developer            | +senior-dev-reviewer if large code change                                              |
-| Business Rule | po, senior-developer, senior-qa                  | +senior-dba if data-bound                                                              |
+| Work Type     | Core Agents             | Conditional Agents                                            |
+| ------------- | ----------------------- | ------------------------------------------------------------- |
+| Feature       | po, developer, qa       | +dba if data, +architect if new module, +security if endpoint |
+| Bug Fix       | developer, qa           | +dba if query/cache, +security if security bug                |
+| Refactor      | architect, reviewer, qa | +developer if behavior changes                                |
+| Performance   | developer, dba          | +architect if structural                                      |
+| Security      | security, developer     | +reviewer if large code change                                |
+| Business Rule | po, developer, qa       | +dba if data-bound                                            |
 
 **Hard conditionals based on touched files:**
 
-- Query / Migration / EF / Cache → `senior-dba` required
-- DI / Boundaries / new project or module → `senior-architect` required
-- Endpoint / Auth / Middleware → `senior-dev-security` required
-- Tests added or modified → `senior-qa` required
+- Query / Migration / EF / Cache → `dba` required
+- DI / Boundaries / new project or module → `architect` required
+- Endpoint / Auth / Middleware → `security` required
+- Tests added or modified → `qa` required
 
 `tech-lead-planner` already reported in Phase 2 — does not run here.
 `tech-lead-consolidator` runs only in Phase 10.
@@ -253,9 +253,9 @@ If an advisory agent forwarded a Blocker/Major to an agent that was not selected
 
 ### Phase 8 — Implementation
 
-**v0.13+:** Dispatched to the dedicated `senior-implementer` subagent (Opus-pinned), NOT performed by the orchestrator. See `skills/squad/SKILL.md` Phase 8 for the full dispatch contract.
+**v0.13+:** Dispatched to the dedicated `implementer` subagent (Opus-pinned), NOT performed by the orchestrator. See `skills/squad/SKILL.md` Phase 8 for the full dispatch contract.
 
-- Single `Task(subagent_type="senior-implementer")` carrying: workspace_root, test/lint command hints, the approved plan, advisory acceptance criteria (per-agent), files-in-scope (union of advisor slices), past team decisions (learnings.rendered), prior-iteration findings (Phase 11 only).
+- Single `Task(subagent_type="implementer")` carrying: workspace_root, test/lint command hints, the approved plan, advisory acceptance criteria (per-agent), files-in-scope (union of advisor slices), past team decisions (learnings.rendered), prior-iteration findings (Phase 11 only).
 - Subagent edits files honouring project patterns + advisory criteria. Method names in English. No emojis. No commit/push.
 - Subagent runs project test suite + lint to verify, returns a 6-section Implementation Report (Plan summary / Changes / Tests / Acceptance criteria coverage / Out of scope / Blockers).
 - Orchestrator inspects Section 6 (Blockers) FIRST — non-empty halts before Phase 9/10. Section 4 ❌ also halts.

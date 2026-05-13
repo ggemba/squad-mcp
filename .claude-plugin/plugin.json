@@ -14,15 +14,15 @@
     "./agents/product-owner.md",
     "./agents/tech-lead-planner.md",
     "./agents/tech-lead-consolidator.md",
-    "./agents/senior-architect.md",
-    "./agents/senior-dba.md",
-    "./agents/senior-developer.md",
-    "./agents/senior-dev-reviewer.md",
-    "./agents/senior-dev-security.md",
-    "./agents/senior-qa.md",
+    "./agents/architect.md",
+    "./agents/dba.md",
+    "./agents/developer.md",
+    "./agents/reviewer.md",
+    "./agents/security.md",
+    "./agents/qa.md",
     "./agents/code-explorer.md",
-    "./agents/senior-debugger.md",
-    "./agents/senior-implementer.md"
+    "./agents/debugger.md",
+    "./agents/implementer.md"
   ],
   "commands": [
     "./commands/implement.md",

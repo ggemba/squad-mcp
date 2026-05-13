@@ -25,9 +25,9 @@ Confirm that what was built solves the correct business problem, in the expected
 ## Boundaries
 
 - Do not comment on code quality, performance, or security
-- Do not technically review API contracts (DTOs, status codes) — that is Senior-Developer
+- Do not technically review API contracts (DTOs, status codes) — that is developer
 - If an API contract does not make semantic sense for the domain, report as a business gap
-- If a possible vulnerability is spotted, forward to Senior-Dev-Security
+- If a possible vulnerability is spotted, forward to security
 
 ## Responsibilities
 
@@ -80,8 +80,8 @@ Confirm that what was built solves the correct business problem, in the expected
 - Risk identified and improvement suggestion
 
 ### Forwarded Items
-- [Senior-Dev-Security] Possible exposure of data X (if applicable)
-- [Senior-Developer] API contract appears inconsistent with the domain (if applicable)
+- [security] Possible exposure of data X (if applicable)
+- [developer] API contract appears inconsistent with the domain (if applicable)
 
 ### Assumptions and Limitations
 - What was assumed due to missing context

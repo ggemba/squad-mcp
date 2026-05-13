@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Read-only bug investigation skill. Takes a bug description plus optional stack trace plus optional repro steps; orients via the code-explorer subagent, then dispatches the senior-debugger persona to emit N ranked hypotheses (1 on --quick, 3 on --normal, 5 with a top-2 cross-check pass on --deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Position in the workflow: /squad:question looks code up, /squad:debug reasons about why it failed, /squad:implement writes the fix. Trigger when the user types /squad:debug or asks to "investigate this bug", "what could cause...", "help me debug...".
+description: Read-only bug investigation skill. Takes a bug description plus optional stack trace plus optional repro steps; orients via the code-explorer subagent, then dispatches the debugger persona to emit N ranked hypotheses (1 on --quick, 3 on --normal, 5 with a top-2 cross-check pass on --deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Position in the workflow: /squad:question looks code up, /squad:debug reasons about why it failed, /squad:implement writes the fix. Trigger when the user types /squad:debug or asks to "investigate this bug", "what could cause...", "help me debug...".
 ---
 
 # Skill: Debug
@@ -32,11 +32,11 @@ This skill is read-only. It never edits files, never commits, never proposes a l
 /squad:debug [--quick | --normal | --deep] <bug description> [stack trace] [repro steps]
 ```
 
-| Flag       | Default | Description                                                                                           |
-| ---------- | ------- | ----------------------------------------------------------------------------------------------------- |
-| `--quick`  | off     | Single hypothesis (smoke test the obvious cause). code-explorer uses `breadth: quick`. Aim: sub-30s.  |
-| `--normal` | default | Three hypotheses. code-explorer uses `breadth: medium`. The implicit default.                         |
-| `--deep`   | off     | Five hypotheses + a `senior-developer` (opus) cross-check pass on the top-2 for plausibility re-rank. |
+| Flag       | Default | Description                                                                                          |
+| ---------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `--quick`  | off     | Single hypothesis (smoke test the obvious cause). code-explorer uses `breadth: quick`. Aim: sub-30s. |
+| `--normal` | default | Three hypotheses. code-explorer uses `breadth: medium`. The implicit default.                        |
+| `--deep`   | off     | Five hypotheses + a `developer` (opus) cross-check pass on the top-2 for plausibility re-rank.       |
 
 The user's free-form text after the flag is parsed into three slots (best-effort, single-pass):
 
@@ -57,8 +57,8 @@ Use the `squad` MCP server. The tools you will actually call here are:
 Subagents (via `Task(subagent_type=...)`):
 
 - `code-explorer` — Phase A orient (read-only, Haiku-class).
-- `senior-debugger` — Phase B hypothesize (read-only, Haiku-class, weight 0).
-- `senior-developer` — Phase B' cross-check pass (opus on `--deep` only).
+- `debugger` — Phase B hypothesize (read-only, Haiku-class, weight 0).
+- `developer` — Phase B' cross-check pass (opus on `--deep` only).
 
 Generate a fresh run id following the spec from `skills/squad/SKILL.md`: `Date.now().toString(36) + "-" + 6 chars from [a-z0-9]`.
 
@@ -89,8 +89,8 @@ record_run({
     files_count: 0,
     agents: [
       { name: "code-explorer", model: "haiku", score: null, severity_score: null, batch_duration_ms: 0, prompt_chars: 0, response_chars: 0 },
-      { name: "senior-debugger", model: "haiku", score: null, severity_score: null, batch_duration_ms: 0, prompt_chars: 0, response_chars: 0 },
-      // include { name: "senior-developer", model: "opus", ... } only when mode === "deep"
+      { name: "debugger", model: "haiku", score: null, severity_score: null, batch_duration_ms: 0, prompt_chars: 0, response_chars: 0 },
+      // include { name: "developer", model: "opus", ... } only when mode === "deep"
     ],
     est_tokens_method: "chars-div-3.5",
     mode_warning: null,
@@ -124,7 +124,7 @@ The orient-prompt should include:
 
 Capture the explorer's response. Time it for `batch_duration_ms`; measure prompt/response char count for the journal record at Phase C.
 
-## Phase B — Hypothesize (senior-debugger)
+## Phase B — Hypothesize (debugger)
 
 Resolve hypothesis count `N` from mode:
 
@@ -138,7 +138,7 @@ Dispatch the debugger:
 
 ```
 Task(
-  subagent_type: "senior-debugger",
+  subagent_type: "debugger",
   description: "Bug hypothesize",
   prompt: <hypothesize-prompt>,
   // Pass model: "opus" only on --deep (per the same model-override contract as the squad skill).
@@ -149,17 +149,17 @@ The hypothesize-prompt includes:
 
 - Bug description / stack trace / repro steps (same as Phase A, untrusted).
 - The full code-explorer response from Phase A under a `## Code-explorer findings` heading.
-- The literal request: "Emit exactly N=<N> ranked hypotheses per the senior-debugger output format. Stop at N. Do not pad."
+- The literal request: "Emit exactly N=<N> ranked hypotheses per the debugger output format. Stop at N. Do not pad."
 
 Capture the debugger's response.
 
 ## Phase B' — Cross-check (deep mode only)
 
-If `mode === "deep"`, dispatch `senior-developer` (opus) on the top-2 hypotheses from Phase B for plausibility re-rank:
+If `mode === "deep"`, dispatch `developer` (opus) on the top-2 hypotheses from Phase B for plausibility re-rank:
 
 ```
 Task(
-  subagent_type: "senior-developer",
+  subagent_type: "developer",
   description: "Hypothesis plausibility cross-check",
   prompt: <crosscheck-prompt>,
   model: "opus",
@@ -170,12 +170,12 @@ The crosscheck-prompt includes:
 
 - The bug description.
 - The code-explorer's findings (under the same heading).
-- The senior-debugger's top-2 hypotheses verbatim.
+- The debugger's top-2 hypotheses verbatim.
 - The literal request: "For each of these two hypotheses, give a one-paragraph plausibility assessment grounded in the code. State agreement with the rank or propose a swap. Do not propose new hypotheses; do not propose code patches."
 
 The Phase C output groups hypotheses as:
 
-- `Top 2 (cross-checked by senior-developer)` — Phase B hypotheses 1–2 + the cross-check verdict
+- `Top 2 (cross-checked by developer)` — Phase B hypotheses 1–2 + the cross-check verdict
 - `Additional N-2 (single-pass)` — Phase B hypotheses 3 through N
 
 ## Phase C — Present + finalize
@@ -255,9 +255,9 @@ record_run({
     files_count: 0,
     agents: [
       { name: "code-explorer", model: "haiku", score: null, severity_score: null, batch_duration_ms: <phase-A wall>, prompt_chars: <A prompt>, response_chars: <A response> },
-      { name: "senior-debugger", model: "haiku", score: null, severity_score: null, batch_duration_ms: <phase-B wall>, prompt_chars: <B prompt>, response_chars: <B response> },
+      { name: "debugger", model: "haiku", score: null, severity_score: null, batch_duration_ms: <phase-B wall>, prompt_chars: <B prompt>, response_chars: <B response> },
       // for --deep only:
-      // { name: "senior-developer", model: "opus", score: null, severity_score: null, batch_duration_ms: <phase-B' wall>, prompt_chars: <B' prompt>, response_chars: <B' response> },
+      // { name: "developer", model: "opus", score: null, severity_score: null, batch_duration_ms: <phase-B' wall>, prompt_chars: <B' prompt>, response_chars: <B' response> },
     ],
     verdict: null,                                    // debug runs don't carry a verdict
     weighted_score: null,                             // no rubric
@@ -282,8 +282,8 @@ If the user replies with the result of a verification step ("I ran your verifica
 
 - **Empty bug description after flag parsing** — refuse with `error: /squad:debug requires a bug description. Usage: /squad:debug [--quick|--normal|--deep] <bug>`. Do NOT write a journal row in this case.
 - **Stack trace longer than 4 KB** — truncate to 4 KB, set a `truncated` flag, surface in the final output. Do not pass the full untruncated trace to the persona.
-- **code-explorer returns "not found"** — pass through to senior-debugger; it will emit speculative hypotheses or fewer than N with an explicit "evidence does not support distinct causes" line in Phase B's output.
-- **senior-debugger emits fewer than N hypotheses** (honest empty-slot case) — render only the hypotheses it produced; do not pad. The skill's job is to surface the persona's output, not to fabricate.
+- **code-explorer returns "not found"** — pass through to debugger; it will emit speculative hypotheses or fewer than N with an explicit "evidence does not support distinct causes" line in Phase B's output.
+- **debugger emits fewer than N hypotheses** (honest empty-slot case) — render only the hypotheses it produced; do not pad. The skill's job is to surface the persona's output, not to fabricate.
 - **User passes `--quick` and `--deep` together** — last flag wins; warn.
 - **No `Task` subagent available in the host (non-Claude-Code MCP client)** — fall back to the `get_agent_definition` tool to load the persona markdown and embed it in a generic LLM dispatch. The two-phase journal write still applies.
 

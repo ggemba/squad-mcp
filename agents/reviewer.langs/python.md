@@ -1,4 +1,4 @@
-# Senior-Dev-Reviewer — Python supplement
+# Reviewer — Python supplement
 
 Use alongside the core role. Skip items that don't apply.
 

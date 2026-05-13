@@ -15,9 +15,9 @@ Same resolution rules as `/squad:implement`. The skill picks a depth from classi
 
 - `--quick` → cap squad to 2 agents, skip the `tech-lead-consolidator` persona (`apply_consolidation_rules` still runs). Aim: sub-30s verdict on small diffs. Example: `/squad:review --quick #42` for a small PR.
 - `--normal` (implicit default) → 4–7 agents, full pipeline, consolidator persona, scorecard. Pass explicitly to override an auto-detected `quick` / `deep`. Same vocabulary as `/brainstorm --normal` and `/squad:implement --normal`.
-- `--deep` → force-include `senior-architect` + `senior-dev-security`; Codex round suggested (still gated on `--codex`). Auto-picked on High risk, Security work-type, or auth/money/migration signals. Example: `/squad:review --deep main..feature/auth-rewrite`.
+- `--deep` → force-include `architect` + `security`; Codex round suggested (still gated on `--codex`). Auto-picked on High risk, Security work-type, or auth/money/migration signals. Example: `/squad:review --deep main..feature/auth-rewrite`.
 
-If the user FORCES `--quick` on a high-risk diff, `senior-dev-security` is force-included as one of the two and `mode_warning` is set in the output — surface it.
+If the user FORCES `--quick` on a high-risk diff, `security` is force-included as one of the two and `mode_warning` is set in the output — surface it.
 
 ## Critical reminders
 

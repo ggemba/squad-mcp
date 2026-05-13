@@ -20,15 +20,15 @@ const AGENT_FILE_MAP: Record<AgentName, string> = {
   "product-owner": "product-owner.md",
   "tech-lead-planner": "tech-lead-planner.md",
   "tech-lead-consolidator": "tech-lead-consolidator.md",
-  "senior-architect": "senior-architect.md",
-  "senior-dba": "senior-dba.md",
-  "senior-developer": "senior-developer.md",
-  "senior-dev-reviewer": "senior-dev-reviewer.md",
-  "senior-dev-security": "senior-dev-security.md",
-  "senior-qa": "senior-qa.md",
+  architect: "architect.md",
+  dba: "dba.md",
+  developer: "developer.md",
+  reviewer: "reviewer.md",
+  security: "security.md",
+  qa: "qa.md",
   "code-explorer": "code-explorer.md",
-  "senior-debugger": "senior-debugger.md",
-  "senior-implementer": "senior-implementer.md",
+  debugger: "debugger.md",
+  implementer: "implementer.md",
 };
 
 export const SHARED_FILES = [
@@ -320,13 +320,13 @@ const LANGUAGE_ID_REGEX = /^[a-z0-9_-]+$/;
  *
  * Language-supplement layout:
  *   agents/
- *     senior-dev-reviewer.md            ← core (always loaded as agent system prompt)
- *     senior-dev-reviewer.langs/        ← optional directory
- *       typescript.md                    ← per-language addendum
+ *     reviewer.md            ← core (always loaded as agent system prompt)
+ *     reviewer.langs/        ← optional directory
+ *       typescript.md         ← per-language addendum
  *       python.md
  *       csharp.md
  *
- * The directory is OPTIONAL. Agents without `.langs/` (e.g. `senior-architect`,
+ * The directory is OPTIONAL. Agents without `.langs/` (e.g. `architect`,
  * `tech-lead-*`) just return null for every language — caller composes the
  * bundle without supplements and the agent runs on its core prompt only.
  *

@@ -1,4 +1,4 @@
-# Senior-Implementer — TypeScript / JavaScript supplement
+# Implementer — TypeScript / JavaScript supplement
 
 Use alongside the core role. The core covers HOW to implement (workflow / output format / boundaries); this covers idiomatic TS conventions you should follow when writing the code.
 

@@ -12,8 +12,8 @@ const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const AGENTS_DIR = join(REPO_ROOT, "agents");
 
 describe("readAgentLanguageSupplement — single language", () => {
-  it("returns the typescript supplement for senior-dev-reviewer", async () => {
-    const body = await readAgentLanguageSupplement("senior-dev-reviewer", "typescript");
+  it("returns the typescript supplement for reviewer", async () => {
+    const body = await readAgentLanguageSupplement("reviewer", "typescript");
     expect(body).not.toBeNull();
     // Body is a markdown checklist, not a JSON envelope — sanity-grep one
     // checklist item to confirm it loaded the right file.
@@ -21,36 +21,36 @@ describe("readAgentLanguageSupplement — single language", () => {
   });
 
   it("returns null for an agent that has no .langs/ directory", async () => {
-    // senior-architect is intentionally NOT in LANGUAGE_AWARE_AGENTS and has
+    // architect is intentionally NOT in LANGUAGE_AWARE_AGENTS and has
     // no .langs/ directory; the loader returns null without touching fs
     // (well, it touches fs and gets ENOENT, then returns null).
-    const body = await readAgentLanguageSupplement("senior-architect", "typescript");
+    const body = await readAgentLanguageSupplement("architect", "typescript");
     expect(body).toBeNull();
   });
 
   it("returns null for a language that has no supplement on disk", async () => {
     // We ship typescript/python/csharp initially; ruby is a valid Language
     // but has no .md yet — should silently return null.
-    const body = await readAgentLanguageSupplement("senior-dev-reviewer", "ruby");
+    const body = await readAgentLanguageSupplement("reviewer", "ruby");
     expect(body).toBeNull();
   });
 
   it("rejects path-traversal-shaped language identifiers", async () => {
     // Defense in depth: the regex gate on language id stops `../something`
     // before any fs call.
-    const traversal = await readAgentLanguageSupplement("senior-dev-reviewer", "../typescript");
+    const traversal = await readAgentLanguageSupplement("reviewer", "../typescript");
     expect(traversal).toBeNull();
   });
 
   it("rejects language identifiers with uppercase / spaces", async () => {
-    expect(await readAgentLanguageSupplement("senior-dev-reviewer", "TypeScript")).toBeNull();
-    expect(await readAgentLanguageSupplement("senior-dev-reviewer", "type script")).toBeNull();
+    expect(await readAgentLanguageSupplement("reviewer", "TypeScript")).toBeNull();
+    expect(await readAgentLanguageSupplement("reviewer", "type script")).toBeNull();
   });
 });
 
 describe("readAgentLanguageSupplements — bulk", () => {
   it("returns only the languages that exist on disk", async () => {
-    const map = await readAgentLanguageSupplements("senior-dev-reviewer", [
+    const map = await readAgentLanguageSupplements("reviewer", [
       "typescript",
       "python",
       "csharp",
@@ -66,22 +66,17 @@ describe("readAgentLanguageSupplements — bulk", () => {
   });
 
   it("returns empty record for an agent without .langs/", async () => {
-    const map = await readAgentLanguageSupplements("senior-architect", ["typescript", "python"]);
+    const map = await readAgentLanguageSupplements("architect", ["typescript", "python"]);
     expect(map).toEqual({});
   });
 
   it("returns empty record when languages list is empty", async () => {
-    const map = await readAgentLanguageSupplements("senior-dev-reviewer", []);
+    const map = await readAgentLanguageSupplements("reviewer", []);
     expect(map).toEqual({});
   });
 
   it("each of the 4 LANGUAGE_AWARE_AGENTS has supplements for the initial 3 languages", async () => {
-    const agents = [
-      "senior-developer",
-      "senior-dev-reviewer",
-      "senior-qa",
-      "senior-implementer",
-    ] as const;
+    const agents = ["developer", "reviewer", "qa", "implementer"] as const;
     for (const a of agents) {
       const map = await readAgentLanguageSupplements(a, ["typescript", "python", "csharp"]);
       expect(Object.keys(map).sort(), `agent=${a}`).toEqual(["csharp", "python", "typescript"]);

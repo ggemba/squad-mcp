@@ -111,16 +111,16 @@ Avoid:
 
 Pick agents based on detected domains. For `--quick`: pick the single most relevant. For `--normal`: 2-3. For `--deep`: 4 + tech-lead. Mapping:
 
-| Domain       | Primary agent                          |
-| ------------ | -------------------------------------- |
-| frontend     | senior-developer (UX/perf perspective) |
-| backend      | senior-developer + senior-architect    |
-| infra        | senior-architect + senior-dev-security |
-| data         | senior-dba + senior-architect          |
-| security     | senior-dev-security + senior-architect |
-| business     | product-owner                          |
-| testing      | senior-qa                              |
-| code quality | senior-dev-reviewer                    |
+| Domain       | Primary agent                   |
+| ------------ | ------------------------------- |
+| frontend     | developer (UX/perf perspective) |
+| backend      | developer + architect           |
+| infra        | architect + security            |
+| data         | dba + architect                 |
+| security     | security + architect            |
+| business     | product-owner                   |
+| testing      | qa                              |
+| code quality | reviewer                        |
 
 `tech-lead` is included only at `--deep` (or whenever 3+ agents participate, to consolidate).
 
@@ -189,7 +189,7 @@ One collapsible section per agent that participated:
 
 ```
 <details>
-<summary>senior-architect</summary>
+<summary>architect</summary>
 {their perspective bullet-pointed}
 </details>
 ```
@@ -290,8 +290,8 @@ Output in this format:
 
 ## Agent perspectives
 
-<details><summary>senior-architect</summary>{view}</details>
-<details><summary>senior-developer</summary>{view}</details>
+<details><summary>architect</summary>{view}</details>
+<details><summary>developer</summary>{view}</details>
 
 ## Recommendation
 **Option {letter}** — {one-paragraph justification including the trade-offs accepted}.

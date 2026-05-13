@@ -100,7 +100,7 @@ describe("formatPrReview — header", () => {
       verdict: "CHANGES_REQUIRED",
       rubric: makeRubric(70),
       severity_counts: { Blocker: 0, Major: 1, Minor: 0, Suggestion: 0 },
-      majors_unjustified: [{ agent: "senior-dev-security", title: "missing CSRF" }],
+      majors_unjustified: [{ agent: "security", title: "missing CSRF" }],
     });
     const out = formatPrReview(c);
     expect(out.body).toContain("Squad Advisory: CHANGES_REQUIRED (70.0 / 100)");
@@ -110,7 +110,7 @@ describe("formatPrReview — header", () => {
   it("REJECTED → request-changes header", () => {
     const c = makeConsolidation({
       verdict: "REJECTED",
-      blockers: [{ agent: "senior-dev-security", title: "auth bypass" }],
+      blockers: [{ agent: "security", title: "auth bypass" }],
       severity_counts: { Blocker: 1, Major: 0, Minor: 0, Suggestion: 0 },
     });
     const out = formatPrReview(c);
@@ -171,20 +171,16 @@ describe("formatPrReview — findings section", () => {
     const c = makeConsolidation({
       verdict: "REJECTED",
       blockers: [
-        { agent: "senior-dev-security", title: "auth bypass" },
-        { agent: "senior-dba", title: "lost update on race" },
+        { agent: "security", title: "auth bypass" },
+        { agent: "dba", title: "lost update on race" },
       ],
-      majors_unjustified: [{ agent: "senior-architect", title: "cross-module coupling" }],
+      majors_unjustified: [{ agent: "architect", title: "cross-module coupling" }],
       severity_counts: { Blocker: 2, Major: 1, Minor: 0, Suggestion: 0 },
     });
     const out = formatPrReview(c);
     // Three #### headers, sorted alphabetically
     const headerOrder = out.body.match(/^####\s\S+/gm) ?? [];
-    expect(headerOrder).toEqual([
-      "#### senior-architect",
-      "#### senior-dba",
-      "#### senior-dev-security",
-    ]);
+    expect(headerOrder).toEqual(["#### architect", "#### dba", "#### security"]);
     // Each finding rendered with severity prefix
     expect(out.body).toContain("**Blocker** — auth bypass");
     expect(out.body).toContain("**Blocker** — lost update on race");
@@ -258,11 +254,11 @@ describe("formatPrReview — A.3 severity budget", () => {
     return makeConsolidation({
       verdict: blockers > 0 ? "REJECTED" : "CHANGES_REQUIRED",
       blockers: Array.from({ length: blockers }, (_, i) => ({
-        agent: "senior-developer",
+        agent: "developer",
         title: `Blocker ${i + 1}`,
       })),
       majors_unjustified: Array.from({ length: majors }, (_, i) => ({
-        agent: "senior-developer",
+        agent: "developer",
         title: `Major ${i + 1}`,
       })),
       severity_counts: { Blocker: blockers, Major: majors, Minor: 0, Suggestion: 0 },

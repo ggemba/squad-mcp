@@ -28,7 +28,7 @@ afterEach(async () => {
 
 function inFlightRecord(id: string): RunRecord {
   return {
-    schema_version: 1,
+    schema_version: 2,
     id,
     status: "in_flight",
     started_at: "2026-05-11T10:00:00.000Z",
@@ -40,7 +40,7 @@ function inFlightRecord(id: string): RunRecord {
     files_count: 3,
     agents: [
       {
-        name: "senior-developer",
+        name: "developer",
         model: "inherit",
         score: null,
         severity_score: null,
@@ -55,7 +55,7 @@ function inFlightRecord(id: string): RunRecord {
 
 function completedRecord(id: string): RunRecord {
   return {
-    schema_version: 1,
+    schema_version: 2,
     id,
     status: "completed",
     started_at: "2026-05-11T10:00:00.000Z",
@@ -69,7 +69,7 @@ function completedRecord(id: string): RunRecord {
     files_count: 3,
     agents: [
       {
-        name: "senior-developer",
+        name: "developer",
         model: "sonnet",
         score: 82,
         severity_score: 120,
@@ -78,7 +78,7 @@ function completedRecord(id: string): RunRecord {
         response_chars: 700,
       },
       {
-        name: "senior-qa",
+        name: "qa",
         model: "sonnet",
         score: 78,
         severity_score: 20,
@@ -173,7 +173,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
       mode_warning: { code: "TOO_BIG", message: ROCKET.repeat(256) },
       git_ref: { kind: "head", value: ROCKET.repeat(100) },
       agents: Array.from({ length: 20 }).map(() => ({
-        name: "senior-developer" as const,
+        name: "developer" as const,
         model: "inherit" as const,
         score: null,
         severity_score: null,
@@ -234,7 +234,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
             response_chars: 0,
           },
           {
-            name: "senior-debugger",
+            name: "debugger",
             model: "haiku",
             score: null,
             severity_score: null,
@@ -264,7 +264,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
             response_chars: 1500,
           },
           {
-            name: "senior-debugger",
+            name: "debugger",
             model: "haiku",
             score: null,
             severity_score: null,
@@ -310,9 +310,9 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
 
     const onlyQa = await dispatchOk("list_runs", {
       workspace_root: workspace,
-      agent: "senior-qa",
+      agent: "qa",
     });
-    expect(onlyQa.total_folded).toBe(2); // both records include senior-qa
+    expect(onlyQa.total_folded).toBe(2); // both records include qa
   });
 
   it('v0.10.1: status:"aborted" write through dispatch + readback shape', async () => {
@@ -476,7 +476,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
 
   it("v0.10.1: --deep debug record shape — 3 agents at Phase C (store-level roundtrip)", async () => {
     // v0.10.0 QA Suggestion: the --deep mode's 3-agent record (code-explorer
-    // + senior-debugger + senior-developer/opus) had no test. This asserts
+    // + debugger + developer/opus) had no test. This asserts
     // the store accepts the shape and readback preserves it. The actual
     // SKILL dispatch of 3 agents is contract-only (no SKILL execution harness).
     const id = generateRunId();
@@ -498,7 +498,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
             response_chars: 1600,
           },
           {
-            name: "senior-debugger",
+            name: "debugger",
             model: "opus",
             score: null,
             severity_score: null,
@@ -507,7 +507,7 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
             response_chars: 2400,
           },
           {
-            name: "senior-developer",
+            name: "developer",
             model: "opus",
             score: null,
             severity_score: null,
@@ -523,12 +523,8 @@ describe("runs e2e — full lifecycle through MCP dispatch", () => {
     const record = folded.record as Record<string, unknown>;
     const agents = record.agents as Array<Record<string, unknown>>;
     expect(agents).toHaveLength(3);
-    expect(agents.map((a) => a.name)).toEqual([
-      "code-explorer",
-      "senior-debugger",
-      "senior-developer",
-    ]);
-    expect(agents[1]!.model).toBe("opus"); // --deep override for senior-debugger
-    expect(agents[2]!.model).toBe("opus"); // --deep cross-check on senior-developer
+    expect(agents.map((a) => a.name)).toEqual(["code-explorer", "debugger", "developer"]);
+    expect(agents[1]!.model).toBe("opus"); // --deep override for debugger
+    expect(agents[2]!.model).toBe("opus"); // --deep cross-check on developer
   });
 });

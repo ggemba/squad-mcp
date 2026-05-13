@@ -4,7 +4,7 @@ import type { LearningEntry } from "../src/learning/store.js";
 
 const e = (overrides: Partial<LearningEntry>): LearningEntry => ({
   ts: "2026-01-01T00:00:00Z",
-  agent: "senior-dev-security",
+  agent: "security",
   finding: "f",
   decision: "reject",
   ...overrides,

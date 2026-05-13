@@ -1,4 +1,4 @@
-# Senior-Developer — C# / .NET supplement
+# Developer — C# / .NET supplement
 
 Use alongside the core role. Skip items that don't apply.
 

@@ -6,7 +6,7 @@ describe("apply_consolidation_rules — backward compat (no scores)", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
         },
@@ -22,7 +22,7 @@ describe("apply_consolidation_rules — backward compat (no scores)", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-dev-security",
+          agent: "security",
           findings: [{ severity: "Blocker", title: "auth bypass", justified: false }],
           not_evaluated: false,
         },
@@ -39,13 +39,13 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
           score: 85,
         },
         {
-          agent: "senior-dev-security",
+          agent: "security",
           findings: [],
           not_evaluated: false,
           score: 70,
@@ -62,7 +62,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
           score: 40, // very low
@@ -78,7 +78,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
           score: 40,
@@ -98,7 +98,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [{ severity: "Major", title: "tight coupling", justified: false }],
           not_evaluated: false,
           score: 40,
@@ -115,7 +115,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
           score: 80,
@@ -132,7 +132,7 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: false,
           score: 88,
@@ -147,13 +147,13 @@ describe("apply_consolidation_rules — with rubric scores", () => {
     const out = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-architect",
+          agent: "architect",
           findings: [],
           not_evaluated: true, // skip
           score: 30, // would tank the score if not skipped
         },
         {
-          agent: "senior-dev-security",
+          agent: "security",
           findings: [],
           not_evaluated: false,
           score: 90,

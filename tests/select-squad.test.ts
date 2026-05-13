@@ -17,8 +17,8 @@ describe("selectSquad", () => {
       force_agents: [],
     });
     // v0.12 C2 behaviour: PO demoted when no user-facing signal.
-    // senior-developer + senior-qa still in core.
-    expect(r.agents).toEqual(expect.arrayContaining(["senior-developer", "senior-qa"]));
+    // developer + qa still in core.
+    expect(r.agents).toEqual(expect.arrayContaining(["developer", "qa"]));
     expect(r.agents).not.toContain("product-owner");
     // Rationale explicitly explains the demotion.
     expect(r.rationale.some((e) => e.agent === "product-owner" && /demoted/i.test(e.reason))).toBe(
@@ -33,9 +33,7 @@ describe("selectSquad", () => {
       read_content: false,
       force_agents: [],
     });
-    expect(r.agents).toEqual(
-      expect.arrayContaining(["product-owner", "senior-developer", "senior-qa"]),
-    );
+    expect(r.agents).toEqual(expect.arrayContaining(["product-owner", "developer", "qa"]));
   });
 
   it("Feature with pages/ dir triggers PO inclusion (C2)", async () => {
@@ -180,7 +178,7 @@ describe("selectSquad", () => {
       read_content: false,
       force_agents: [],
     });
-    expect(r.agents).toContain("senior-dba");
+    expect(r.agents).toContain("dba");
   });
 
   it("detects DBA via content sniff when name does not match", async () => {
@@ -196,8 +194,8 @@ describe("selectSquad", () => {
       workspace_root: dir,
       force_agents: [],
     });
-    expect(r.agents).toContain("senior-dba");
-    const ev = r.evidence.find((e) => e.agent === "senior-dba");
+    expect(r.agents).toContain("dba");
+    const ev = r.evidence.find((e) => e.agent === "dba");
     expect(ev?.source).toBe("content");
   });
 
@@ -206,9 +204,9 @@ describe("selectSquad", () => {
       work_type: "Bug Fix",
       files: [],
       read_content: false,
-      force_agents: ["senior-dev-security"],
+      force_agents: ["security"],
     });
-    expect(r.agents).toContain("senior-dev-security");
+    expect(r.agents).toContain("security");
   });
 
   it("records low_confidence when nothing matches", async () => {

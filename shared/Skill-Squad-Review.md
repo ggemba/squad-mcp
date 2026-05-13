@@ -66,35 +66,35 @@ All specialized agents + TechLead-Consolidator.
 
 #### Code Squad
 
-`senior-dev-reviewer` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
+`reviewer` + `developer` + `qa` + `tech-lead-consolidator`
 
 - **When**: Focused review on code quality and correctness
 - **Triggers**: `/squad:review code`
 
 #### Data Squad
 
-`senior-dba` + `senior-developer` + `tech-lead-consolidator`
+`dba` + `developer` + `tech-lead-consolidator`
 
 - **When**: Changes to queries, migrations, cache, EF
 - **Triggers**: `/squad:review data`
 
 #### Security Squad
 
-`senior-dev-security` + `senior-developer` + `senior-dev-reviewer` + `tech-lead-consolidator`
+`security` + `developer` + `reviewer` + `tech-lead-consolidator`
 
 - **When**: Focused security review
 - **Triggers**: `/squad:review security`
 
 #### Architecture Squad
 
-`senior-architect` + `senior-developer` + `senior-dba` + `tech-lead-consolidator`
+`architect` + `developer` + `dba` + `tech-lead-consolidator`
 
 - **When**: Structural changes, new modules, large refactors
 - **Triggers**: `/squad:review arch`
 
 #### Business Squad
 
-`po` + `senior-developer` + `senior-qa` + `tech-lead-consolidator`
+`po` + `developer` + `qa` + `tech-lead-consolidator`
 
 - **When**: New feature, business-rule change
 - **Triggers**: `/squad:review business`
@@ -103,18 +103,18 @@ All specialized agents + TechLead-Consolidator.
 
 When the user does not specify a squad, the skill analyzes the modified files to infer it:
 
-| Modified Files                         | Selected Agents                                         |
-| -------------------------------------- | ------------------------------------------------------- |
-| Controllers, DTOs, Requests, Responses | senior-developer, senior-dev-security, po               |
-| Services (business logic)              | senior-developer, senior-dev-reviewer, po, senior-qa    |
-| Repositories, Queries                  | senior-dba, senior-developer                            |
-| Migrations, Schema                     | senior-dba, senior-architect                            |
-| Startup, Program.cs, DI                | senior-architect, senior-dev-security                   |
-| appsettings, configs                   | senior-dev-security, senior-architect                   |
-| Tests                                  | senior-qa, senior-dev-reviewer                          |
-| Middlewares, Filters                   | senior-dev-security, senior-architect, senior-developer |
-| Dockerfile, pipeline, CI/CD            | tech-lead-consolidator                                  |
-| Multiple layers                        | Full Squad                                              |
+| Modified Files                         | Selected Agents                |
+| -------------------------------------- | ------------------------------ |
+| Controllers, DTOs, Requests, Responses | developer, security, po        |
+| Services (business logic)              | developer, reviewer, po, qa    |
+| Repositories, Queries                  | dba, developer                 |
+| Migrations, Schema                     | dba, architect                 |
+| Startup, Program.cs, DI                | architect, security            |
+| appsettings, configs                   | security, architect            |
+| Tests                                  | qa, reviewer                   |
+| Middlewares, Filters                   | security, architect, developer |
+| Dockerfile, pipeline, CI/CD            | tech-lead-consolidator         |
+| Multiple layers                        | Full Squad                     |
 
 TechLead-Consolidator is mandatory in any squad.
 
@@ -262,7 +262,7 @@ Phase deltas vs. normal mode:
 
 | Aspect                        | Normal                                                              | Quick                                                                                                                                       |
 | ----------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agents                        | Auto-detect 3-7 specialists + tech-lead                             | Hard cap: 1 specialist + tech-lead. Specialist defaults to `senior-dev-reviewer` (or focus mode primary)                                    |
+| Agents                        | Auto-detect 3-7 specialists + tech-lead                             | Hard cap: 1 specialist + tech-lead. Specialist defaults to `reviewer` (or focus mode primary)                                               |
 | Per-agent prompt              | Full template                                                       | "Flag only Blocker/Major in your domain. ≤200 words. No scorecard. No comments-by-file table. If clean: 'No issues in scope.'"              |
 | Tech-lead consolidator        | Always runs                                                         | Skipped when zero Blocker/Major reported by specialist                                                                                      |
 | Codex                         | Opt-in via `--codex`                                                | Force-disabled. `--quick --codex` rejected.                                                                                                 |
@@ -333,7 +333,7 @@ Verdict: APPROVED — no Blocker or Major findings.
 -> Quick mode: 1 specialist + tech-lead, terse prompts, condensed output
 
 /squad:review --quick code
--> Quick code-quality review (senior-dev-reviewer + tech-lead)
+-> Quick code-quality review (reviewer + tech-lead)
 
 /squad:review --quick --codex
 -> Error: --quick is mutually exclusive with --codex

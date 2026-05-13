@@ -1,4 +1,4 @@
-# Senior-QA — TypeScript / JavaScript supplement
+# QA — TypeScript / JavaScript supplement
 
 Use alongside the core role. Skip items that don't apply.
 

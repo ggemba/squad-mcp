@@ -81,16 +81,16 @@ After install, the plugin is silent until you invoke it. Drop into a repo with a
 
 What happens, in order:
 
-1. **Classification.** `compose_squad_workflow` looks at your prompt + changed files and prints something like `work_type: Feature, risk: Low, agents: [senior-developer, senior-qa]`.
-2. **Depth resolution.** It also picks an execution depth — `quick`, `normal`, or `deep` — and surfaces it as `mode` + `mode_source` on the output. Auto-detect rules: `deep` on `risk == High` / Security work / auth-money-migration signals; `quick` on Low-risk diffs with ≤5 files and no high-risk signals; `normal` otherwise. Pass `--quick` / `--normal` / `--deep` to override. If you force `--quick` on a high-risk diff, `senior-dev-security` is force-included and a structured `mode_warning` is set so the host can surface it.
+1. **Classification.** `compose_squad_workflow` looks at your prompt + changed files and prints something like `work_type: Feature, risk: Low, agents: [developer, qa]`.
+2. **Depth resolution.** It also picks an execution depth — `quick`, `normal`, or `deep` — and surfaces it as `mode` + `mode_source` on the output. Auto-detect rules: `deep` on `risk == High` / Security work / auth-money-migration signals; `quick` on Low-risk diffs with ≤5 files and no high-risk signals; `normal` otherwise. Pass `--quick` / `--normal` / `--deep` to override. If you force `--quick` on a high-risk diff, `security` is force-included and a structured `mode_warning` is set so the host can surface it.
 3. **Plan.** The skill drafts an implementation plan and sends it to `tech-lead-planner` for review (skipped in `quick`). You see the plan in chat.
 4. **Gate 1.** The skill **stops** and asks you to approve. Reply `approved`, `go`, or equivalent to proceed; anything else cancels.
 5. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection; capped at 2 for `quick`, expanded with architect+security for `deep`) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
 6. **Consolidation.** `tech-lead-consolidator` produces a verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus a scorecard like:
    ```
    SQUAD RUBRIC — weighted 82 / 100 (threshold 75)
-   Application Code     ████████████████░░░░   82  ×18%  senior-developer
-   Testing & QA         ███████████████░░░░░   78  ×14%  senior-qa
+   Application Code     ████████████████░░░░   82  ×18%  developer
+   Testing & QA         ███████████████░░░░░   78  ×14%  qa
    ```
    The `tech-lead-consolidator` persona is skipped in `quick` mode; `apply_consolidation_rules` still runs to produce the verdict.
 7. **Implementation.** If approved, the skill writes code. **Never** commits or pushes — that's your call.
@@ -99,7 +99,7 @@ Other commands to try once `/squad:implement` works:
 
 - `/squad:review` — same agents, but on an existing diff or PR (no implementation).
 - `/squad:question <question>` — fast read-only code Q&A. Spawns the `code-explorer` subagent to grep + excerpt the relevant lines and answers with `file:line` citations. Use it for "where is X defined?", "what calls Y?", "how does the auth flow work?". No plan, no gates, no implementation.
-- `/squad:debug <issue>` — read-only bug investigation. Takes a bug description + optional stack trace + repro steps, orients via `code-explorer`, then dispatches the `senior-debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. The missing middle between `/squad:question` (lookup) and `/squad:implement` (fix).
+- `/squad:debug <issue>` — read-only bug investigation. Takes a bug description + optional stack trace + repro steps, orients via `code-explorer`, then dispatches the `debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. The missing middle between `/squad:question` (lookup) and `/squad:implement` (fix).
 - `/squad:tasks docs/prd.md` — decompose a PRD into atomic tasks with confirmation before they land in `.squad/tasks.json`.
 - `/squad:next` — pick the next ready task; `/squad:task 3` — work on a specific one.
 - `/brainstorm <topic>` — exploratory Q&A, no code.
@@ -149,7 +149,7 @@ Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed
 
 ### Resources
 
-- `agent://product-owner`, `agent://tech-lead-planner`, `agent://tech-lead-consolidator`, `agent://senior-architect`, `agent://senior-dba`, `agent://senior-developer`, `agent://senior-dev-reviewer`, `agent://senior-dev-security`, `agent://senior-qa`. (Renamed from PascalCase / `po` in v0.6.0 — older 0.5.x consumers must use `agent://po` instead.)
+- `agent://product-owner`, `agent://tech-lead-planner`, `agent://tech-lead-consolidator`, `agent://architect`, `agent://dba`, `agent://developer`, `agent://reviewer`, `agent://security`, `agent://qa`. (Renamed from PascalCase / `po` in v0.6.0 — older 0.5.x consumers must use `agent://po` instead.)
 - `severity://_severity-and-ownership` — severity matrix + ownership rules.
 - `severity://skill-squad-dev`, `severity://skill-squad-review` — full skill specs.
 
@@ -157,20 +157,20 @@ Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed
 
 The plugin auto-registers these skills via `skills/`:
 
-| Skill              | Trigger                     | Purpose                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/squad:implement` | implementation workflow     | Single skill, two modes. `/squad:implement <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad:review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion.                                |
-| `/squad:question`  | read-only code Q&A          | Spawns the `code-explorer` subagent (Haiku-class, read-only) to grep, glob, and excerpt the codebase, then synthesizes a `file:line`-cited answer. No plan, no gates, no implementation. Designed to be fast — single dispatch on the default `medium` budget, sub-second on `--quick`.                                                                                                               |
-| `/squad:debug`     | read-only bug investigation | Bridges `/squad:question` (lookup) and `/squad:implement` (fix). Takes a bug description + optional stack trace + repro steps; dispatches `code-explorer` to locate suspect code, then the new `senior-debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. Read-only end-to-end. |
-| `/brainstorm`      | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad:implement` implements, `/squad:review` reviews.                                                                                                                                                           |
-| `/commit-suggest`  | commit message generator    | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                                                                       |
-| `/squad:stats`     | observability dashboard     | Read `.squad/runs.jsonl`, render a single-screen ANSI panel: verdict mix, score buckets, sparkline trend (14 days default), per-agent avg wall-clock + estimated tokens. One accent colour (cyan), Unicode block bars at 1/8 granularity. Flags: `--quick`, `--thorough`, `--since <ISO>`, `--last <N>`, `--no-color`. Token figures are estimates (chars ÷ 3.5).                                     |
+| Skill              | Trigger                     | Purpose                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/squad:implement` | implementation workflow     | Single skill, two modes. `/squad:implement <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad:review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion.                         |
+| `/squad:question`  | read-only code Q&A          | Spawns the `code-explorer` subagent (Haiku-class, read-only) to grep, glob, and excerpt the codebase, then synthesizes a `file:line`-cited answer. No plan, no gates, no implementation. Designed to be fast — single dispatch on the default `medium` budget, sub-second on `--quick`.                                                                                                        |
+| `/squad:debug`     | read-only bug investigation | Bridges `/squad:question` (lookup) and `/squad:implement` (fix). Takes a bug description + optional stack trace + repro steps; dispatches `code-explorer` to locate suspect code, then the new `debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. Read-only end-to-end. |
+| `/brainstorm`      | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad:implement` implements, `/squad:review` reviews.                                                                                                                                                    |
+| `/commit-suggest`  | commit message generator    | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                                                                |
+| `/squad:stats`     | observability dashboard     | Read `.squad/runs.jsonl`, render a single-screen ANSI panel: verdict mix, score buckets, sparkline trend (14 days default), per-agent avg wall-clock + estimated tokens. One accent colour (cyan), Unicode block bars at 1/8 granularity. Flags: `--quick`, `--thorough`, `--since <ISO>`, `--last <N>`, `--no-color`. Token figures are estimates (chars ÷ 3.5).                              |
 
 ### Bundled subagents
 
 The plugin's `agents/` directory registers eleven native Claude Code subagents you can also dispatch directly via `Task(subagent_type=…)`:
 
-`product-owner`, `senior-architect`, `senior-dba`, `senior-developer`, `senior-dev-reviewer`, `senior-dev-security`, `senior-qa`, `tech-lead-planner`, `tech-lead-consolidator`, plus two utility roles: `code-explorer` (fast read-only code search; Haiku-class; dispatched by the planner for context gathering or by `/squad:question` for direct Q&A) and `senior-debugger` (hypothesis-first bug investigation; Haiku-class; dispatched by `/squad:debug` to emit ranked root-cause hypotheses with `file:line` evidence and verification steps). Neither utility role scores the rubric or is auto-selected by the matrix.
+`product-owner`, `architect`, `dba`, `developer`, `reviewer`, `security`, `qa`, `tech-lead-planner`, `tech-lead-consolidator`, plus two utility roles: `code-explorer` (fast read-only code search; Haiku-class; dispatched by the planner for context gathering or by `/squad:question` for direct Q&A) and `debugger` (hypothesis-first bug investigation; Haiku-class; dispatched by `/squad:debug` to emit ranked root-cause hypotheses with `file:line` evidence and verification steps). Neither utility role scores the rubric or is auto-selected by the matrix.
 
 The `/squad:implement` skill orchestrates them. For non-Claude-Code MCP clients (Cursor, Claude Desktop, Warp), the same role markdowns are accessible through the MCP `agent://…` resources and `get_agent_definition` tool.
 
@@ -199,11 +199,11 @@ Drop a `.squad.yaml` (or `.squad.yml`) at the repo root to override defaults per
 # Agents NOT listed are zeroed out — listing weights is an explicit choice
 # of which dimensions count for this repo.
 weights:
-  senior-dev-security: 30 # PCI compliance — security weighted higher
-  senior-dba: 22 # double-entry ledger, money on the line
-  senior-developer: 20
-  senior-architect: 15
-  senior-qa: 13
+  security: 30 # PCI compliance — security weighted higher
+  dba: 22 # double-entry ledger, money on the line
+  developer: 20
+  architect: 15
+  qa: 13
 
 # Per-dimension flag threshold (default 75). Below this, the dimension is
 # marked with ⚠ in the scorecard.
@@ -235,8 +235,8 @@ The reader is cached by mtime — long-running MCP servers automatically pick up
 Each time the team accepts or rejects an advisory finding, the decision can be appended to `.squad/learnings.jsonl`. Future runs of the squad load recent decisions and inject them into per-agent and consolidator prompts so the squad stops re-raising findings the team has already considered.
 
 ```jsonl
-{"ts":"2026-04-12T15:02:31Z","pr":42,"agent":"senior-dev-security","severity":"Major","finding":"missing CSRF on POST /api/refund","decision":"reject","reason":"CSRF terminated at API gateway, see infra/edge.tf","scope":"src/api/**"}
-{"ts":"2026-04-15T09:18:11Z","pr":47,"agent":"senior-architect","severity":"Major","finding":"cross-module coupling Auth → Billing","decision":"accept","reason":"refactored to event bus"}
+{"ts":"2026-04-12T15:02:31Z","pr":42,"agent":"security","severity":"Major","finding":"missing CSRF on POST /api/refund","decision":"reject","reason":"CSRF terminated at API gateway, see infra/edge.tf","scope":"src/api/**"}
+{"ts":"2026-04-15T09:18:11Z","pr":47,"agent":"architect","severity":"Major","finding":"cross-module coupling Auth → Billing","decision":"accept","reason":"refactored to event bus"}
 ```
 
 The file lives in git. Decisions are auditable in PR diffs.
@@ -260,7 +260,7 @@ For non-MCP environments, use the CLI helper:
 
 ```bash
 node tools/record-learning.mjs --reject \
-  --agent senior-dev-security \
+  --agent security \
   --finding "missing CSRF on POST /api/refund" \
   --reason "CSRF terminated at API gateway" \
   --scope "src/api/**" \
@@ -324,7 +324,7 @@ The biggest source of token bloat in a long-running squad session is the squad r
       "dependencies": [],
       "priority": "high",
       "scope": "src/api/checkout/**",
-      "agent_hints": ["senior-dev-security", "senior-developer"],
+      "agent_hints": ["security", "developer"],
       "test_strategy": "POST without token → 403; POST with token → 200.",
       "subtasks": [],
       "created_at": "2026-05-08T12:00:00Z",

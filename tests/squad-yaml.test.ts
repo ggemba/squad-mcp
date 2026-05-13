@@ -71,15 +71,15 @@ describe("readSquadYaml — weights override", () => {
     await fs.writeFile(
       path.join(workspace, ".squad.yaml"),
       `weights:
-  senior-architect: 50
-  senior-dev-security: 50
+  architect: 50
+  security: 50
 `,
     );
     const config = await readSquadYaml(workspace);
-    expect(config.weights["senior-architect"]).toBe(50);
-    expect(config.weights["senior-dev-security"]).toBe(50);
+    expect(config.weights["architect"]).toBe(50);
+    expect(config.weights["security"]).toBe(50);
     // Agents NOT in the override list zero out (override = explicit choice).
-    expect(config.weights["senior-developer"]).toBe(0);
+    expect(config.weights["developer"]).toBe(0);
     expect(config.weights["product-owner"]).toBe(0);
   });
 
@@ -87,8 +87,8 @@ describe("readSquadYaml — weights override", () => {
     await fs.writeFile(
       path.join(workspace, ".squad.yaml"),
       `weights:
-  senior-architect: 60
-  senior-dev-security: 30
+  architect: 60
+  security: 30
 `,
     );
     let caught: unknown;
@@ -142,11 +142,11 @@ describe("readSquadYaml — skip_paths and disable_agents", () => {
       path.join(workspace, ".squad.yaml"),
       `disable_agents:
   - product-owner
-  - senior-dba
+  - dba
 `,
     );
     const config = await readSquadYaml(workspace);
-    expect(config.disable_agents).toEqual(["product-owner", "senior-dba"]);
+    expect(config.disable_agents).toEqual(["product-owner", "dba"]);
   });
 
   it("rejects unknown agents in disable_agents", async () => {
@@ -241,15 +241,12 @@ describe("applySkipPaths", () => {
 
 describe("applyDisableAgents", () => {
   it("returns input untouched when nothing disabled", () => {
-    const r = applyDisableAgents(["senior-architect", "senior-developer"], []);
-    expect(r).toEqual(["senior-architect", "senior-developer"]);
+    const r = applyDisableAgents(["architect", "developer"], []);
+    expect(r).toEqual(["architect", "developer"]);
   });
 
   it("removes the disabled agents", () => {
-    const r = applyDisableAgents(
-      ["senior-architect", "senior-developer", "product-owner"],
-      ["product-owner"],
-    );
-    expect(r).toEqual(["senior-architect", "senior-developer"]);
+    const r = applyDisableAgents(["architect", "developer", "product-owner"], ["product-owner"]);
+    expect(r).toEqual(["architect", "developer"]);
   });
 });

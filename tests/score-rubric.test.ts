@@ -5,11 +5,11 @@ import { DEFAULT_RUBRIC_WEIGHTS } from "../src/config/ownership-matrix.js";
 describe("score_rubric — defaults", () => {
   it("returns a rubric when at least one score is supplied", () => {
     const out = scoreRubric({
-      scores: [{ agent: "senior-architect", score: 80 }],
+      scores: [{ agent: "architect", score: 80 }],
       threshold: 75,
     });
     expect(out.dimensions).toHaveLength(1);
-    expect(out.dimensions[0].agent).toBe("senior-architect");
+    expect(out.dimensions[0].agent).toBe("architect");
     expect(out.weighted_score).toBe(80);
     expect(out.passes_threshold).toBe(true);
     expect(out.weights_source).toBe("default");
@@ -21,8 +21,8 @@ describe("score_rubric — defaults", () => {
     // to 50% each. Weighted score = (80 + 60) / 2 = 70.
     const out = scoreRubric({
       scores: [
-        { agent: "senior-architect", score: 80 },
-        { agent: "senior-dev-security", score: 60 },
+        { agent: "architect", score: 80 },
+        { agent: "security", score: 60 },
       ],
       threshold: 75,
     });
@@ -37,34 +37,34 @@ describe("score_rubric — defaults", () => {
   it("flags dimensions below the threshold", () => {
     const out = scoreRubric({
       scores: [
-        { agent: "senior-architect", score: 90 },
-        { agent: "senior-dev-security", score: 50 },
+        { agent: "architect", score: 90 },
+        { agent: "security", score: 50 },
       ],
       threshold: 75,
     });
-    const sec = out.dimensions.find((d) => d.agent === "senior-dev-security");
-    const arch = out.dimensions.find((d) => d.agent === "senior-architect");
+    const sec = out.dimensions.find((d) => d.agent === "security");
+    const arch = out.dimensions.find((d) => d.agent === "architect");
     expect(sec?.below_threshold).toBe(true);
     expect(arch?.below_threshold).toBe(false);
   });
 
   it("lists agents without scores in ignored_agents", () => {
     const out = scoreRubric({
-      scores: [{ agent: "senior-architect", score: 80 }],
+      scores: [{ agent: "architect", score: 80 }],
       threshold: 75,
     });
-    expect(out.ignored_agents).toContain("senior-dba");
-    expect(out.ignored_agents).toContain("senior-developer");
+    expect(out.ignored_agents).toContain("dba");
+    expect(out.ignored_agents).toContain("developer");
     expect(out.ignored_agents).toContain("product-owner");
     expect(out.ignored_agents).toContain("tech-lead-planner"); // meta-agent
-    expect(out.ignored_agents).not.toContain("senior-architect");
+    expect(out.ignored_agents).not.toContain("architect");
   });
 
   it("ignores meta-agents that somehow emit a score", () => {
     // tech-lead-consolidator has weight 0 — must not contribute to weighted score.
     const out = scoreRubric({
       scores: [
-        { agent: "senior-architect", score: 80 },
+        { agent: "architect", score: 80 },
         { agent: "tech-lead-consolidator", score: 95 }, // would skew if included
       ],
       threshold: 75,
@@ -86,13 +86,13 @@ describe("score_rubric — defaults", () => {
 
   it("passes the threshold flag honestly", () => {
     const lowScore = scoreRubric({
-      scores: [{ agent: "senior-architect", score: 70 }],
+      scores: [{ agent: "architect", score: 70 }],
       threshold: 75,
     });
     expect(lowScore.passes_threshold).toBe(false);
 
     const exact = scoreRubric({
-      scores: [{ agent: "senior-architect", score: 75 }],
+      scores: [{ agent: "architect", score: 75 }],
       threshold: 75,
     });
     expect(exact.passes_threshold).toBe(true);
@@ -105,19 +105,19 @@ describe("score_rubric — weights override", () => {
     // Both ARE in the override and DO have scores, so renormalisation is a no-op.
     const out = scoreRubric({
       scores: [
-        { agent: "senior-architect", score: 80 },
-        { agent: "senior-dev-security", score: 60 },
+        { agent: "architect", score: 80 },
+        { agent: "security", score: 60 },
       ],
       weights: {
-        "senior-architect": 50,
-        "senior-dev-security": 50,
+        architect: 50,
+        security: 50,
         "product-owner": 0,
         "tech-lead-planner": 0,
         "tech-lead-consolidator": 0,
-        "senior-dba": 0,
-        "senior-developer": 0,
-        "senior-dev-reviewer": 0,
-        "senior-qa": 0,
+        dba: 0,
+        developer: 0,
+        reviewer: 0,
+        qa: 0,
       },
       threshold: 75,
     });
@@ -128,17 +128,17 @@ describe("score_rubric — weights override", () => {
   it("rejects override that does not sum to 100", () => {
     expect(() =>
       scoreRubric({
-        scores: [{ agent: "senior-architect", score: 80 }],
+        scores: [{ agent: "architect", score: 80 }],
         weights: {
-          "senior-architect": 50,
-          "senior-dev-security": 30,
+          architect: 50,
+          security: 30,
           "product-owner": 0,
           "tech-lead-planner": 0,
           "tech-lead-consolidator": 0,
-          "senior-dba": 0,
-          "senior-developer": 0,
-          "senior-dev-reviewer": 0,
-          "senior-qa": 0,
+          dba: 0,
+          developer: 0,
+          reviewer: 0,
+          qa: 0,
         },
         threshold: 75,
       }),
@@ -161,7 +161,7 @@ describe("score_rubric — defaults sanity", () => {
 describe("score_rubric — scorecard rendering", () => {
   it("includes header, threshold, and PASS/BELOW THRESHOLD verdict line", () => {
     const out = scoreRubric({
-      scores: [{ agent: "senior-architect", score: 80 }],
+      scores: [{ agent: "architect", score: 80 }],
       threshold: 75,
     });
     expect(out.scorecard_text).toMatch(/SQUAD RUBRIC/);
@@ -171,7 +171,7 @@ describe("score_rubric — scorecard rendering", () => {
 
   it("flags below-threshold dimensions in the scorecard", () => {
     const out = scoreRubric({
-      scores: [{ agent: "senior-dev-security", score: 50 }],
+      scores: [{ agent: "security", score: 50 }],
       threshold: 75,
     });
     expect(out.scorecard_text).toMatch(/⚠/);

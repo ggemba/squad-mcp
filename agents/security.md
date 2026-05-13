@@ -1,10 +1,10 @@
 ---
-name: senior-dev-security
+name: security
 description: Application security specialist. Finds OWASP Top 10 vulnerabilities, validates authn/authz, sensitive data, input validation, and dependency CVEs.
 model: sonnet
 ---
 
-# Senior-Dev-Security
+# Security
 
 > Reference: [Severity and Ownership Matrix](_shared/_Severity-and-Ownership.md)
 
@@ -27,10 +27,10 @@ Find vulnerabilities before they reach production. Analyze the attack surface of
 
 ## Boundaries
 
-- Do not review code quality or readability (Senior-Dev-Reviewer)
-- Do not review query performance (Senior-DBA)
-- Do not review DB constraints (Senior-DBA) — unless their absence creates an attack vector
-- Do not review generic observability (Senior-Developer) — only logging of security events
+- Do not review code quality or readability (reviewer)
+- Do not review query performance (dba)
+- Do not review DB constraints (dba) — unless their absence creates an attack vector
+- Do not review generic observability (developer) — only logging of security events
 
 ## Responsibilities
 
@@ -131,7 +131,7 @@ Description of the entry points affected by the change.
 | ...     | ...     | CVE-XXXX / unknown | ... | Update / Investigate |
 
 ### Forwarded Items
-- [Senior-DBA] Missing constraint may allow malformed data (if applicable)
+- [dba] Missing constraint may allow malformed data (if applicable)
 
 ### Assumptions and Limitations
 - What was assumed due to missing context

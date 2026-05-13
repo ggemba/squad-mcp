@@ -2,29 +2,29 @@ export type AgentName =
   | "product-owner"
   | "tech-lead-planner"
   | "tech-lead-consolidator"
-  | "senior-architect"
-  | "senior-dba"
-  | "senior-developer"
-  | "senior-dev-reviewer"
-  | "senior-dev-security"
-  | "senior-qa"
+  | "architect"
+  | "dba"
+  | "developer"
+  | "reviewer"
+  | "security"
+  | "qa"
   | "code-explorer"
-  | "senior-debugger"
-  | "senior-implementer";
+  | "debugger"
+  | "implementer";
 
 export const AGENT_NAMES: AgentName[] = [
   "product-owner",
   "tech-lead-planner",
   "tech-lead-consolidator",
-  "senior-architect",
-  "senior-dba",
-  "senior-developer",
-  "senior-dev-reviewer",
-  "senior-dev-security",
-  "senior-qa",
+  "architect",
+  "dba",
+  "developer",
+  "reviewer",
+  "security",
+  "qa",
   "code-explorer",
-  "senior-debugger",
-  "senior-implementer",
+  "debugger",
+  "implementer",
 ];
 
 export const AGENT_NAMES_TUPLE = AGENT_NAMES as [AgentName, ...AgentName[]];
@@ -85,8 +85,8 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 0,
     dimension: "",
   },
-  "senior-architect": {
-    name: "senior-architect",
+  architect: {
+    name: "architect",
     role: "Boundaries, DI, scalability",
     owns: [
       "Module and domain boundaries",
@@ -104,8 +104,8 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 18,
     dimension: "Architecture",
   },
-  "senior-dba": {
-    name: "senior-dba",
+  dba: {
+    name: "dba",
     role: "Queries, migrations, EF, cache",
     owns: [
       "Queries and database performance",
@@ -122,8 +122,8 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 14,
     dimension: "Data Layer",
   },
-  "senior-developer": {
-    name: "senior-developer",
+  developer: {
+    name: "developer",
     role: "Correctness, robustness, APIs, observability",
     owns: [
       "Technical correctness",
@@ -137,24 +137,24 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 18,
     dimension: "Application Code",
   },
-  "senior-dev-reviewer": {
-    name: "senior-dev-reviewer",
+  reviewer: {
+    name: "reviewer",
     role: "Readability, idioms, naming",
     owns: ["Readability and code smells", "C#/.NET best practices", "Naming conventions"],
     conventions: [],
     weight: 10,
     dimension: "Code Quality",
   },
-  "senior-dev-security": {
-    name: "senior-dev-security",
+  security: {
+    name: "security",
     role: "OWASP, authz, sensitive data",
     owns: ["OWASP Top 10", "Authentication and authorization", "Sensitive data protection"],
     conventions: ["*Controller.cs (with [ApiController])", "Auth*.cs"],
     weight: 18,
     dimension: "Security",
   },
-  "senior-qa": {
-    name: "senior-qa",
+  qa: {
+    name: "qa",
     role: "Test coverage, strategy, reliability",
     owns: ["Test quality and coverage", "Test strategy"],
     conventions: ["*Tests.cs", "*Test.cs", "*/Tests/*"],
@@ -177,8 +177,8 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 0,
     dimension: "",
   },
-  "senior-debugger": {
-    name: "senior-debugger",
+  debugger: {
+    name: "debugger",
     role: "Hypothesis-first bug investigation (read-only)",
     owns: [
       "Causal reasoning over a failure",
@@ -192,8 +192,8 @@ export const AGENTS: Record<AgentName, AgentDef> = {
     weight: 0,
     dimension: "",
   },
-  "senior-implementer": {
-    name: "senior-implementer",
+  implementer: {
+    name: "implementer",
     role: "Phase 8 code-writing executor (Opus-pinned)",
     owns: [
       "Editing files to implement an approved squad plan",
@@ -202,7 +202,7 @@ export const AGENTS: Record<AgentName, AgentDef> = {
       "Producing an implementation report with changes + coverage of acceptance criteria",
     ],
     conventions: [],
-    // Weight 0 — utility role like code-explorer / senior-debugger / tech-lead-*.
+    // Weight 0 — utility role like code-explorer / debugger / tech-lead-*.
     // The implementer EXECUTES the plan; it does not score a rubric dimension
     // (the rubric measures advisory quality, not the writer's output). Not in
     // any SQUAD_BY_TYPE entry so it is never auto-selected by the matrix —
@@ -227,35 +227,35 @@ export const SQUAD_BY_TYPE: Record<
   { core: AgentName[]; conditional: { agent: AgentName; when: string }[] }
 > = {
   Feature: {
-    core: ["product-owner", "senior-developer", "senior-qa"],
+    core: ["product-owner", "developer", "qa"],
     conditional: [
-      { agent: "senior-dba", when: "data touched" },
-      { agent: "senior-architect", when: "new module" },
-      { agent: "senior-dev-security", when: "endpoint touched" },
+      { agent: "dba", when: "data touched" },
+      { agent: "architect", when: "new module" },
+      { agent: "security", when: "endpoint touched" },
     ],
   },
   "Bug Fix": {
-    core: ["senior-developer", "senior-qa"],
+    core: ["developer", "qa"],
     conditional: [
-      { agent: "senior-dba", when: "query/cache" },
-      { agent: "senior-dev-security", when: "security bug" },
+      { agent: "dba", when: "query/cache" },
+      { agent: "security", when: "security bug" },
     ],
   },
   Refactor: {
-    core: ["senior-architect", "senior-dev-reviewer", "senior-qa"],
-    conditional: [{ agent: "senior-developer", when: "behavior changes" }],
+    core: ["architect", "reviewer", "qa"],
+    conditional: [{ agent: "developer", when: "behavior changes" }],
   },
   Performance: {
-    core: ["senior-developer", "senior-dba"],
-    conditional: [{ agent: "senior-architect", when: "structural" }],
+    core: ["developer", "dba"],
+    conditional: [{ agent: "architect", when: "structural" }],
   },
   Security: {
-    core: ["senior-dev-security", "senior-developer"],
-    conditional: [{ agent: "senior-dev-reviewer", when: "large code change" }],
+    core: ["security", "developer"],
+    conditional: [{ agent: "reviewer", when: "large code change" }],
   },
   "Business Rule": {
-    core: ["product-owner", "senior-developer", "senior-qa"],
-    conditional: [{ agent: "senior-dba", when: "data-bound" }],
+    core: ["product-owner", "developer", "qa"],
+    conditional: [{ agent: "dba", when: "data-bound" }],
   },
 };
 
@@ -286,209 +286,209 @@ const GO_EXT = [".go"];
 export const CONTENT_SIGNALS: ContentSignal[] = [
   // .NET / C# (existing)
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /class\s+\w+\s*:\s*DbContext/,
     description: "EF DbContext",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /:\s*IRepository</,
     description: "Repository pattern",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /modelBuilder\.Entity</,
     description: "EF model config",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\b(HasMany|HasOne|HasIndex|HasKey|HasForeignKey)\s*\(/,
     description: "EF relationship",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\[Table\(/,
     description: "EF Table attribute",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\b(CREATE|ALTER|DROP)\s+TABLE\b/i,
     description: "DDL",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /AddDbContext|UseSqlServer|UseNpgsql|UseSqlite|UseMySql/,
     description: "EF provider registration",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\bSELECT\b[\s\S]{0,200}\bFROM\b/i,
     description: "Raw SQL query",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\b(IDbConnection|SqlConnection|NpgsqlConnection)\b/,
     description: "ADO.NET connection",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /Migration|migrationBuilder\./,
     description: "EF migration",
   },
 
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\[Authorize/,
     description: "Authorize attribute",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\[ApiController\]/,
     description: "API controller",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\[Http(Get|Post|Put|Delete|Patch)/,
     description: "HTTP endpoint",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\b(JwtBearer|OAuth|SignInManager|UserManager|IdentityUser)\b/,
     description: "Auth surface",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /UseAuthentication|UseAuthorization/,
     description: "Auth middleware",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\b(BCrypt|PasswordHasher|HMACSHA|Rfc2898DeriveBytes)\b/,
     description: "Crypto/password handling",
   },
 
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /services\.Add(Scoped|Transient|Singleton)\s*</,
     description: "DI registration",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /WebApplication\.CreateBuilder/,
     description: "Composition root",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /AddMediatR|AddAutoMapper|AddFluentValidation/,
     description: "Cross-cutting registration",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /<Project\s+Sdk=/,
     description: "csproj",
   },
 
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /\[Fact\]|\[Theory\]/,
     description: "xUnit test",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /\[Test\]|\[TestCase\]/,
     description: "NUnit test",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /\b(describe|it|test)\s*\(/,
     description: "JS/TS test",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /Assert\.|Should\(\)|expect\s*\(/,
     description: "Assertion",
   },
 
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /HttpClient|IHttpClientFactory/,
     description: "HTTP client (.NET integration)",
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /Polly|RetryPolicy|CircuitBreaker/,
     description: "Resilience policy",
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /ILogger<|Activity\.Current|MetricsCollector/,
     description: "Observability",
   },
 
   // TypeScript / Node
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /from\s+['"]express['"]/,
     description: "Express import",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\bRouter\s*\(\s*\)/,
     description: "Express router",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\bprisma\.\w+\.(findFirst|findMany|findUnique|create|update|delete|upsert)\b/,
     description: "Prisma client query",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /from\s+['"]typeorm['"]|@Entity\s*\(/,
     description: "TypeORM",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /from\s+['"]sequelize['"]|sequelize\.define\s*\(/,
     description: "Sequelize",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /from\s+['"]mongoose['"]|mongoose\.Schema\s*\(/,
     description: "Mongoose",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /from\s+['"]bcrypt(?:js)?['"]/,
     description: "bcrypt import",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\bpassport\.(use|authenticate)\s*\(/,
     description: "Passport auth",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /from\s+['"]jsonwebtoken['"]|\bjwt\.(sign|verify)\s*\(/,
     description: "JWT",
     ext_filter: TS_EXT,
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /\buseState\s*\(|\buseEffect\s*\(/,
     description: "React hook",
     ext_filter: TSX_EXT,
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /from\s+['"]next\//,
     description: "Next.js",
     ext_filter: TS_EXT,
@@ -496,37 +496,37 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
 
   // Python
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /from\s+sqlalchemy/,
     description: "SQLAlchemy",
     ext_filter: PY_EXT,
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /from\s+(django|flask|fastapi)\b/,
     description: "Python web framework",
     ext_filter: PY_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /@app\.route|@router\.(get|post|put|delete|patch)/,
     description: "Python HTTP route",
     ext_filter: PY_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /import\s+alembic|alembic\.config/,
     description: "Alembic migration",
     ext_filter: PY_EXT,
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /import\s+pytest|^def\s+test_/m,
     description: "pytest",
     ext_filter: PY_EXT,
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /import\s+unittest/,
     description: "unittest",
     ext_filter: PY_EXT,
@@ -534,19 +534,19 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
 
   // Go
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\bgorm\.(Open|Model|DB)\b/,
     description: "GORM",
     ext_filter: GO_EXT,
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /\bsqlx\.(Open|Connect|MustConnect)\b/,
     description: "sqlx",
     ext_filter: GO_EXT,
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /\bgin\.(Default|New)\b|\bchi\.(Mux|NewRouter)\b|\becho\.New\b/,
     description: "Go HTTP framework",
     ext_filter: GO_EXT,
@@ -561,78 +561,78 @@ export interface PathHint {
 
 export const PATH_HINTS: PathHint[] = [
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /[\\/]Migrations[\\/]/i,
     description: "migrations folder",
   },
-  { agent: "senior-dba", pattern: /\.(sql|psql)$/i, description: "SQL file" },
+  { agent: "dba", pattern: /\.(sql|psql)$/i, description: "SQL file" },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /Repository\.cs$/i,
     description: "Repository naming",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /DbContext\.cs$/i,
     description: "DbContext naming",
   },
   {
-    agent: "senior-dba",
+    agent: "dba",
     pattern: /[\\/]models[\\/]/i,
     description: "models folder",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /Controller\.cs$/i,
     description: "Controller naming",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /[\\/]Endpoints?[\\/]/i,
     description: "endpoints folder",
   },
   {
-    agent: "senior-dev-security",
+    agent: "security",
     pattern: /(Auth|Identity|Jwt)\w*\.cs$/i,
     description: "auth file naming",
   },
   {
-    agent: "senior-developer",
+    agent: "developer",
     pattern: /[\\/](api|handlers|middleware|services)[\\/]/i,
     description: "api/handlers/middleware/services folder",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /Program\.cs$|Startup\.cs$/i,
     description: "composition root",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /\.csproj$|Directory\.Packages\.props$/i,
     description: "project boundary",
   },
   {
-    agent: "senior-architect",
+    agent: "architect",
     pattern: /DependencyInjection\.cs$|ServiceCollectionExtensions\.cs$/i,
     description: "DI extensions",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /[\\/]Tests?[\\/]/i,
     description: "tests folder",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /\.(test|spec|tests)\.(ts|tsx|js|jsx|cs)$/i,
     description: "test file naming",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /_test\.go$/i,
     description: "Go test file naming",
   },
   {
-    agent: "senior-qa",
+    agent: "qa",
     pattern: /(?:^|[\\/])test_[\w-]+\.py$/i,
     description: "Python pytest naming",
   },

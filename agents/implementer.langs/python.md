@@ -1,4 +1,4 @@
-# Senior-Implementer — Python supplement
+# Implementer — Python supplement
 
 Use alongside the core role.
 

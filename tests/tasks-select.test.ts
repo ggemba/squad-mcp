@@ -33,12 +33,8 @@ describe("listTasks", () => {
 
   it("agent filter passes tasks without agent_hints (repo-wide)", () => {
     const r = listTasks(
-      [
-        t({ id: 1 }),
-        t({ id: 2, agent_hints: ["senior-dba"] }),
-        t({ id: 3, agent_hints: ["senior-developer"] }),
-      ],
-      { agent: "senior-dba" },
+      [t({ id: 1 }), t({ id: 2, agent_hints: ["dba"] }), t({ id: 3, agent_hints: ["developer"] })],
+      { agent: "dba" },
     );
     expect(r.map((x) => x.id)).toEqual([1, 2]);
   });
@@ -113,12 +109,8 @@ describe("nextTask", () => {
 
   it("filters by agent (repo-wide tasks always pass)", () => {
     const r = nextTask(
-      [
-        t({ id: 1, agent_hints: ["senior-developer"] }),
-        t({ id: 2, agent_hints: ["senior-dba"] }),
-        t({ id: 3 }),
-      ],
-      { agent: "senior-dba" },
+      [t({ id: 1, agent_hints: ["developer"] }), t({ id: 2, agent_hints: ["dba"] }), t({ id: 3 })],
+      { agent: "dba" },
     );
     expect([2, 3]).toContain(r.task!.id);
   });

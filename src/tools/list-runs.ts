@@ -136,7 +136,7 @@ async function handler(input: Input): Promise<ListRunsOutput> {
   // Apply work_type FIRST so it composes with limit semantically. If we applied
   // it after applyFilters, `limit: N` would truncate by started_at BEFORE the
   // work_type predicate, giving "bug fixes within the last N runs" instead of
-  // "last N bug fixes" — silently wrong. (senior-developer cycle-2 Major.)
+  // "last N bug fixes" — silently wrong. (developer cycle-2 Major.)
   let prefiltered = folded;
   if (input.work_type) {
     prefiltered = workTypeFilter(prefiltered, input.work_type);

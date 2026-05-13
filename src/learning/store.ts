@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js";
 import { SquadError } from "../errors.js";
 import { JsonlStore } from "../util/jsonl-store.js";
+import { CURRENT_SCHEMA_VERSION } from "../util/schema-version.js";
 
 /**
  * Hard cap per JSONL entry so a single line fits in POSIX PIPE_BUF
@@ -22,14 +23,15 @@ const MAX_ENTRY_BYTES = 4_000;
  * scope) tuple. Keep the schema small; rich query semantics are out of
  * scope for V1 (the consolidator does free-text recall, not vector search).
  *
- * v0.14.x deep-review D1: `schema_version` added as the FIRST field with
- * `.default(1)`. Legacy rows that lack this field are coerced to v1 on read
- * via the Zod default. Future v2 rows are filtered at the JsonlStore
- * schema_version pre-check (skip+log, not quarantine).
+ * v0.14.x deep-review D1: `schema_version` added as the FIRST field.
+ * Agent-rename release bumped this from 1 → 2 (rotates `agent` enum from
+ * `senior-*` to bare names). Older v1 rows AND rows lacking the field are
+ * filtered at the JsonlStore schema_version pre-check (skip+log, not
+ * quarantine). Migration to v2 is via `tools/migrate-jsonl-agents.mjs`.
  */
 const learningEntrySchema = z.object({
-  /** Schema version. Bump when breaking changes ship. Legacy rows default to 1. */
-  schema_version: z.literal(1).default(1),
+  /** Schema version. Bump when breaking changes ship. */
+  schema_version: z.literal(CURRENT_SCHEMA_VERSION).default(CURRENT_SCHEMA_VERSION),
   /** ISO 8601 timestamp. Required for ordering. */
   ts: z.string().min(1).max(40),
   /** PR number when recorded from `/squad:review #N`; optional otherwise. */
@@ -151,18 +153,18 @@ export async function appendLearning(
   workspaceRoot: string,
   entry: Omit<LearningEntry, "ts" | "schema_version"> & {
     ts?: string;
-    schema_version?: 1;
+    schema_version?: typeof CURRENT_SCHEMA_VERSION;
   },
   options: { configuredPath?: string } = {},
 ): Promise<{ filePath: string; entry: LearningEntry }> {
   const ts = entry.ts ?? new Date().toISOString();
-  // Always set schema_version: 1 explicitly before delegating. The Zod
-  // `.default(1)` would handle a missing field on READ, but on WRITE we want
-  // the field present in the JSON line so older readers (and grep tooling)
-  // see it directly without relying on schema defaults.
+  // Always set schema_version explicitly before delegating. The Zod
+  // `.default(CURRENT_SCHEMA_VERSION)` would handle a missing field on READ, but
+  // on WRITE we want the field present in the JSON line so older readers (and
+  // grep tooling) see it directly without relying on schema defaults.
   const candidate: LearningEntry = {
     ...entry,
-    schema_version: 1,
+    schema_version: CURRENT_SCHEMA_VERSION,
     ts,
   };
 
@@ -217,7 +219,7 @@ export async function appendLearning(
  * agent / consolidator prompt.
  *
  * Sort: input is in append order (oldest first). We slice the tail. The
- * filter happens BEFORE the slice — `recentForAgent('senior-dba', 50)`
+ * filter happens BEFORE the slice — `recentForAgent('dba', 50)`
  * returns the last 50 DBA decisions, not the last 50 decisions overall
  * filtered to DBA (which would often return zero on diverse repos).
  */

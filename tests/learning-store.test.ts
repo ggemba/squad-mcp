@@ -42,22 +42,24 @@ describe("readLearnings — file presence", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const a = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dev-security",
+      agent: "security",
       finding: "csrf",
       decision: "reject",
     };
     const b = {
+      schema_version: 2,
       ts: "2026-01-02T00:00:00Z",
-      agent: "senior-architect",
+      agent: "architect",
       finding: "coupling",
       decision: "accept",
     };
     await fs.writeFile(file, JSON.stringify(a) + "\n" + JSON.stringify(b) + "\n");
     const entries = await readLearnings(workspace);
     expect(entries).toHaveLength(2);
-    expect(entries[0]!.agent).toBe("senior-dev-security");
-    expect(entries[1]!.agent).toBe("senior-architect");
+    expect(entries[0]!.agent).toBe("security");
+    expect(entries[1]!.agent).toBe("architect");
   });
 
   it("rejects configuredPath that escapes workspaceRoot via .. (CWE-22)", async () => {
@@ -77,8 +79,9 @@ describe("readLearnings — file presence", () => {
     const file = path.join(workspace, rel);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const e = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "missing index",
       decision: "accept",
     };
@@ -92,8 +95,9 @@ describe("readLearnings — file presence", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const e = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-qa",
+      agent: "qa",
       finding: "no test",
       decision: "reject",
     };
@@ -108,8 +112,9 @@ describe("readLearnings — invalid input (quarantine)", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const good = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "survives quarantine",
       decision: "accept",
     };
@@ -126,21 +131,23 @@ describe("readLearnings — invalid input (quarantine)", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const bad = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
       agent: "not-a-real-agent",
       finding: "x",
       decision: "reject",
     };
     const good = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:01Z",
-      agent: "senior-qa",
+      agent: "qa",
       finding: "after bad",
       decision: "accept",
     };
     await fs.writeFile(file, JSON.stringify(bad) + "\n" + JSON.stringify(good) + "\n");
     const entries = await readLearnings(workspace);
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.agent).toBe("senior-qa");
+    expect(entries[0]!.agent).toBe("qa");
   });
 
   it("quarantines entries missing required fields (no decision)", async () => {
@@ -148,7 +155,7 @@ describe("readLearnings — invalid input (quarantine)", () => {
     await fs.mkdir(path.dirname(file), { recursive: true });
     const bad = {
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "x",
     };
     await fs.writeFile(file, JSON.stringify(bad) + "\n");
@@ -164,8 +171,9 @@ describe("readLearnings — caching", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const e = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-developer",
+      agent: "developer",
       finding: "x",
       decision: "accept",
     };
@@ -179,8 +187,9 @@ describe("readLearnings — caching", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const e1 = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-developer",
+      agent: "developer",
       finding: "first",
       decision: "accept",
     };
@@ -189,8 +198,9 @@ describe("readLearnings — caching", () => {
     expect(a).toHaveLength(1);
 
     const e2 = {
+      schema_version: 2,
       ts: "2026-01-02T00:00:00Z",
-      agent: "senior-developer",
+      agent: "developer",
       finding: "second",
       decision: "reject",
     };
@@ -208,7 +218,7 @@ describe("appendLearning — concurrency & sizing", () => {
   it("serialises concurrent appends and preserves every entry (no torn lines)", async () => {
     const writers = Array.from({ length: 30 }, (_, i) =>
       appendLearning(workspace, {
-        agent: "senior-dba",
+        agent: "dba",
         finding: `parallel-${i}`,
         decision: "accept",
       }),
@@ -225,7 +235,7 @@ describe("appendLearning — concurrency & sizing", () => {
     // append-time truncator must shrink it further to keep the line atomic.
     const big = "x".repeat(4_096);
     const result = await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "header",
       decision: "accept",
       reason: big,
@@ -242,7 +252,7 @@ describe("appendLearning — concurrency & sizing", () => {
 describe("appendLearning", () => {
   it("creates the directory and file on first append", async () => {
     const result = await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "missing index",
       decision: "accept",
     });
@@ -252,18 +262,18 @@ describe("appendLearning", () => {
     const lines = raw.trim().split("\n");
     expect(lines).toHaveLength(1);
     const parsed = JSON.parse(lines[0]!);
-    expect(parsed.agent).toBe("senior-dba");
+    expect(parsed.agent).toBe("dba");
     expect(parsed.decision).toBe("accept");
   });
 
   it("appends to existing entries without rewriting", async () => {
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "first",
       decision: "accept",
     });
     await appendLearning(workspace, {
-      agent: "senior-architect",
+      agent: "architect",
       finding: "second",
       decision: "reject",
       reason: "out of scope",
@@ -277,7 +287,7 @@ describe("appendLearning", () => {
 
   it("invalidates the read cache after append", async () => {
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "a",
       decision: "accept",
     });
@@ -285,7 +295,7 @@ describe("appendLearning", () => {
     expect(first).toHaveLength(1);
 
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "b",
       decision: "accept",
     });
@@ -298,7 +308,7 @@ describe("appendLearning", () => {
     const result = await appendLearning(
       workspace,
       {
-        agent: "senior-qa",
+        agent: "qa",
         finding: "no test",
         decision: "reject",
       },
@@ -339,7 +349,7 @@ describe("appendLearning — v0.11.0+ schema fields (cycle-2 QA M3)", () => {
     // a future refactor that narrows the schema (e.g. someone strict-modes
     // the object and silently strips the new fields).
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "old-archived",
       decision: "accept",
       archived: true,
@@ -352,7 +362,7 @@ describe("appendLearning — v0.11.0+ schema fields (cycle-2 QA M3)", () => {
 
   it("round-trips promoted: true through append + read", async () => {
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "policy-finding",
       decision: "accept",
       promoted: true,
@@ -366,7 +376,7 @@ describe("appendLearning — v0.11.0+ schema fields (cycle-2 QA M3)", () => {
     // An entry can legitimately be both promoted (in run N) and then archived
     // (in run N+1 when it ages past max_age_days).
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "aged-policy",
       decision: "accept",
       archived: true,
@@ -386,7 +396,7 @@ describe("appendLearning — NUL-byte rejection on branch + scope (cycle-2 secur
     let caught: unknown;
     try {
       await appendLearning(workspace, {
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
         branch: "feat/" + String.fromCharCode(0) + "evil",
@@ -405,7 +415,7 @@ describe("appendLearning — NUL-byte rejection on branch + scope (cycle-2 secur
     let caught: unknown;
     try {
       await appendLearning(workspace, {
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
         scope: "src/" + String.fromCharCode(0) + "evil/**",
@@ -429,7 +439,7 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
       // both on create (fs.open mode arg) and defensively via fh.chmod even
       // on pre-existing files. Pin the create-time mode here.
       const r = await appendLearning(workspace, {
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       });
@@ -447,9 +457,9 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
       const file = path.join(workspace, DEFAULT_LEARNING_PATH);
       await fs.mkdir(path.dirname(file), { recursive: true });
       const legacyRow = {
-        schema_version: 1,
+        schema_version: 2,
         ts: "2026-05-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "legacy",
         decision: "accept",
       };
@@ -458,7 +468,7 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
       expect(st.mode & 0o777).toBe(0o644);
 
       await appendLearning(workspace, {
-        agent: "senior-dba",
+        agent: "dba",
         finding: "after-upgrade",
         decision: "accept",
       });
@@ -467,23 +477,28 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     },
   );
 
-  it("backward-compat: reads rows that lack schema_version (defaults to 1)", async () => {
-    // Older squad-mcp versions wrote learning rows without the
-    // schema_version field. The new schema uses .default(1) so the read
-    // path coerces them transparently. This pins that contract.
+  it("agent-rename migration: rows lacking schema_version are skip+logged (not coerced)", async () => {
+    // Before the v1 → v2 bump (agent-rename release), rows without a
+    // schema_version field were coerced to v1 via Zod default. The new
+    // store rejects rows whose schema_version isn't 2 at the pre-Zod gate
+    // — including the implicit-undefined case — because such rows almost
+    // always carry pre-rename `senior-*` agent names that the v2 schema
+    // would otherwise quarantine. Migration to v2 is via
+    // `tools/migrate-jsonl-agents.mjs`. This test pins the new contract.
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const legacyRow = {
       ts: "2026-04-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "no-version-field",
       decision: "accept",
     };
     await fs.writeFile(file, JSON.stringify(legacyRow) + "\n");
     const entries = await readLearnings(workspace);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]!.schema_version).toBe(1);
-    expect(entries[0]!.finding).toBe("no-version-field");
+    // Skip+log, NOT quarantine — the row is filtered out silently.
+    expect(entries).toHaveLength(0);
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);
   });
 
   it("skips (does not quarantine) rows with future schema_version", async () => {
@@ -493,16 +508,16 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const future = {
-      schema_version: 2,
+      schema_version: 3,
       ts: "2027-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "from-the-future",
       decision: "accept",
     };
     const current = {
-      schema_version: 1,
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "current",
       decision: "accept",
     };
@@ -520,7 +535,7 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     // by string. This test asserts the function actually clears the cache
     // (not just that it exists and is callable).
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "a",
       decision: "accept",
     });
@@ -536,13 +551,13 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     // Pin the public-API return shape so a future refactor inside the
     // JsonlStore wrapper can't break documented callers.
     const r = await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "shape-check",
       decision: "accept",
     });
     expect(r.filePath).toMatch(/learnings\.jsonl$/);
     expect(r.entry.finding).toBe("shape-check");
-    expect(r.entry.schema_version).toBe(1);
+    expect(r.entry.schema_version).toBe(2);
     expect(r.entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
@@ -551,25 +566,25 @@ describe("tailRecent", () => {
   const entries: LearningEntry[] = [
     {
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "a",
       decision: "accept",
     },
     {
       ts: "2026-01-02T00:00:00Z",
-      agent: "senior-architect",
+      agent: "architect",
       finding: "b",
       decision: "reject",
     },
     {
       ts: "2026-01-03T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "c",
       decision: "reject",
     },
     {
       ts: "2026-01-04T00:00:00Z",
-      agent: "senior-developer",
+      agent: "developer",
       finding: "d",
       decision: "accept",
     },
@@ -580,7 +595,7 @@ describe("tailRecent", () => {
   });
 
   it("filters by agent BEFORE slicing", () => {
-    const r = tailRecent(entries, 50, { agent: "senior-dba" });
+    const r = tailRecent(entries, 50, { agent: "dba" });
     expect(r).toHaveLength(2);
     expect(r.map((e) => e.finding)).toEqual(["a", "c"]);
   });
@@ -593,7 +608,7 @@ describe("tailRecent", () => {
 
   it("combines agent + decision", () => {
     const r = tailRecent(entries, 50, {
-      agent: "senior-dba",
+      agent: "dba",
       decision: "reject",
     });
     expect(r).toHaveLength(1);

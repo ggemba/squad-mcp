@@ -1,4 +1,4 @@
-# Senior-Developer — Python supplement
+# Developer — Python supplement
 
 Use alongside the core role. Skip items that don't apply.
 

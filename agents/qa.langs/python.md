@@ -1,4 +1,4 @@
-# Senior-QA — Python supplement
+# QA — Python supplement
 
 Use alongside the core role. Skip items that don't apply.
 

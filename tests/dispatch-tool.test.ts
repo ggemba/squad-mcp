@@ -119,7 +119,7 @@ describe("dispatchTool error mapping", () => {
   it("record_learning rejects finding containing a NUL byte (SafeString boundary)", async () => {
     const r = (await dispatchTool("record_learning", {
       workspace_root: process.cwd(),
-      agent: "senior-dba",
+      agent: "dba",
       finding: "csrf " + String.fromCharCode(0) + " token missing",
       decision: "accept",
     })) as { content: { text: string }[]; isError: boolean };
@@ -132,7 +132,7 @@ describe("dispatchTool error mapping", () => {
   it("record_learning rejects reason containing a NUL byte (SafeString boundary)", async () => {
     const r = (await dispatchTool("record_learning", {
       workspace_root: process.cwd(),
-      agent: "senior-dba",
+      agent: "dba",
       finding: "csrf token missing",
       decision: "accept",
       reason: "we shipped " + String.fromCharCode(0) + " it already",

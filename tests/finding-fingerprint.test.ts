@@ -4,7 +4,7 @@ import { fingerprintFinding, FINGERPRINT_HEX_LENGTH } from "../src/util/finding-
 describe("fingerprintFinding", () => {
   it("returns a 16-char hex string", () => {
     const fp = fingerprintFinding({
-      agent: "senior-developer",
+      agent: "developer",
       severity: "Major",
       title: "Async error handling missing",
     });
@@ -14,12 +14,12 @@ describe("fingerprintFinding", () => {
 
   it("is idempotent", () => {
     const a = fingerprintFinding({
-      agent: "senior-architect",
+      agent: "architect",
       severity: "Blocker",
       title: "Module boundary violated",
     });
     const b = fingerprintFinding({
-      agent: "senior-architect",
+      agent: "architect",
       severity: "Blocker",
       title: "Module boundary violated",
     });
@@ -28,12 +28,12 @@ describe("fingerprintFinding", () => {
 
   it("normalises title — case + trailing punctuation + parenthetical equivalent", () => {
     const a = fingerprintFinding({
-      agent: "senior-developer",
+      agent: "developer",
       severity: "Major",
       title: "CSRF token missing.",
     });
     const b = fingerprintFinding({
-      agent: "senior-developer",
+      agent: "developer",
       severity: "Major",
       title: "csrf token MISSING (line 42)",
     });
@@ -42,12 +42,12 @@ describe("fingerprintFinding", () => {
 
   it("agent name is case-insensitive", () => {
     const a = fingerprintFinding({
-      agent: "Senior-Developer",
+      agent: "Developer",
       severity: "Major",
       title: "x",
     });
     const b = fingerprintFinding({
-      agent: "senior-developer",
+      agent: "developer",
       severity: "Major",
       title: "x",
     });

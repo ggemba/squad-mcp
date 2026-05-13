@@ -16,7 +16,7 @@ import { isSquadError } from "../src/errors.js";
  */
 
 const entrySchema = z.object({
-  schema_version: z.literal(1).default(1),
+  schema_version: z.literal(2).default(2),
   key: z.string().min(1).max(200),
   // `max(4000)` lets us craft a string-length-valid Zod input whose UTF-8
   // byte serialisation still trips the 4000-byte JsonlStore cap (a 4-byte
@@ -62,8 +62,8 @@ describe("JsonlStore.read — happy path", () => {
   it("reads append-order entries from disk", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const a = { schema_version: 1, key: "alpha" };
-    const b = { schema_version: 1, key: "beta", value: "v" };
+    const a = { schema_version: 2, key: "alpha" };
+    const b = { schema_version: 2, key: "beta", value: "v" };
     await fs.writeFile(file, JSON.stringify(a) + "\n" + JSON.stringify(b) + "\n");
     const out = await store.read(workspace);
     expect(out).toHaveLength(2);
@@ -74,7 +74,7 @@ describe("JsonlStore.read — happy path", () => {
   it("skips blank lines", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const e = { schema_version: 1, key: "k" };
+    const e = { schema_version: 2, key: "k" };
     await fs.writeFile(file, "\n\n" + JSON.stringify(e) + "\n\n");
     const out = await store.read(workspace);
     expect(out).toHaveLength(1);
@@ -85,7 +85,7 @@ describe("JsonlStore.read — corruption + version handling", () => {
   it("quarantines invalid JSON and keeps reading the good rows", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const good = { schema_version: 1, key: "survives" };
+    const good = { schema_version: 2, key: "survives" };
     await fs.writeFile(file, "{not json\n" + JSON.stringify(good) + "\n");
     const out = await store.read(workspace);
     expect(out).toHaveLength(1);
@@ -98,8 +98,8 @@ describe("JsonlStore.read — corruption + version handling", () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
     // Missing required `key` — Zod will reject.
-    const bad = { schema_version: 1, value: "no-key" };
-    const good = { schema_version: 1, key: "after-bad" };
+    const bad = { schema_version: 2, value: "no-key" };
+    const good = { schema_version: 2, key: "after-bad" };
     await fs.writeFile(file, JSON.stringify(bad) + "\n" + JSON.stringify(good) + "\n");
     const out = await store.read(workspace);
     expect(out).toHaveLength(1);
@@ -109,8 +109,8 @@ describe("JsonlStore.read — corruption + version handling", () => {
   it("skips (does not quarantine) rows with unknown schema_version", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const future = { schema_version: 2, key: "from-the-future" };
-    const current = { schema_version: 1, key: "current" };
+    const future = { schema_version: 3, key: "from-the-future" };
+    const current = { schema_version: 2, key: "current" };
     await fs.writeFile(file, JSON.stringify(future) + "\n" + JSON.stringify(current) + "\n");
     const out = await store.read(workspace);
     expect(out).toHaveLength(1);
@@ -138,19 +138,19 @@ describe("JsonlStore.read — corruption + version handling", () => {
 
 describe("JsonlStore.append — write discipline", () => {
   it("creates the file and the parent directory on first append", async () => {
-    const result = await store.append(workspace, { schema_version: 1, key: "first" });
+    const result = await store.append(workspace, { schema_version: 2, key: "first" });
     expect(result.filePath).toContain(path.join(".jsonl-test", "data.jsonl"));
     const raw = await fs.readFile(result.filePath, "utf8");
     expect(raw.trim().split("\n")).toHaveLength(1);
     const parsed = JSON.parse(raw.trim());
     expect(parsed.key).toBe("first");
-    expect(parsed.schema_version).toBe(1);
+    expect(parsed.schema_version).toBe(2);
   });
 
   it.skipIf(process.platform === "win32")(
     "creates the new file with mode 0o600 (user-only)",
     async () => {
-      await store.append(workspace, { schema_version: 1, key: "x" });
+      await store.append(workspace, { schema_version: 2, key: "x" });
       const file = path.join(workspace, ".jsonl-test", "data.jsonl");
       const st = await fs.stat(file);
       expect(st.mode & 0o777).toBe(0o600);
@@ -163,13 +163,13 @@ describe("JsonlStore.append — write discipline", () => {
       // Simulate an older-version file that landed at 0o644.
       const file = path.join(workspace, ".jsonl-test", "data.jsonl");
       await fs.mkdir(path.dirname(file), { recursive: true });
-      const legacyRow = { schema_version: 1, key: "legacy" };
+      const legacyRow = { schema_version: 2, key: "legacy" };
       await fs.writeFile(file, JSON.stringify(legacyRow) + "\n", { mode: 0o644 });
       let st = await fs.stat(file);
       expect(st.mode & 0o777).toBe(0o644);
 
       // The next append must re-stamp the mode to 0o600.
-      await store.append(workspace, { schema_version: 1, key: "fresh" });
+      await store.append(workspace, { schema_version: 2, key: "fresh" });
       st = await fs.stat(file);
       expect(st.mode & 0o777).toBe(0o600);
     },
@@ -183,7 +183,7 @@ describe("JsonlStore.append — write discipline", () => {
     const big = "\u{1F680}".repeat(1100);
     let caught: unknown;
     try {
-      await store.append(workspace, { schema_version: 1, key: "k", value: big });
+      await store.append(workspace, { schema_version: 2, key: "k", value: big });
     } catch (e) {
       caught = e;
     }
@@ -197,7 +197,7 @@ describe("JsonlStore.append — write discipline", () => {
     let caught: unknown;
     try {
       await store.append(workspace, {
-        schema_version: 1,
+        schema_version: 2,
         // @ts-expect-error — intentional invalid: empty key
         key: "",
       });
@@ -212,7 +212,7 @@ describe("JsonlStore.append — write discipline", () => {
 
   it("serialises 30 concurrent appends without torn lines (every entry survives)", async () => {
     const writers = Array.from({ length: 30 }, (_, i) =>
-      store.append(workspace, { schema_version: 1 as const, key: `parallel-${i}` }),
+      store.append(workspace, { schema_version: 2 as const, key: `parallel-${i}` }),
     );
     await Promise.all(writers);
     const out = await store.read(workspace);
@@ -236,7 +236,7 @@ describe("JsonlStore.append — write discipline", () => {
 
 describe("JsonlStore caching", () => {
   it("reuses cached entries when mtime AND size match (returns same reference)", async () => {
-    await store.append(workspace, { schema_version: 1, key: "x" });
+    await store.append(workspace, { schema_version: 2, key: "x" });
     const a = await store.read(workspace);
     const b = await store.read(workspace);
     expect(a).toBe(b);
@@ -245,7 +245,7 @@ describe("JsonlStore caching", () => {
   it("invalidates cache when size changes (same mtime, new line appended)", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const e1 = { schema_version: 1, key: "first" };
+    const e1 = { schema_version: 2, key: "first" };
     await fs.writeFile(file, JSON.stringify(e1) + "\n");
     const a = await store.read(workspace);
     expect(a).toHaveLength(1);
@@ -253,7 +253,7 @@ describe("JsonlStore caching", () => {
     // Append a second line WITHOUT bumping mtime: utime stays the same but
     // size grows. This exercises the size half of the cache key — mtime
     // alone would falsely return the cached single-entry result.
-    const e2 = { schema_version: 1, key: "second" };
+    const e2 = { schema_version: 2, key: "second" };
     const originalStat = await fs.stat(file);
     await fs.appendFile(file, JSON.stringify(e2) + "\n");
     // Pin mtime back to what it was — same-ms write simulation.
@@ -267,13 +267,13 @@ describe("JsonlStore caching", () => {
   it("invalidates cache when mtime changes (size could match coincidentally)", async () => {
     const file = path.join(workspace, ".jsonl-test", "data.jsonl");
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const e1 = { schema_version: 1, key: "x" };
+    const e1 = { schema_version: 2, key: "x" };
     await fs.writeFile(file, JSON.stringify(e1) + "\n");
     const a = await store.read(workspace);
     expect(a).toHaveLength(1);
 
     // Overwrite with same-length content but bump mtime to the future.
-    const e2 = { schema_version: 1, key: "y" };
+    const e2 = { schema_version: 2, key: "y" };
     await fs.writeFile(file, JSON.stringify(e2) + "\n");
     const future = new Date(Date.now() + 10_000);
     await fs.utimes(file, future, future);
@@ -285,7 +285,7 @@ describe("JsonlStore caching", () => {
   });
 
   it("__resetCacheForTests clears the cache (next read re-stats)", async () => {
-    await store.append(workspace, { schema_version: 1, key: "x" });
+    await store.append(workspace, { schema_version: 2, key: "x" });
     const a = await store.read(workspace);
     store.__resetCacheForTests();
     const b = await store.read(workspace);
@@ -301,7 +301,7 @@ describe("JsonlStore — property: append/read roundtrip", () => {
       fc.asyncProperty(
         fc.array(
           fc.record({
-            schema_version: fc.constant(1 as const),
+            schema_version: fc.constant(2 as const),
             key: fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0),
           }),
           { minLength: 0, maxLength: 8 },

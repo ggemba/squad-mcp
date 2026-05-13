@@ -178,10 +178,10 @@ tokens (estimated · chars ÷ 3.5)
   total: 1.54M  ·  avg/run: 37k
 
 per-agent (top 5 by spend)
-  senior-architect      14s   320k tokens
-  senior-developer      11s   280k tokens
-  senior-dev-security    9s   210k tokens
-  senior-qa              8s   180k tokens
+  architect      14s   320k tokens
+  developer      11s   280k tokens
+  security    9s   210k tokens
+  qa              8s   180k tokens
   tech-lead-consolidator 6s   150k tokens
 
 estimates: tokens = chars ÷ 3.5 · wall-clock includes parallel-batch overlap

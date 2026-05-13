@@ -29,7 +29,9 @@ afterEach(async () => {
 async function seed(rows: LearningEntry[]): Promise<string> {
   const file = path.join(workspace, DEFAULT_LEARNING_PATH);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const body = rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length > 0 ? "\n" : "");
+  const body =
+    rows.map((r) => JSON.stringify({ schema_version: 2, ...r })).join("\n") +
+    (rows.length > 0 ? "\n" : "");
   await fs.writeFile(file, body, "utf8");
   // Bump mtime so cached readLearnings re-reads.
   const future = new Date(Date.now() + 10_000);
@@ -68,7 +70,7 @@ describe("pruneLearningsTool — empty / no-op cases", () => {
     const file = await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old finding",
         decision: "accept",
       },
@@ -106,13 +108,13 @@ describe("pruneLearningsTool — age cutoff archival", () => {
     await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old",
         decision: "accept",
       },
       {
         ts: newTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "new",
         decision: "accept",
       },
@@ -140,7 +142,7 @@ describe("pruneLearningsTool — age cutoff archival", () => {
     await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old",
         decision: "accept",
       },
@@ -170,7 +172,7 @@ describe("pruneLearningsTool — age cutoff archival", () => {
       {
         // @ts-expect-error — intentional bad ts to verify defensive behaviour
         ts: "not-a-date",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "bad ts",
         decision: "accept",
       },
@@ -196,19 +198,19 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "CSRF token missing",
         decision: "accept",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dev-security",
+        agent: "security",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-03-01T00:00:00Z",
-        agent: "senior-architect",
+        agent: "architect",
         finding: "  CSRF Token   Missing.",
         decision: "accept",
       },
@@ -233,13 +235,13 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
@@ -261,19 +263,19 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "reject",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "reject",
       },
       {
         ts: "2026-03-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
@@ -293,20 +295,20 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
         archived: true,
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-03-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
@@ -326,19 +328,19 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-03-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
@@ -366,13 +368,13 @@ describe("pruneLearningsTool — promotion by recurrence", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
       },
@@ -394,7 +396,7 @@ describe("pruneLearningsTool — dry_run", () => {
     const file = await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old",
         decision: "accept",
       },
@@ -430,13 +432,13 @@ describe("pruneLearningsTool — interaction with readLearnings default", () => 
     await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old",
         decision: "accept",
       },
       {
         ts: newTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "new",
         decision: "accept",
       },
@@ -465,7 +467,7 @@ describe("pruneLearningsTool — schema validation (cycle-2)", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       },
@@ -487,7 +489,7 @@ describe("pruneLearningsTool — schema validation (cycle-2)", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       },
@@ -524,7 +526,7 @@ describe("pruneLearningsTool — promotion tie-break (cycle-2 QA M4)", () => {
     await seed([
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
         // Distinguish via a field that survives the prune
@@ -532,14 +534,14 @@ describe("pruneLearningsTool — promotion tie-break (cycle-2 QA M4)", () => {
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
         reason: "second-in-order",
       },
       {
         ts: "2026-02-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "csrf token missing",
         decision: "accept",
         reason: "third-in-order",
@@ -577,7 +579,7 @@ describe("pruneLearningsTool — config gate (cycle-2 QA M2)", () => {
     const file = await seed([
       {
         ts: oldTs,
-        agent: "senior-dba",
+        agent: "dba",
         finding: "old",
         decision: "accept",
       },
@@ -611,7 +613,7 @@ describe("pruneLearningsTool — backward compat", () => {
     const file = await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "legacy",
         decision: "accept",
       },
@@ -633,7 +635,7 @@ describe("pruneLearningsTool — backward compat", () => {
 
   it("preserves all fields on rewrite (no data loss for fields not touched by prune)", async () => {
     await appendLearning(workspace, {
-      agent: "senior-dba",
+      agent: "dba",
       finding: "with everything",
       decision: "accept",
       severity: "Major",
@@ -646,7 +648,7 @@ describe("pruneLearningsTool — backward compat", () => {
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     const oldRow = {
       ts: oldTs,
-      agent: "senior-dba",
+      agent: "dba",
       finding: "old",
       decision: "accept",
     };

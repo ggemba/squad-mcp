@@ -26,10 +26,10 @@ Decide if the change is ready to merge. Consolidate the squad's findings, arbitr
 
 ## Boundaries
 
-- Do not do line-by-line review (Senior-Dev-Reviewer)
-- Do not review queries or migrations (Senior-DBA)
-- Do not review vulnerabilities (Senior-Dev-Security)
-- Do not re-check test coverage in detail (Senior-QA)
+- Do not do line-by-line review (reviewer)
+- Do not review queries or migrations (dba)
+- Do not review vulnerabilities (security)
+- Do not re-check test coverage in detail (qa)
 - You may and should consolidate and arbitrate between their reports
 
 ## Responsibilities
@@ -99,12 +99,12 @@ Decide if the change is ready to merge. Consolidate the squad's findings, arbitr
 | Agent | Status | Blockers | Summary |
 |-------|--------|----------|---------|
 | PO | ... | 0 | ... |
-| Senior-Architect | ... | ... | ... |
-| Senior-DBA | ... | ... | ... |
-| Senior-Dev-Reviewer | ... | ... | ... |
-| Senior-Dev-Security | ... | ... | ... |
-| Senior-Developer | ... | ... | ... |
-| Senior-QA | ... | ... | ... |
+| architect | ... | ... | ... |
+| dba | ... | ... | ... |
+| reviewer | ... | ... | ... |
+| security | ... | ... | ... |
+| developer | ... | ... | ... |
+| qa | ... | ... | ... |
 
 ### Arbitrated Conflicts
 | Conflict | Agents | Decision | Justification |

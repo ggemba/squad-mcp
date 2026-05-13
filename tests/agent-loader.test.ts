@@ -67,14 +67,14 @@ describe("agent-loader — env set to allowlisted dir", () => {
     await fs.writeFile(path.join(dir, "product-owner.md"), "# overridden");
     vi.stubEnv("SQUAD_AGENTS_DIR", dir);
     __resetAgentLoaderForTests();
-    const archResult = await resolveAgentFile("senior-architect");
-    expect(archResult).toMatch(/agents[\\/]senior-architect\.md$/);
+    const archResult = await resolveAgentFile("architect");
+    expect(archResult).toMatch(/agents[\\/]architect\.md$/);
   });
 
-  it("resolves senior-debugger from the embedded agents directory (v0.10.0)", async () => {
+  it("resolves debugger from the embedded agents directory (v0.10.0)", async () => {
     __resetAgentLoaderForTests();
-    const result = await resolveAgentFile("senior-debugger");
-    expect(result).toMatch(/agents[\\/]senior-debugger\.md$/);
+    const result = await resolveAgentFile("debugger");
+    expect(result).toMatch(/agents[\\/]debugger\.md$/);
   });
 });
 
@@ -219,7 +219,7 @@ describe("agent-loader — filesystem permissions (Unix-only)", () => {
       try {
         await resolveAgentFile("product-owner");
         // Trigger again — must NOT re-warn (warn-once)
-        await resolveAgentFile("senior-architect");
+        await resolveAgentFile("architect");
         const permWarnings = warnSpy.mock.calls.filter(
           (c) => typeof c[0] === "string" && c[0].includes("world-writable"),
         );

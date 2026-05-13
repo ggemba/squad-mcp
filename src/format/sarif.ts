@@ -115,7 +115,7 @@ export function formatSarif(
   const ruleIds = new Set<string>();
 
   // Helper: build a stable rule id from the agent. Agents own rule namespaces
-  // ("senior-developer:async-error-handling" for example) — but our
+  // ("developer:async-error-handling" for example) — but our
   // ConsolidationOutput doesn't carry per-finding rule ids today, so we use
   // the agent name as the rule id and let the message + fingerprint
   // disambiguate. Future inline work can extend this.

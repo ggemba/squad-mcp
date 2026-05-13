@@ -3,7 +3,7 @@
 // dependencies done, optional agent filter. Tiebreaker priority then id.
 //
 // Usage:
-//   tools/next-task.mjs [--agent senior-dba] [--workspace <path>]
+//   tools/next-task.mjs [--agent dba] [--workspace <path>]
 //                       [--file <relpath>] [--json]
 //
 // Prints a one-line summary by default, or the full task as JSON with --json.

@@ -37,11 +37,11 @@ export const QUICK_AUTO_MAX_FILES = 8;
  * `.squad.yaml` consumers and CI integrations may key on this field.
  *
  *  - `quick`: cap squad to 2 agents (top-2 from the ranked `selectSquad`
- *    output, with `senior-developer` always force-included as a tiebreaker
+ *    output, with `developer` always force-included as a tiebreaker
  *    for code-touching work types). Skip tech-lead-planner and
  *    tech-lead-consolidator personas. `apply_consolidation_rules` still runs.
  *  - `normal`: zero behavioural change vs. pre-v0.8.0. The implicit default.
- *  - `deep`: force-include `senior-architect` + `senior-dev-security`.
+ *  - `deep`: force-include `architect` + `security`.
  *    Reject-loop cap raised from 2 to 3 iterations. Codex round suggested
  *    (still gated on `--codex` consent).
  *
@@ -57,9 +57,9 @@ export const EXEC_MODES = ["quick", "normal", "deep"] as const;
  * literal — if the role names ever change, the tests fail in the right
  * place rather than silently passing on the new literal.
  */
-export const TIEBREAKER_AGENT: AgentName = "senior-developer";
-export const FALLBACK_SECONDARY: AgentName = "senior-qa";
-export const DEEP_REQUIRED: readonly AgentName[] = ["senior-architect", "senior-dev-security"];
+export const TIEBREAKER_AGENT: AgentName = "developer";
+export const FALLBACK_SECONDARY: AgentName = "qa";
+export const DEEP_REQUIRED: readonly AgentName[] = ["architect", "security"];
 
 /**
  * `mode_warning` codes. Stable from v0.8.0. CI integrations can differentiate
@@ -113,7 +113,7 @@ export function selectMode(args: {
         warning: {
           code: "forced_quick_on_high_risk",
           message:
-            "user forced --quick on a high-risk diff; senior-dev-security force-included in the 2-agent cap as a safety override",
+            "user forced --quick on a high-risk diff; security force-included in the 2-agent cap as a safety override",
         },
       };
     }
@@ -138,22 +138,22 @@ export function selectMode(args: {
  *
  *  - `quick`: take the top-2 agents from `selectedAgents` (which arrives
  *    rank-ordered from selectSquad: core matrix → signals → user
- *    force_agents). `senior-developer` is force-included as a tiebreaker
+ *    force_agents). `developer` is force-included as a tiebreaker
  *    when the work_type is code-touching (anything other than
  *    `Business Rule`) — covers the Refactor/Performance path where
- *    `selectSquad` may not pick `senior-developer` from the matrix but
+ *    `selectSquad` may not pick `developer` from the matrix but
  *    the user still wants code-review eyes.
  *    When the user forced `--quick` on a high-risk diff (signalled via
- *    `signals.touches_auth/money/migration`), `senior-dev-security` is
+ *    `signals.touches_auth/money/migration`), `security` is
  *    force-included as one of the two regardless.
  *  - `normal`: pass through unchanged.
  *  - `deep`: force-include `DEEP_REQUIRED` (architect + security) even if
  *    `selectSquad` did not pick them.
  *
  * Precedence inside the 2-agent cap for `quick` (highest first):
- *   1. Safety override (`senior-dev-security` on forced-quick-on-high-risk).
+ *   1. Safety override (`security` on forced-quick-on-high-risk).
  *   2. `userForcedAgents` (caller intent).
- *   3. Tiebreaker `senior-developer` (code-touching work types).
+ *   3. Tiebreaker `developer` (code-touching work types).
  *   4. Top of `selectedAgents` ranked order.
  *   5. `FALLBACK_SECONDARY` last resort to guarantee 2 agents.
  *
@@ -194,7 +194,7 @@ export function shapeSquadForMode(
   };
 
   // (1) Safety override.
-  if (highRiskShape) push("senior-dev-security");
+  if (highRiskShape) push("security");
 
   // (2) User-forced agents — preserve their intent within the cap.
   let droppedForced = 0;
@@ -202,7 +202,7 @@ export function shapeSquadForMode(
     if (!push(a) && !seen.has(a)) droppedForced += 1;
   }
 
-  // (3) Tiebreaker for code-touching work types: senior-developer is the most
+  // (3) Tiebreaker for code-touching work types: developer is the most
   // general reviewer; force-include even if the matrix did not pick it.
   // Skip only for Business Rule (PO-owned, not code-centric).
   if (ctx.workType !== "Business Rule") push(TIEBREAKER_AGENT);

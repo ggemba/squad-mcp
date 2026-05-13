@@ -2,7 +2,7 @@
 // List tasks from `.squad/tasks.json`.
 //
 // Usage:
-//   tools/list-tasks.mjs [--status pending,done] [--agent senior-dba]
+//   tools/list-tasks.mjs [--status pending,done] [--agent dba]
 //                        [--workspace <path>] [--file <relpath>] [--json]
 //
 // Without --json, prints a compact table to stdout. With --json, prints

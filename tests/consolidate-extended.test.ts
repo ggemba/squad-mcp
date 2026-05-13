@@ -14,25 +14,25 @@ describe("applyConsolidationRules — extended output", () => {
           not_evaluated: false,
         },
         {
-          agent: "senior-developer",
+          agent: "developer",
           findings: [{ severity: "Suggestion", title: "c" }],
           not_evaluated: false,
         },
       ],
     });
     expect(r.severity_counts).toEqual({ Blocker: 0, Major: 1, Minor: 1, Suggestion: 1 });
-    expect(r.agents_involved).toEqual(["product-owner", "senior-developer"]);
+    expect(r.agents_involved).toEqual(["developer", "product-owner"]);
   });
 
   it("agents_involved sorted deterministically", () => {
     const r = applyConsolidationRules({
       reports: [
-        { agent: "senior-qa", findings: [], not_evaluated: false },
+        { agent: "qa", findings: [], not_evaluated: false },
         { agent: "product-owner", findings: [], not_evaluated: false },
-        { agent: "senior-developer", findings: [], not_evaluated: false },
+        { agent: "developer", findings: [], not_evaluated: false },
       ],
     });
-    expect(r.agents_involved).toEqual(["product-owner", "senior-developer", "senior-qa"]);
+    expect(r.agents_involved).toEqual(["developer", "product-owner", "qa"]);
   });
 
   it("idempotent: same input -> same output", () => {

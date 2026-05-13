@@ -5,6 +5,7 @@ import { SquadError } from "../errors.js";
 import { ensureRelativeInsideRoot } from "./path-safety.js";
 import { withFileLock } from "./file-lock.js";
 import { logger } from "../observability/logger.js";
+import { CURRENT_SCHEMA_VERSION, type CurrentSchemaVersion } from "./schema-version.js";
 
 /**
  * GENERIC JSONL STORE — shared discipline for append-only journals.
@@ -37,9 +38,11 @@ import { logger } from "../observability/logger.js";
  *     runs/store pattern.
  *
  *  2. **schema_version pre-check BEFORE Zod.** Rows with `schema_version !==
- *     1` are SKIPPED + LOGGED (not quarantined). This lets a v2 writer's
- *     output be partially read by a v1 reader without bricking. Only rows
- *     that match the version are passed to Zod; Zod failures DO quarantine.
+ *     2` are SKIPPED + LOGGED (not quarantined). This lets a v3 writer's
+ *     output be partially read by a v2 reader without bricking, AND lets
+ *     legacy v1 rows (pre-rename) be skipped instead of failing Zod
+ *     validation. Only rows that match the version are passed to Zod;
+ *     Zod failures DO quarantine.
  *
  *  3. **Quarantine on corruption.** Unparseable JSON and Zod-violating rows
  *     are written to `${path}.corrupt-${Date.now()}.jsonl` with mode 0o600
@@ -72,9 +75,9 @@ export interface JsonlStoreOptions<T> {
   /** Workspace-relative default path (e.g. `.squad/learnings.jsonl`). */
   defaultPath: string;
   /**
-   * Zod schema for one row. The OUTPUT type MUST satisfy `T extends { schema_version: 1 }`;
-   * the INPUT type may differ (e.g. when the schema uses `.default(1)` on
-   * `schema_version`, the input has `1 | undefined` while the output is `1`).
+   * Zod schema for one row. The OUTPUT type MUST satisfy `T extends { schema_version: 2 }`;
+   * the INPUT type may differ (e.g. when the schema uses `.default(2)` on
+   * `schema_version`, the input has `2 | undefined` while the output is `2`).
    * We deliberately use the 3-param `ZodType<Output, Def, Input>` form with a
    * permissive Input so consumers can use `.default()` for backward-compat row
    * reading without fighting the type system.
@@ -113,7 +116,7 @@ interface CacheEntry<T> {
  * singleton); the orchestrator MUST NOT instantiate per public-function call,
  * or the per-process cache will be thrown away on every call.
  */
-export class JsonlStore<T extends { schema_version: 1 }> {
+export class JsonlStore<T extends { schema_version: CurrentSchemaVersion }> {
   private readonly options: Required<
     Omit<JsonlStoreOptions<T>, "resolvePath" | "settingName" | "label">
   > & {
@@ -161,7 +164,7 @@ export class JsonlStore<T extends { schema_version: 1 }> {
 
   /**
    * Read all rows. Returns `[]` if the file does not exist (a fresh repo
-   * with no rows is the common case). Rows with `schema_version !== 1` are
+   * with no rows is the common case). Rows with `schema_version !== 2` are
    * skipped + logged. Rows that fail Zod validation are quarantined.
    */
   async read(workspaceRoot: string, options: { configuredPath?: string } = {}): Promise<T[]> {
@@ -217,17 +220,17 @@ export class JsonlStore<T extends { schema_version: 1 }> {
         });
         continue;
       }
-      // schema_version gate — skip+log instead of quarantining. A future v2
-      // writer would otherwise have its rows treated as corrupt by v1 readers;
+      // schema_version gate — skip+log instead of quarantining. A future v3
+      // writer would otherwise have its rows treated as corrupt by v2 readers;
       // this allows a heterogeneous-version journal to be partially read by
-      // older clients. Rows that lack `schema_version` entirely fall through
-      // to Zod, which uses `.default(1)` on the consumer schema to coerce
-      // legacy rows.
+      // older clients. Legacy v1 rows (pre-rename) AND rows lacking
+      // `schema_version` are ALSO skip+logged — the v2 schema cannot accept
+      // them so they would otherwise quarantine. Migration is via
+      // `tools/migrate-jsonl-agents.mjs`.
       if (
         typeof parsed === "object" &&
         parsed !== null &&
-        "schema_version" in parsed &&
-        (parsed as { schema_version: unknown }).schema_version !== 1
+        (parsed as { schema_version: unknown }).schema_version !== CURRENT_SCHEMA_VERSION
       ) {
         skippedUnknownVersion++;
         continue;
@@ -315,7 +318,7 @@ export class JsonlStore<T extends { schema_version: 1 }> {
     // mode only when O_CREAT applies (i.e. file is being created). For
     // pre-existing files (e.g. created by an older version at 0o644) we
     // defensively fchmod inside the lock to enforce 0o600 every time —
-    // closes the bug-class flagged by senior-developer (Major #1+#2).
+    // closes the bug-class flagged by developer (Major #1+#2).
     await withFileLock(filePath, async () => {
       const fh = await fs.open(filePath, "a", 0o600);
       try {

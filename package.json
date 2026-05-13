@@ -1,6 +1,6 @@
 {
   "name": "@gempack/squad-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "license": "Apache-2.0",
@@ -40,6 +40,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "smoke": "node tests/smoke.mjs",
+    "migrate-jsonl-agents": "node tools/migrate-jsonl-agents.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && eslint . && prettier --check .",
     "format": "prettier --write .",
@@ -70,6 +71,7 @@
     "tools/_tasks-io.mjs",
     "tools/list-tasks.mjs",
     "tools/next-task.mjs",
+    "tools/migrate-jsonl-agents.mjs",
     "tools/record-tasks.mjs",
     "tools/update-task-status.mjs",
     ".claude-plugin",

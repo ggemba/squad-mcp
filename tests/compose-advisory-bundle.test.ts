@@ -142,16 +142,14 @@ describe("composeAdvisoryBundle", () => {
       workspace_root: "C:/fake/workspace",
       user_prompt: "feature",
       plan: "plan",
-      force_agents: ["senior-dba", "senior-dev-security"],
+      force_agents: ["dba", "security"],
       read_content: false,
       staged_only: false,
     });
 
-    expect(out.workflow.squad.agents).toEqual(
-      expect.arrayContaining(["senior-dba", "senior-dev-security"]),
-    );
-    expect(out.slices_by_agent["senior-dba"]).toBeDefined();
-    expect(out.slices_by_agent["senior-dev-security"]).toBeDefined();
+    expect(out.workflow.squad.agents).toEqual(expect.arrayContaining(["dba", "security"]));
+    expect(out.slices_by_agent["dba"]).toBeDefined();
+    expect(out.slices_by_agent["security"]).toBeDefined();
   });
 
   describe("v0.12 perf path — hunks_by_agent", () => {
@@ -209,7 +207,7 @@ describe("composeAdvisoryBundle", () => {
         workspace_root: process.cwd(),
         user_prompt: "auth feature",
         plan: "plan",
-        force_agents: ["senior-dba", "senior-dev-reviewer"],
+        force_agents: ["dba", "reviewer"],
         read_content: false,
         staged_only: false,
       });

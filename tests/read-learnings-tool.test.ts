@@ -24,7 +24,9 @@ afterEach(async () => {
 async function seed(rows: LearningEntry[]): Promise<void> {
   const file = path.join(workspace, DEFAULT_LEARNING_PATH);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const body = rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length > 0 ? "\n" : "");
+  const body =
+    rows.map((r) => JSON.stringify({ schema_version: 2, ...r })).join("\n") +
+    (rows.length > 0 ? "\n" : "");
   await fs.writeFile(file, body, "utf8");
   const future = new Date(Date.now() + 10_000);
   await fs.utimes(file, future, future);
@@ -35,20 +37,20 @@ describe("readLearningsTool — include_summary", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "active 1",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "active 2",
         decision: "accept",
         promoted: true,
       },
       {
         ts: "2026-01-03T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "archived 1",
         decision: "accept",
         archived: true,
@@ -74,7 +76,7 @@ describe("readLearningsTool — include_summary", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       },
@@ -106,13 +108,13 @@ describe("readLearningsTool — limit:0 short-circuit", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "y",
         decision: "accept",
       },
@@ -135,7 +137,7 @@ describe("readLearningsTool — limit:0 short-circuit", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "x",
         decision: "accept",
       },
@@ -159,13 +161,13 @@ describe("readLearningsTool — include_archived", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "active",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "archived",
         decision: "accept",
         archived: true,
@@ -187,13 +189,13 @@ describe("readLearningsTool — include_archived", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "active",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "archived",
         decision: "accept",
         archived: true,
@@ -216,20 +218,20 @@ describe("readLearningsTool — promoted-first ordering", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "regular 1",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "promoted 1",
         decision: "accept",
         promoted: true,
       },
       {
         ts: "2026-01-03T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "regular 2",
         decision: "accept",
       },
@@ -251,13 +253,13 @@ describe("readLearningsTool — promoted-first ordering", () => {
     await seed([
       {
         ts: "2026-01-01T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "regular-finding",
         decision: "accept",
       },
       {
         ts: "2026-01-02T00:00:00Z",
-        agent: "senior-dba",
+        agent: "dba",
         finding: "promoted-finding",
         decision: "accept",
         promoted: true,
@@ -295,7 +297,7 @@ describe("readLearningsTool — promoted-first ordering", () => {
     for (let i = 0; i < 60; i++) {
       rows.push({
         ts: `2026-01-${String((i % 30) + 1).padStart(2, "0")}T${String(Math.floor(i / 30)).padStart(2, "0")}:00:00Z`,
-        agent: "senior-dba",
+        agent: "dba",
         finding: `regular-${i}`,
         decision: "accept",
         ...(i === 25 ? { promoted: true, finding: "the-promoted-one" as string } : {}),
@@ -326,12 +328,15 @@ describe("readLearningsTool — promoted-first ordering", () => {
 
 describe("readLearningsTool — backward compat with v0.10.x rows", () => {
   it("reads rows without archived/promoted fields without error", async () => {
-    // Direct write of a v0.10.x shape — no archived/promoted fields.
+    // v0.10.x shape — no archived/promoted fields. Post v0.14.x D1 the
+    // schema_version pre-gate requires `schema_version: 2`; migrated rows
+    // carry it but legacy v0.10.x fields beyond that are absent.
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const row = {
+      schema_version: 2,
       ts: "2026-01-01T00:00:00Z",
-      agent: "senior-dba",
+      agent: "dba",
       finding: "legacy",
       decision: "accept",
     };

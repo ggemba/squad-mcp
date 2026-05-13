@@ -6,6 +6,7 @@ import { SquadError } from "../errors.js";
 import { ensureRelativeInsideRoot } from "../util/path-safety.js";
 import { withFileLock } from "../util/file-lock.js";
 import { logger } from "../observability/logger.js";
+import { CURRENT_SCHEMA_VERSION } from "../util/schema-version.js";
 import { SafeString } from "../tools/_shared/schemas.js";
 
 /**
@@ -187,9 +188,16 @@ const AgentMetricsSchema = z.object({
 });
 
 /**
- * RunRecord schema_version 1. PUBLIC STABLE CONTRACT from v0.9.0 — readers
- * (the `list_runs` MCP tool, the `/squad:stats` skill) key on
- * `schema_version` and quarantine unknown versions rather than failing.
+ * RunRecord schema_version 2 (bumped from 1 in the agent-rename release).
+ * PUBLIC STABLE CONTRACT — readers (the `list_runs` MCP tool, the
+ * `/squad:stats` skill) key on `schema_version` and skip+log unknown
+ * versions rather than failing.
+ *
+ * The v1 → v2 bump rotates the `agents[].name` enum (senior-* → bare names)
+ * AND signals that any v1 row carries the old agent names. v1 rows are
+ * skip+logged at read time so existing users with a populated journal can
+ * either migrate (see `tools/migrate-jsonl-agents.mjs`) or simply continue
+ * with a clean run history going forward.
  *
  * Discriminated by `status`:
  *  - `in_flight` rows carry only the Phase-1-known fields (skill knows what
@@ -201,7 +209,7 @@ const AgentMetricsSchema = z.object({
  * appropriate subset at the call site (`appendRun` vs `finalizeRun`).
  */
 const runRecordSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(CURRENT_SCHEMA_VERSION),
   id: SafeString(40),
   status: StatusEnum,
   started_at: SafeString(40),
@@ -310,7 +318,7 @@ interface CacheEntry {
   /**
    * File size at the time of caching. Used together with `mtimeMs` to guard
    * against same-millisecond writes that the (mtime-only) key would miss
-   * (senior-developer cycle-2 Major). Two writes landing in the same ms keep
+   * (developer cycle-2 Major). Two writes landing in the same ms keep
    * mtime identical; size always differs because each append-only line grows
    * the file. If both somehow match, the next mtime tick re-invalidates.
    */
@@ -355,9 +363,18 @@ export function generateRunId(): string {
  * timestamped sibling file and logged once; the surviving entries return
  * in append order.
  *
- * Unknown `schema_version` rows are quarantined too — readers must NEVER
- * silently include rows they don't understand. The quarantine file is
- * `.squad/runs.jsonl.corrupt-<ts>.jsonl` alongside the source.
+ * Rows with an unknown `schema_version` (legacy v1 produced before the
+ * agent-rename bump, or future v3+ produced by a newer client) are
+ * SKIPPED and LOGGED — NOT quarantined. The schema_version pre-Zod gate
+ * fires first so the v2 Zod schema never sees a row carrying old agent
+ * names that would otherwise fail enum validation. Migration to the
+ * current version is via `tools/migrate-jsonl-agents.mjs`. The pinning
+ * test for this contract is `tests/schema-version-skip-log.test.ts`.
+ *
+ * Rows that DO match `schema_version === CURRENT_SCHEMA_VERSION` but fail
+ * Zod validation ARE quarantined to `.squad/runs.jsonl.corrupt-<ts>.jsonl`
+ * alongside the source — those are real schema violations within the
+ * current version's contract.
  */
 export async function readRuns(
   workspaceRoot: string,
@@ -415,14 +432,16 @@ export async function readRuns(
       });
       continue;
     }
-    // Schema_version gate: skip+log instead of throwing. A future v2 writer
-    // would otherwise brick v1 readers; this lets a heterogeneous-version
-    // journal be partially read by older clients (architect A-6 + dev #11).
+    // Schema_version gate: skip+log instead of throwing. v1 rows (carrying
+    // pre-rename "senior-*" agent names) and rows lacking schema_version are
+    // both skip+logged so a journal written by an older client (or by this
+    // client before the rename release) is partially readable instead of
+    // bricking the dashboard. Migration to v2 is via
+    // `tools/migrate-jsonl-agents.mjs`.
     if (
       typeof parsed === "object" &&
       parsed !== null &&
-      "schema_version" in parsed &&
-      (parsed as { schema_version: unknown }).schema_version !== 1
+      (parsed as { schema_version: unknown }).schema_version !== CURRENT_SCHEMA_VERSION
     ) {
       skippedUnknownVersion++;
       continue;

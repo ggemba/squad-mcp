@@ -6,7 +6,7 @@ describe("applyConsolidationRules", () => {
     const r = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-dba",
+          agent: "dba",
           findings: [{ severity: "Blocker", title: "data loss path" }],
           not_evaluated: false,
         },
@@ -20,7 +20,7 @@ describe("applyConsolidationRules", () => {
     const r = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-dev-security",
+          agent: "security",
           findings: [{ severity: "Major", title: "missing authz", justified: false }],
           not_evaluated: false,
         },
@@ -33,7 +33,7 @@ describe("applyConsolidationRules", () => {
     const r = applyConsolidationRules({
       reports: [
         {
-          agent: "senior-dev-reviewer",
+          agent: "reviewer",
           findings: [{ severity: "Minor", title: "naming" }],
           not_evaluated: false,
         },
@@ -51,8 +51,8 @@ describe("applyConsolidationRules", () => {
 
   it("records not_evaluated agents", () => {
     const r = applyConsolidationRules({
-      reports: [{ agent: "senior-qa", findings: [], not_evaluated: true }],
+      reports: [{ agent: "qa", findings: [], not_evaluated: true }],
     });
-    expect(r.not_evaluated).toContain("senior-qa");
+    expect(r.not_evaluated).toContain("qa");
   });
 });

@@ -129,8 +129,8 @@ export interface FoldedRun {
 export function foldById(records: RunRecord[], now: number = Date.now()): FoldedRun[] {
   // Carry the append position on each row at collection time so the tiebreaker
   // sort is O(g log g) per group instead of O(g² · n) — the previous shape
-  // re-scanned `indexed` with findIndex inside the sort comparator (senior-
-  // developer cycle-2 Major #2).
+  // re-scanned `indexed` with findIndex inside the sort comparator (developer
+  // cycle-2 Major #2).
   interface Indexed {
     rec: RunRecord;
     pos: number;

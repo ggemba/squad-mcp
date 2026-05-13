@@ -73,7 +73,7 @@ export const recordRunToolDef: ToolDef<typeof schema> = {
     "Append one RunRecord to .squad/runs.jsonl. Single-writer contract: only the lifecycle-owning " +
     "skills should call this — squad (Phase 1 + Phase 10), debug (Phase A + Phase C), question " +
     "(Phase 1.5 + Phase 3.5), brainstorm (Step 1.5 + Step 5.5). Validates against the RunRecord " +
-    "schema_version:1 and enforces MAX_RECORD_BYTES (4000) via RECORD_TOO_LARGE on overflow. " +
+    "schema_version:2 and enforces MAX_RECORD_BYTES (4000) via RECORD_TOO_LARGE on overflow. " +
     "Caller is responsible for matching in_flight↔terminal rows by id. File mode is 0o600 " +
     "(user-only) on first create. mode_warning.message is stripped of control chars at write time.",
   schema,

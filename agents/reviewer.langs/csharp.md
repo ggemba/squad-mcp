@@ -1,4 +1,4 @@
-# Senior-Dev-Reviewer — C# / .NET supplement
+# Reviewer — C# / .NET supplement
 
 Use alongside the core role. Skip items that don't apply.
 

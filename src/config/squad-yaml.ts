@@ -42,7 +42,7 @@ const squadYamlSchema = z.object({
   /**
    * Agents to disable for this repo. Removed from the selected squad in
    * compose_squad_workflow. Useful for repos that don't have, say, a database
-   * (disable senior-dba) or aren't user-facing (disable product-owner).
+   * (disable dba) or aren't user-facing (disable product-owner).
    */
   disable_agents: z.array(z.enum(AGENT_NAMES_TUPLE)).max(20).optional(),
   /**

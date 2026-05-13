@@ -3,13 +3,13 @@
 //
 // Usage:
 //   tools/record-learning.mjs --reject \
-//     --agent senior-dev-security \
+//     --agent security \
 //     --finding "missing CSRF on POST /api/refund" \
 //     --reason "CSRF terminated at API gateway, see infra/edge.tf" \
 //     --pr 42
 //
 //   tools/record-learning.mjs --accept \
-//     --agent senior-architect \
+//     --agent architect \
 //     --finding "cross-module coupling Auth -> Billing" \
 //     --reason "refactored to event bus" \
 //     --branch refactor/auth
@@ -115,6 +115,7 @@ async function main() {
   const opts = parseArgs(args);
   const ts = new Date().toISOString();
   const entry = {
+    schema_version: 2,
     ts,
     agent: opts.agent,
     finding: opts.finding,
