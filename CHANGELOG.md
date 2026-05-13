@@ -7,6 +7,59 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-13
+
+### Added — `/squad:grillme` Socratic plan-validation skill
+
+New skill that grills a plan one question at a time against the project's
+domain language (`CONTEXT.md`) and prior decisions (`docs/adr/`). Sits
+between `/squad:brainstorm` (explore what to build) and `/squad:implement`
+(build it): use it when you have a plan and want to stress-test its
+consistency with the codebase's accumulated vocabulary.
+
+Mechanics:
+
+- One question at a time, with a recommended answer per question — the
+  user corrects rather than invents from scratch.
+- Three detected states on entry: established (`CONTEXT.md` + ADRs both
+  present), partial (one present), greenfield (neither). Greenfield runs
+  open with 3 seed questions before grilling the plan.
+- Updates `CONTEXT.md` inline and offers ADRs sparingly (only when the
+  decision is hard-to-reverse AND surprising AND a real trade-off — all
+  three).
+- `--no-write` for dry-run; `--quick` / `--normal` / `--deep` for session
+  depth (3 / 5–8 / 10+ questions); `--domain <name>` to pin to a single
+  context in multi-context repos with `CONTEXT-MAP.md`.
+
+This is the **second** skill (after `/squad:implement`) authorised to mutate
+user files — every write is gated by an inline confirmation, and writes
+are restricted to `CONTEXT.md`, `CONTEXT-MAP.md`, and `docs/adr/`. Never
+edits source code.
+
+Adapted from Matt Pocock's `grill-with-docs` skill (MIT,
+[github.com/mattpocock/skills](https://github.com/mattpocock/skills)).
+squad-mcp additions: telemetry integration, `--no-write` flag, greenfield
+seed questions, multi-context handling, explicit write-authority gating.
+See `NOTICE` for attribution.
+
+### Added — `scripts/bump-version.mjs`
+
+Single-shot version-pin updater for `package.json`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and the
+`SERVER_VERSION` literal in `src/index.ts`. Exposed as
+`npm run bump-version <version>`. Closes the gap that caused the 1.0.1
+release CI failure (only `package.json` was bumped manually, three other
+pins drifted).
+
+### Changed — telemetry
+
+- `INVOCATION_VALUES` (`src/runs/store.ts`) gains `"grillme"`. Downstream
+  consumers (`aggregateOutcomes`, `list_runs`, stats skill bucketing) pick
+  it up automatically via the data-driven
+  `Object.fromEntries(INVOCATION_VALUES…)` init pattern. The aggregate
+  test `tests/runs-aggregate.test.ts` adds the matching
+  `expect(out.invocation_counts.grillme).toBe(0)` assertion.
+
 ## [1.0.1] - 2026-05-13
 
 ### BREAKING — agent identifier rename (`senior-*` → bare names)

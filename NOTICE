@@ -9,3 +9,14 @@ package-lock.json for the full list. Notable runtime dependencies:
 
   - @modelcontextprotocol/sdk (MIT, https://github.com/modelcontextprotocol/typescript-sdk)
   - zod (MIT, https://github.com/colinhacks/zod)
+
+This product also includes derivative work adapted from the following
+third-party material:
+
+  - skills/grillme/ is adapted from Matt Pocock's `grill-with-docs` skill
+    (MIT, https://github.com/mattpocock/skills, Copyright (c) 2026 Matt Pocock).
+    The interview mechanic, CONTEXT.md and ADR file formats, and the ADR
+    triad criteria are derived from that source. The squad-mcp adaptation
+    adds telemetry integration, the `--no-write` dry-run flag, greenfield
+    seed questions, multi-context handling, and explicit write-authority
+    gating.

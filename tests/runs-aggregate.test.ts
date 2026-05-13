@@ -235,6 +235,7 @@ describe("aggregateOutcomes", () => {
     expect(out.invocation_counts.question).toBe(0);
     expect(out.invocation_counts.brainstorm).toBe(0);
     expect(out.invocation_counts.debug).toBe(0);
+    expect(out.invocation_counts.grillme).toBe(0);
   });
 
   it("counts verdicts and bucketizes scores from completed rows only", () => {
