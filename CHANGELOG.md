@@ -7,6 +7,84 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — auto-journaling distillation + retrieval (PR2 / Fase 1b)
+
+Builds on the PR1 capture plumbing. The squad now distills durable lessons,
+retrieves them smartly into advisory prompts, and folds the work trail into
+run telemetry.
+
+- **Learnings schema v2 → v3.** `.squad/learnings.jsonl` rows gain three
+  optional, additive fields: `lesson` (a distilled imperative one-liner),
+  `trigger` (a retrieval glob), and `evidence` (a `run:<id>` pointer). The
+  store accepts BOTH `schema_version` 2 and 3 — existing v2 rows read
+  unchanged. `finding` becomes optional; every row must carry at least one of
+  `finding` / `lesson`. There is deliberately no stored recurrence counter —
+  recurrence is derived at read time.
+- **Per-store schema-version constants.** The single shared
+  `CURRENT_SCHEMA_VERSION` is split into `RUNS_SCHEMA_VERSION` (stays 2) and
+  `LEARNINGS_SCHEMA_VERSION` (now 3) so a learnings bump never touches the
+  runs read gate.
+- **`JsonlStore` version generic + acceptance predicate.** The generic store
+  takes a version type parameter and an `isAcceptedVersion` predicate; the
+  read gate calls the predicate instead of a hard literal, letting the
+  learnings store accept a mixed-version journal.
+- **Smart retrieval.** `read_learnings` derives recurrence by counting
+  entries that share a normalised title; an entry recurring ≥ 3 times is
+  always injected (like a promoted entry). Below the threshold, an entry is
+  injected only when its `trigger` (or legacy `scope`) glob matches a changed
+  file. The distilled-lesson injection path no-ops when `.squad.yaml`
+  `journaling` is not `opt-in`.
+- **Consolidator distillation.** The `tech-lead-consolidator` emits 0-3
+  distilled lessons in a `squad-distilled-lessons` fenced block; the squad
+  skill parses it (fail-silent on any malformation) and records each lesson
+  via `record_learning` with `agent: tech-lead-consolidator`.
+- **`drain_journal` MCP tool.** Drains the pending-journal staging buffer and
+  returns the de-duplicated set of touched file paths. The squad skill calls
+  it in Phase 10 and folds `touched_paths` into the terminal RunRecord (new
+  optional `touched_paths` field, capped at 100 paths).
+- **Security.** `lesson` is checked against the `REFUSE_PATTERNS`
+  instruction-shaped-payload gate at record time (the same gate `reason`
+  gets); `finding` stays exempt. `lesson` / `trigger` / `evidence` are
+  sanitised at render time; `trigger` is restricted to a glob-safe character
+  class.
+
+Rollback degradation: a binary rolled back to a pre-PR2 build reads v3
+learnings rows but its schema-version gate skip+logs them — no data loss, no
+quarantine. The v3 entries are simply invisible until the binary is upgraded
+again.
+
+### Added — auto-journaling capture plumbing (PR1 / Fase 1a)
+
+Opt-in work-trail capture. A new Claude Code PostToolUse hook records
+**metadata** — a timestamp, the tool name, and the edited file path — into a
+local staging file (`.squad/pending-journal.jsonl`) on every `Edit`/`Write`.
+It captures NO file contents: the hook reads exactly two named fields off the
+tool input (`file_path`, `path`) and never serialises the rest.
+
+This release ships **capture plumbing only**. The squad's behaviour does not
+change — the staged breadcrumbs are not yet read by anything. Distillation and
+retrieval land in a follow-up release (PR2).
+
+Mechanics:
+
+- `hooks/journal-event.mjs` — zero-dependency pure logic: turns a parsed
+  PostToolUse payload into a sanitised breadcrumb (or skips it). Inline
+  sanitiser rejects NUL bytes, over-long paths, and traversal, and a
+  resolved-absolute prefix check skips self-triggering writes into `.squad/`.
+- `hooks/post-tool-use.mjs` — zero-dependency I/O adapter. Always exits 0:
+  every failure path is swallowed to a single `squad-journal:` stderr line.
+  The append is lock-free — `O_APPEND` keeps a sub-`PIPE_BUF` write atomic
+  across processes, and the drain side uses an atomic rename.
+- `src/journal/pending.ts` — TypeScript pending store. `readPending` parses
+  with per-line quarantine; `drainPending` claims breadcrumbs via an atomic
+  `fs.rename` (no read-then-truncate, no loss window). Rows are deliberately
+  version-less — the zero-dep hook cannot import the schema constant.
+- `/squad:enable-journaling` — new skill + command. Copies the hook scripts
+  into the user's `.squad/hooks/` and prints the `.claude/settings.json`
+  snippet to wire them up. Never auto-writes settings; explicit consent gates
+  the copy.
+- `.squad.yaml` gains a `journaling` field (`off` | `opt-in`, default `off`).
+
 ## [1.0.2] - 2026-05-13
 
 ### Added — `/squad:grillme` Socratic plan-validation skill

@@ -25,17 +25,18 @@ const entrySchema = z.object({
 });
 type Entry = z.infer<typeof entrySchema>;
 
-function makeStore(): JsonlStore<Entry> {
-  return new JsonlStore<Entry>({
+function makeStore(): JsonlStore<2, Entry> {
+  return new JsonlStore<2, Entry>({
     defaultPath: ".jsonl-test/data.jsonl",
     schema: entrySchema,
+    writeVersion: 2,
     settingName: "test.path",
     label: "test",
   });
 }
 
 let workspace: string;
-let store: JsonlStore<Entry>;
+let store: JsonlStore<2, Entry>;
 
 beforeEach(async () => {
   workspace = await fs.mkdtemp(path.join(os.tmpdir(), "squad-jsonl-store-test-"));
@@ -292,6 +293,58 @@ describe("JsonlStore caching", () => {
     // Different cache slots → different array references.
     expect(b).not.toBe(a);
     expect(b).toEqual(a);
+  });
+});
+
+describe("JsonlStore — isAcceptedVersion predicate (PR2)", () => {
+  // A multi-version schema mirroring the learnings store's {2, 3} union.
+  const multiSchema = z.object({
+    schema_version: z.union([z.literal(2), z.literal(3)]).default(3),
+    key: z.string().min(1).max(200),
+  });
+  type MultiEntry = z.infer<typeof multiSchema>;
+
+  function makeMultiStore(): JsonlStore<2 | 3, MultiEntry> {
+    return new JsonlStore<2 | 3, MultiEntry>({
+      defaultPath: ".jsonl-test/multi.jsonl",
+      schema: multiSchema,
+      writeVersion: 3,
+      isAcceptedVersion: (v) => v === 2 || v === 3,
+      settingName: "test.path",
+      label: "multi",
+    });
+  }
+
+  it("accepts both v2 and v3 rows; skips v1 and v4 (no quarantine)", async () => {
+    const s = makeMultiStore();
+    const file = path.join(workspace, ".jsonl-test", "multi.jsonl");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const rows = [
+      { schema_version: 1, key: "v1-skipped" },
+      { schema_version: 2, key: "v2-kept" },
+      { schema_version: 3, key: "v3-kept" },
+      { schema_version: 4, key: "v4-skipped" },
+    ];
+    await fs.writeFile(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    const out = await s.read(workspace);
+    expect(out.map((e) => e.key)).toEqual(["v2-kept", "v3-kept"]);
+    // Version-skipped rows are NEVER quarantined.
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("multi.jsonl.corrupt-"))).toBe(false);
+    s.__resetCacheForTests();
+  });
+
+  it("default predicate (no isAcceptedVersion) accepts only the writeVersion literal", async () => {
+    // The plain `store` (writeVersion 2, no predicate) must skip v3.
+    const file = path.join(workspace, ".jsonl-test", "data.jsonl");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const rows = [
+      { schema_version: 2, key: "kept" },
+      { schema_version: 3, key: "skipped" },
+    ];
+    await fs.writeFile(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    const out = await store.read(workspace);
+    expect(out.map((e) => e.key)).toEqual(["kept"]);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   __resetLearningStoreCacheForTests,
   type LearningEntry,
 } from "../src/learning/store.js";
+import { LEARNINGS_SCHEMA_VERSION } from "../src/util/schema-version.js";
 import { isSquadError } from "../src/errors.js";
 
 let workspace: string;
@@ -502,13 +503,14 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
   });
 
   it("skips (does not quarantine) rows with future schema_version", async () => {
-    // A future v2 writer's rows must be filtered out by the version
-    // pre-check, NOT quarantined as corrupt. This lets a v1 reader survive
-    // running alongside a v2 writer without bricking.
+    // A future writer's rows must be filtered out by the version pre-check,
+    // NOT quarantined as corrupt. PR2: the learnings store now accepts BOTH
+    // v2 and v3, so the "future/unknown" row is seeded as v4. A v3 row is
+    // valid and is covered by the mixed-version round-trip test below.
     const file = path.join(workspace, DEFAULT_LEARNING_PATH);
     await fs.mkdir(path.dirname(file), { recursive: true });
     const future = {
-      schema_version: 3,
+      schema_version: 4,
       ts: "2027-01-01T00:00:00Z",
       agent: "dba",
       finding: "from-the-future",
@@ -527,6 +529,111 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     expect(entries[0]!.finding).toBe("current");
     const siblings = await fs.readdir(path.dirname(file));
     expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);
+  });
+
+  it("reads a mixed v2 + v3 journal — both kept, neither quarantined (PR2)", async () => {
+    const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const v2row = {
+      schema_version: 2,
+      ts: "2026-01-01T00:00:00Z",
+      agent: "dba",
+      finding: "legacy v2 finding",
+      decision: "accept",
+    };
+    const v3row = {
+      schema_version: 3,
+      ts: "2026-02-01T00:00:00Z",
+      agent: "tech-lead-consolidator",
+      lesson: "Validate CSRF tokens at the gateway, not per-route",
+      trigger: "src/auth/**",
+      evidence: "run:abc123",
+      decision: "accept",
+    };
+    await fs.writeFile(file, JSON.stringify(v2row) + "\n" + JSON.stringify(v3row) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]!.finding).toBe("legacy v2 finding");
+    expect(entries[0]!.schema_version).toBe(2);
+    expect(entries[1]!.lesson).toBe("Validate CSRF tokens at the gateway, not per-route");
+    expect(entries[1]!.trigger).toBe("src/auth/**");
+    expect(entries[1]!.evidence).toBe("run:abc123");
+    expect(entries[1]!.schema_version).toBe(3);
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);
+  });
+
+  it("reads a v2-only file unaffected by the v3 bump (PR2)", async () => {
+    const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const v2row = {
+      schema_version: 2,
+      ts: "2026-01-01T00:00:00Z",
+      agent: "dba",
+      finding: "v2 only",
+      decision: "reject",
+      scope: "src/db/**",
+    };
+    await fs.writeFile(file, JSON.stringify(v2row) + "\n");
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.finding).toBe("v2 only");
+    expect(entries[0]!.scope).toBe("src/db/**");
+  });
+
+  it("appends a lesson-only v3 row (no finding) and round-trips it (PR2)", async () => {
+    const r = await appendLearning(workspace, {
+      agent: "tech-lead-consolidator",
+      lesson: "Prefer composition over inheritance for advisory personas",
+      decision: "accept",
+      evidence: "run:xyz789",
+    });
+    expect(r.entry.lesson).toBe("Prefer composition over inheritance for advisory personas");
+    expect(r.entry.finding).toBeUndefined();
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.lesson).toBe("Prefer composition over inheritance for advisory personas");
+  });
+
+  it("rejects a row with neither finding nor lesson (PR2 object refine)", async () => {
+    let caught: unknown;
+    try {
+      await appendLearning(workspace, {
+        // @ts-expect-error — intentional: neither finding nor lesson
+        agent: "dba",
+        decision: "accept",
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(isSquadError(caught)).toBe(true);
+    if (isSquadError(caught)) {
+      expect(caught.code).toBe("INVALID_INPUT");
+    }
+  });
+
+  it("soft-truncates an oversized lesson so the line stays under the cap (PR2)", async () => {
+    // A lesson within the 512-char schema cap is too short to overflow the
+    // 4000-byte line cap on its own; pair it with a large reason so the loop
+    // must shrink reason first, then still keep lesson intact. To exercise
+    // the lesson branch specifically, use a lesson at max length and a
+    // finding/reason combination that forces the line over the cap.
+    const bigReason = "r".repeat(3_900);
+    const maxLesson = "L".repeat(512);
+    const result = await appendLearning(workspace, {
+      agent: "tech-lead-consolidator",
+      lesson: maxLesson,
+      finding: "header",
+      decision: "accept",
+      reason: bigReason,
+    });
+    const raw = await fs.readFile(path.join(workspace, DEFAULT_LEARNING_PATH), "utf8");
+    expect(Buffer.byteLength(raw, "utf8")).toBeLessThanOrEqual(4_000);
+    // The row still parses and survives the round-trip.
+    const entries = await readLearnings(workspace);
+    expect(entries).toHaveLength(1);
+    // reason was truncated; lesson kept (reason shrinks first in the loop).
+    expect(result.entry.reason).toMatch(/\[truncated\]$/);
   });
 
   it("__resetLearningStoreCacheForTests still resets cache (legacy export name preserved)", async () => {
@@ -549,7 +656,10 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
 
   it("appendLearning return shape preserved: { entry, filePath }", async () => {
     // Pin the public-API return shape so a future refactor inside the
-    // JsonlStore wrapper can't break documented callers.
+    // JsonlStore wrapper can't break documented callers. PR2: the stamped
+    // schema_version is the imported LEARNINGS_SCHEMA_VERSION (3), not a
+    // hard literal — a future bump moves the constant and the assertion
+    // tracks it.
     const r = await appendLearning(workspace, {
       agent: "dba",
       finding: "shape-check",
@@ -557,7 +667,7 @@ describe("appendLearning — v0.14.x D1 JsonlStore migration", () => {
     });
     expect(r.filePath).toMatch(/learnings\.jsonl$/);
     expect(r.entry.finding).toBe("shape-check");
-    expect(r.entry.schema_version).toBe(2);
+    expect(r.entry.schema_version).toBe(LEARNINGS_SCHEMA_VERSION);
     expect(r.entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

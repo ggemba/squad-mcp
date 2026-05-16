@@ -59,9 +59,16 @@ const AGENT_RENAMES = [
   ["senior-qa", "qa"],
 ];
 
-// Schema version bump applied to v1 rows in the JSONL files. Mirrors
-// `src/util/schema-version.ts` (CURRENT_SCHEMA_VERSION). Keep in lockstep.
-const CURRENT_SCHEMA_VERSION = 2;
+// Schema version this tool bumps v1 rows TO. This migration is the historical
+// agent-rename pass (senior-* → bare names) and targets v2 for BOTH journals.
+// It is intentionally pinned to the literal 2 — not the live learnings
+// constant — because PR2 bumped `.squad/learnings.jsonl` to v3 additively:
+// a v1 row migrated here lands at v2 (agent names fixed) and is then read
+// natively by the v3 learnings store (which accepts {2, 3}). Re-stamping v1
+// rows straight to 3 would skip the v2 contract this migration documents.
+// `src/util/schema-version.ts` now exports RUNS_SCHEMA_VERSION (=2) and
+// LEARNINGS_SCHEMA_VERSION (=3); this literal corresponds to the former.
+const MIGRATION_TARGET_SCHEMA_VERSION = 2;
 
 function fail(code, msg) {
   process.stderr.write(`${PROG}: ${msg}\n`);
@@ -196,7 +203,7 @@ async function planJsonl(filePath) {
       !Array.isArray(rewritten) &&
       rewritten.schema_version === 1
     ) {
-      rewritten.schema_version = CURRENT_SCHEMA_VERSION;
+      rewritten.schema_version = MIGRATION_TARGET_SCHEMA_VERSION;
       bumpedThisRow = true;
     }
     const after = JSON.stringify(rewritten);

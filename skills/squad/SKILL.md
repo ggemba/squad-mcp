@@ -47,7 +47,8 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `score_rubric` — standalone rubric calculator (also invoked internally by `apply_consolidation_rules` when reports carry scores)
 - `list_agents` — list configured agents with role, ownership, and dimension weight
 - `read_learnings` — load past accept/reject decisions (filtered by agent + scope), returns a markdown block ready to inject into agent or consolidator prompts
-- `record_learning` — append a new accept/reject decision to `.squad/learnings.jsonl` (Phase 12 batched-prompt record path)
+- `record_learning` — append a new accept/reject decision (or a distilled `lesson`) to `.squad/learnings.jsonl` (Phase 12 batched-prompt record path; also the Phase 10 distilled-lessons capture path)
+- `drain_journal` — drain the auto-journaling staging buffer and return de-duplicated touched paths (Phase 10, before the terminal `record_run`; no-op unless `.squad.yaml` `journaling: opt-in`)
 - `compose_prd_parse` — build a prompt + JSON schema for the host LLM to decompose a PRD into atomic tasks (Phase 0.5)
 - `list_tasks` — read tasks from `.squad/tasks.json` with optional filters (status / agent / changed_files)
 - `next_task` — pick the next ready task (deps satisfied, optional agent / scope filter)
@@ -160,7 +161,7 @@ const startedAt = <ISO 8601 now>;
 record_run({
   workspace_root: <cwd>,
   record: {
-    schema_version: 1,
+    schema_version: 2,
     id: runId,
     status: "in_flight",
     started_at: startedAt,
@@ -531,16 +532,61 @@ The consolidator prompt should include the learnings block under a `## Past team
 
 The final user-facing output MUST include the `rubric.scorecard_text` block verbatim — that's the visible artifact that distinguishes squad from generic reviewers.
 
+### Phase 10 — distilled-lessons capture (auto-journaling, PR2)
+
+After the `tech-lead-consolidator` subagent returns, scan its output for a
+`squad-distilled-lessons` fenced block — the consolidator emits 0-3 durable
+lessons there (see the consolidator agent definition's Output Format).
+
+Parsing contract — **fail silent** at every step (record nothing, surface no
+error to the user; an optional debug log line is fine):
+
+1. Locate a fenced code block whose info-string is **exactly**
+   `squad-distilled-lessons`. If absent → stop (nothing to distill).
+2. `JSON.parse` the block body. If it throws (malformed JSON, or a partial /
+   unclosed fence so the body is not valid JSON) → stop.
+3. The parsed value MUST be an array. If not → stop.
+4. For each element, validate the shape `{ lesson: string, trigger?: string }`.
+   Skip any element that fails the shape; keep the valid ones.
+5. For each valid lesson, call `record_learning` with:
+   - `agent: "tech-lead-consolidator"`
+   - `lesson: <element.lesson>`
+   - `trigger: <element.trigger>` when present
+   - `evidence: "run:<runId>"` (the Phase 1 run id)
+   - `decision: "accept"`
+
+`record_learning` itself REFUSE-checks `lesson` for instruction-shaped text;
+a rejected lesson throws `INSTRUCTION_SHAPED_PAYLOAD` — log it and continue
+with the remaining lessons. This is byproduct telemetry: never block the run
+on a distillation failure.
+
+This whole step is skipped in quick mode (the consolidator persona did not
+run, so there is no block to parse).
+
 ### Phase 10 end — finalize run record (both modes, v0.9.0+)
 
 After the verdict + rubric are known and BEFORE returning the final output to the user, write the terminal half of the two-phase record. Same `id` as the Phase-1 in_flight row; the aggregator pairs them.
+
+**Before the terminal `record_run`, call `drain_journal`** (auto-journaling, PR2):
+
+```
+const drain = drain_journal({ workspace_root: <cwd> });
+// drain.touched_paths — de-duplicated file paths touched this run (capped 100)
+// drain.drained_count — raw breadcrumb count
+```
+
+`drain_journal` is a no-op (returns empty arrays) when `.squad.yaml`
+`journaling` is not `opt-in`. Fold `drain.touched_paths` into the terminal
+RunRecord's `touched_paths` field (below). Wrap the call in the SAME
+non-blocking try / catch as `record_run` — a drain failure is telemetry loss,
+never a workflow blocker; on failure use an empty `touched_paths`.
 
 ```
 const completedAt = <ISO 8601 now>;
 record_run({
   workspace_root: <cwd>,
   record: {
-    schema_version: 1,
+    schema_version: 2,
     id: <same id from Phase 1>,
     status: "completed",                          // or "aborted" on Gate 1 / 2 stop
     started_at: <same started_at from Phase 1>,
@@ -580,7 +626,11 @@ record_run({
     // Powers `aggregateLanguageSupplementImpact` — A/B signal on whether
     // per-language supplements actually move agent scores. Always emit when
     // available so we accumulate data; analysis can wait. See aggregate.ts.
-    language_supplements: <{ injected, detected, confidence, agents_with_supplement } | undefined>
+    language_supplements: <{ injected, detected, confidence, agents_with_supplement } | undefined>,
+    // OPTIONAL (auto-journaling, PR2) — the de-duplicated file paths touched
+    // during this run, from `drain_journal` above. Empty / omitted when
+    // journaling is not `opt-in` or the drain returned nothing. Capped at 100.
+    touched_paths: <drain.touched_paths | undefined>
   }
 });
 ```
