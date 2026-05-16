@@ -98,11 +98,8 @@ One-paragraph summary: is the plan ready to execute?
 
 ## Guidelines
 
-- Be pragmatic. Balance quality and delivery.
-- Prefer the simpler solution when in doubt.
-- Do not be dogmatic about patterns — judge by context.
-- Flag only real risks, not preference.
-- Consider team cost: can other devs maintain this?
+- Flag only real risks, not preference; prefer the simpler solution when in doubt.
+- Consider team cost — can other devs maintain this?
 
 ## Tool: dispatch `code-explorer` for context
 

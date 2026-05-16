@@ -8,8 +8,15 @@ import {
 import { sliceFilesForAgent, type SliceOutput } from "./slice-files.js";
 import { validatePlanText, type ValidatePlanOutput } from "./validate-plan-text.js";
 import { extractFileHunks, type FileHunk } from "../exec/diff-hunks.js";
-import { detectLanguages, type LanguageDetection } from "../exec/detect-languages.js";
-import { readAgentLanguageSupplements } from "../resources/agent-loader.js";
+import {
+  detectLanguages,
+  detectFrameworks,
+  type LanguageDetection,
+} from "../exec/detect-languages.js";
+import {
+  readAgentLanguageSupplements,
+  readAgentFrameworkSupplements,
+} from "../resources/agent-loader.js";
 import { AGENT_NAMES_TUPLE, type AgentName } from "../config/ownership-matrix.js";
 import { isSquadError } from "../errors.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
@@ -300,6 +307,19 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
 
   if (includeLanguageSupplements && filePaths.length > 0) {
     detected_languages = detectLanguages(filePaths);
+    const frameworks = detectFrameworks(filePaths);
+
+    // Per-agent supplement maps, merged from the language pass and the
+    // framework pass. Both feed the same `language_supplements_by_agent`
+    // field — the host injects every entry the same way.
+    const byAgent: Partial<Record<AgentName, Record<string, string>>> = {};
+    const mergeInto = (pairs: ReadonlyArray<readonly [AgentName, Record<string, string>]>) => {
+      for (const [agent, map] of pairs) {
+        if (Object.keys(map).length === 0) continue;
+        byAgent[agent] = { ...(byAgent[agent] ?? {}), ...map };
+      }
+    };
+
     if (detected_languages.all.length > 0) {
       // Apply the secondary-language file-count threshold. PRIMARY always
       // passes regardless of count (the dominant language is never marginal).
@@ -315,35 +335,58 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
       });
       // Look up supplements for the agents that have language-aware addenda.
       // Concurrent — each agent's supplement read is independent.
-      const supplements = await Promise.all(
-        LANGUAGE_AWARE_AGENTS.map(async (agent) => {
-          try {
-            const map = await readAgentLanguageSupplements(agent, langsToInject);
-            return [agent, map] as const;
-          } catch (err) {
-            // Read failure is fail-soft — just no supplement for this agent.
-            logger.warn("language supplement lookup failed; continuing without", {
-              details: {
-                agent,
-                languages: langsToInject,
-                message: err instanceof Error ? err.message : String(err),
-              },
-            });
-            return [agent, {} as Record<string, string>] as const;
-          }
-        }),
+      mergeInto(
+        await Promise.all(
+          LANGUAGE_AWARE_AGENTS.map(async (agent) => {
+            try {
+              const map = await readAgentLanguageSupplements(agent, langsToInject);
+              return [agent, map] as const;
+            } catch (err) {
+              // Read failure is fail-soft — just no supplement for this agent.
+              logger.warn("language supplement lookup failed; continuing without", {
+                details: {
+                  agent,
+                  languages: langsToInject,
+                  message: err instanceof Error ? err.message : String(err),
+                },
+              });
+              return [agent, {} as Record<string, string>] as const;
+            }
+          }),
+        ),
       );
-      language_supplements_by_agent = {};
-      for (const [agent, map] of supplements) {
-        if (Object.keys(map).length > 0) {
-          language_supplements_by_agent[agent] = map;
-        }
-      }
-      // Don't surface an empty record — keep the field absent if no agent
-      // produced any supplement (clean output).
-      if (Object.keys(language_supplements_by_agent).length === 0) {
-        language_supplements_by_agent = undefined;
-      }
+    }
+
+    // Framework supplements run independently of language detection — a pure
+    // `.vue` / `.svelte` PR has no recognised Language but still has a
+    // framework. Today only `reviewer` ships a `.frameworks/` directory; the
+    // other agents return empty maps and are skipped.
+    if (frameworks.length > 0) {
+      mergeInto(
+        await Promise.all(
+          LANGUAGE_AWARE_AGENTS.map(async (agent) => {
+            try {
+              const map = await readAgentFrameworkSupplements(agent, frameworks);
+              return [agent, map] as const;
+            } catch (err) {
+              logger.warn("framework supplement lookup failed; continuing without", {
+                details: {
+                  agent,
+                  frameworks,
+                  message: err instanceof Error ? err.message : String(err),
+                },
+              });
+              return [agent, {} as Record<string, string>] as const;
+            }
+          }),
+        ),
+      );
+    }
+
+    // Don't surface an empty record — keep the field absent if no agent
+    // produced any supplement (clean output).
+    if (Object.keys(byAgent).length > 0) {
+      language_supplements_by_agent = byAgent;
     }
   }
 

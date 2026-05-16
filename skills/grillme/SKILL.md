@@ -1,6 +1,6 @@
 ---
 name: grillme
-description: Socratic plan validation. Grills the user's plan one question at a time against the project's domain language (CONTEXT.md) and prior decisions (ADRs in docs/adr/), updating both inline as terms resolve. Use BEFORE /squad:implement when you have a plan but want to stress-test its consistency with the codebase's accumulated vocabulary and decisions. Trigger when the user types /squad:grillme, /grillme, or asks to "grill my plan", "stress-test this plan", "is this consistent with our domain".
+description: Socratic plan validation. Grills the user's plan one question at a time against the project's domain language (CONTEXT.md) and prior decisions (ADRs in docs/adr/), updating both inline as terms resolve. Use BEFORE /squad:implement to stress-test a plan. Trigger when the user types /squad:grillme, /grillme, or asks to "grill my plan", "stress-test this plan", "is this consistent with our domain".
 ---
 
 # Skill: Grillme
@@ -96,12 +96,7 @@ record_run({
 });
 ```
 
-Non-blocking try/catch:
-
-- I/O error / unknown tool: log silently, continue.
-- `SquadError`: surface code + message verbatim (Security #7 contract from `skills/squad/SKILL.md`).
-
-If the in_flight write fails, set a flag so Phase 5 finalisation is skipped — no orphan terminal row without a paired in_flight.
+Non-blocking try/catch per `shared/_Telemetry-Contract.md`: I/O errors log silently; `SquadError` surfaces code + message verbatim. If this write fails, set a flag to skip the Phase 4 finalisation.
 
 ## Phase 2 — Question loop
 
@@ -201,7 +196,7 @@ record_run({
 });
 ```
 
-Same non-blocking try/catch. On `SquadError`, attempt a fallback with the same `id`, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. If that also fails, log and continue.
+Same non-blocking try/catch; on `SquadError` write the fallback row per `shared/_Telemetry-Contract.md`.
 
 ## Edge Cases
 
@@ -225,11 +220,7 @@ Same non-blocking try/catch. On `SquadError`, attempt a fallback with the same `
 
 ### Cost vs depth
 
-Same vocabulary as the other squad skills:
-
-- `--quick`: ~3 questions, ~5–10K tokens. Spot-check the most load-bearing assumption.
-- `--normal` (default): ~5–8 questions, ~20–40K tokens. Genuine plan validation.
-- `--deep`: ~10+ questions + code cross-reference, ~60–100K tokens. For architectural plans.
+Question counts per mode are in the Inputs table. Token ballpark: `--quick` ~5-10K, `--normal` ~20-40K, `--deep` ~60-100K. Same `--quick` / `--normal` / `--deep` vocabulary as the other squad skills.
 
 ### When to use vs alternatives
 

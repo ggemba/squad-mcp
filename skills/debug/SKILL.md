@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Read-only bug investigation skill. Takes a bug description plus optional stack trace plus optional repro steps; orients via the code-explorer subagent, then dispatches the debugger persona to emit N ranked hypotheses (1 on --quick, 3 on --normal, 5 with a top-2 cross-check pass on --deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Position in the workflow: /squad:question looks code up, /squad:debug reasons about why it failed, /squad:implement writes the fix. Trigger when the user types /squad:debug or asks to "investigate this bug", "what could cause...", "help me debug...".
+description: Read-only bug investigation skill. Orients via the code-explorer subagent, then dispatches the debugger persona to emit N ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Trigger when the user types /squad:debug or asks to "investigate this bug", "what could cause...", "help me debug...".
 ---
 
 # Skill: Debug
@@ -98,12 +98,7 @@ record_run({
 });
 ```
 
-Wrap in a non-blocking try/catch:
-
-- I/O error (filesystem full, lock contention exhaustion, unknown-tool): log silently, continue. Telemetry loss must never block a real debug session.
-- `SquadError` (RECORD_TOO_LARGE / INVALID_INPUT / PATH_TRAVERSAL_DENIED): surface code + message to the user verbatim (Security #7 contract).
-
-If the Phase A write fails, persist a flag so the Phase C finalisation is skipped (no orphan terminal row without a paired in_flight).
+Non-blocking try/catch per `shared/_Telemetry-Contract.md`: I/O errors log silently; `SquadError` surfaces code + message verbatim. If this write fails, set a flag to skip the Phase C finalisation.
 
 Then dispatch the explorer:
 
@@ -267,7 +262,7 @@ record_run({
 });
 ```
 
-Same non-blocking try/catch as Phase A. On `SquadError`, attempt a fallback row with `status: "aborted"` and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }` — same pattern as the squad skill. If that fallback also fails, log and continue; the aggregator's 1h TTL will synthesize an aborted view.
+Same non-blocking try/catch; on `SquadError` write the fallback row per `shared/_Telemetry-Contract.md`.
 
 ## Phase D — User follow-up (out of scope)
 

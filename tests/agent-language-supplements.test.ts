@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import {
   readAgentLanguageSupplement,
   readAgentLanguageSupplements,
+  readAgentFrameworkSupplement,
+  readAgentFrameworkSupplements,
 } from "../src/resources/agent-loader.js";
 import { LANGUAGE_AWARE_AGENTS } from "../src/tools/compose-advisory-bundle.js";
 
@@ -117,5 +119,59 @@ describe("LANGUAGE_AWARE_AGENTS contract — const matches on-disk .langs/ direc
       const s = await stat(file);
       expect(s.isFile(), `expected agent definition at ${file}`).toBe(true);
     }
+  });
+});
+
+describe("readAgentFrameworkSupplement — framework supplements", () => {
+  it("returns the react supplement for reviewer", async () => {
+    const body = await readAgentFrameworkSupplement("reviewer", "react");
+    expect(body).not.toBeNull();
+    expect(body!.toLowerCase()).toContain("react");
+  });
+
+  it("returns null for an agent with no .frameworks/ directory", async () => {
+    expect(await readAgentFrameworkSupplement("architect", "react")).toBeNull();
+  });
+
+  it("returns null for a framework with no supplement on disk", async () => {
+    expect(await readAgentFrameworkSupplement("reviewer", "solid")).toBeNull();
+  });
+
+  it("rejects path-traversal-shaped framework identifiers", async () => {
+    expect(await readAgentFrameworkSupplement("reviewer", "../react")).toBeNull();
+  });
+
+  it("bulk variant returns only frameworks that exist on disk", async () => {
+    const map = await readAgentFrameworkSupplements("reviewer", [
+      "react",
+      "vue",
+      "angular",
+      "svelte",
+      "solid", // not shipped
+    ]);
+    expect(Object.keys(map).sort()).toEqual(["angular", "react", "svelte", "vue"]);
+    expect(map.solid).toBeUndefined();
+  });
+
+  it("every framework-aware agent ships all four framework supplements", async () => {
+    for (const agent of LANGUAGE_AWARE_AGENTS) {
+      for (const fw of ["react", "vue", "angular", "svelte"]) {
+        const file = join(AGENTS_DIR, `${agent}.frameworks`, `${fw}.md`);
+        const s = await stat(file);
+        expect(s.isFile(), `expected agents/${agent}.frameworks/${fw}.md`).toBe(true);
+      }
+    }
+  });
+
+  it("every `.frameworks/` directory belongs to a LANGUAGE_AWARE_AGENT", async () => {
+    // Framework supplements are looked up over the same agent set as `.langs/`
+    // (the `compose_advisory_bundle` loop iterates LANGUAGE_AWARE_AGENTS). A
+    // `.frameworks/` directory on any other agent would be dead weight.
+    const entries = await readdir(AGENTS_DIR, { withFileTypes: true });
+    const onDisk = entries
+      .filter((e) => e.isDirectory() && e.name.endsWith(".frameworks"))
+      .map((e) => e.name.replace(/\.frameworks$/, ""))
+      .sort();
+    expect(onDisk).toEqual([...LANGUAGE_AWARE_AGENTS].sort());
   });
 });

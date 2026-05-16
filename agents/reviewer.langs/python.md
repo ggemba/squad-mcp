@@ -1,43 +1,59 @@
 # Reviewer — Python supplement
 
-Use alongside the core role. Skip items that don't apply.
+Idiomatic checklist for Python. Apply alongside the Cross-Cutting checks in the core role. Skip items that don't apply to the diff.
 
-## Type hints
+## Typing
 
-- **Type hints in new code are non-optional** in any project that uses mypy / pyright in CI. PRs that add `def foo(x, y):` without annotations regress the type baseline silently.
-- **`Optional[T]` vs `T | None`.** PEP 604 syntax (`T | None`) is preferred from Python 3.10+. Mixing both in the same file is a code smell.
-- **`Any` is a hole** in the type system, same as TS `any`. `cast(Foo, value)` to suppress a checker warning is a claim — verify it.
-- **`# type: ignore` without a code** (`# type: ignore[arg-type]`) suppresses everything; the code-specific form documents WHAT is being ignored and surfaces if a different error lands on the same line.
+- Type hints on every public function/method signature and dataclass/Pydantic model. PRs adding `def foo(x, y):` without annotations silently regress the type baseline in any project running mypy/pyright in CI.
+- PEP 604 unions (`X | Y`, `T | None`) over `Optional`/`Union`; PEP 585 builtins (`list[int]`, `dict[str, int]`) over `List`/`Dict`. Don't mix old and new in one file.
+- `typing.Protocol` for structural typing instead of ABCs when duck typing fits.
+- Avoid `Any` (a hole in the type system); prefer `object` or a bounded `TypeVar`. `cast(...)` is a claim — verify it.
+- `# type: ignore[code]` with the specific code, never bare `# type: ignore` (suppresses everything, including a different error landing later on the same line).
 
-## Async / await
+## Data modeling
 
-- **Mixing sync and async** at module scope is a runtime trap. `requests.get(...)` in an async function blocks the entire event loop — flag it. Use `httpx.AsyncClient` or `aiohttp`.
-- **`asyncio.gather` vs `asyncio.wait_for`.** `gather` rejects on first failure; use `return_exceptions=True` for partial-failure semantics.
-- **Forgotten `await`** on a coroutine returns a coroutine object, not the result. Tests that pass `assert await foo()` correctly often hide bugs where production code does `foo()` (no await).
-- **`asyncio.sleep(0)`** to yield to the loop is a smell — the underlying issue is usually a CPU-bound block that should move to `run_in_executor`.
+- `@dataclass(frozen=True, slots=True)` for internal value objects (no validation needed).
+- Pydantic v2 `BaseModel` at trust boundaries (HTTP input, config, external data) — validates and coerces.
+- Don't pass plain `dict`s as ad-hoc data carriers; use `TypedDict` (structural) or `dataclass` (behaviour-bearing).
 
-## Error handling
+## Async
 
-- **Bare `except:` or `except Exception:`** without rethrow swallows `KeyboardInterrupt` and `SystemExit` (bare) or every framework error (broad). Almost always the wrong default — narrow to specific exceptions or use `except BaseException` with re-raise.
-- **`raise X from Y`** preserves the original cause. `raise X` (no `from`) inside an `except Y as e:` block silently drops `e`'s context — flag it.
-- **Context managers (`with`)** for resource cleanup. A function that opens a file but doesn't use `with` (e.g. `f = open(); ...; f.close()`) leaks the descriptor on exception. Same for `socket`, `connection`, `lock`.
-- **`assert` for runtime validation.** `python -O` strips asserts. Don't use `assert user.is_authenticated` for security-critical paths — use explicit `if not ...: raise`.
+- `async def` only when the function awaits something — otherwise it misleads.
+- No blocking calls in async functions (`time.sleep`, `requests.get`, sync DB drivers) — they block the whole event loop. Use `asyncio.sleep`, `httpx.AsyncClient`, async drivers.
+- `asyncio.gather` / `asyncio.TaskGroup` (3.11+) for fan-out; `gather` rejects on first failure — `return_exceptions=True` for partial-failure semantics.
+- Always pass `timeout=` to network calls; propagate `asyncio.CancelledError`, don't swallow it.
+- A forgotten `await` returns a coroutine object, not the result — silent bug.
+- `asyncio.sleep(0)` to yield is a smell — usually a CPU-bound block that belongs in `run_in_executor`.
 
-## Idiom
+## Errors
 
-- **Mutable default arguments.** `def foo(items=[])` shares the list across calls. Use `def foo(items=None): if items is None: items = []`. This is a Python interview classic that still ships.
-- **List/dict comprehensions** over `map`/`filter` chains for readability. But a 4-line comprehension is harder to read than a `for` loop — flag the over-clever ones.
-- **Generator vs list returns.** A function that builds a list but the caller only iterates once should return a generator (`yield`) — saves memory.
-- **`pathlib.Path` over `os.path`.** New code using `os.path.join(...)` instead of `Path(...) / ...` is missing the modern idiom.
-- **`dataclass` / `NamedTuple` / `TypedDict`** for structured records. A function returning a dict with magic keys is harder to refactor than one returning a typed object.
+- No bare `except:` (swallows `KeyboardInterrupt` / `SystemExit`) or `except Exception:` without re-raise. Narrow to specific exceptions.
+- Custom exception classes inherit from a project base.
+- `raise X from err` to preserve the cause chain; `raise X` inside `except Y as e:` silently drops `e`'s context.
+- `assert` is stripped by `python -O` — never use it for runtime or security validation; use explicit `if not ...: raise`.
+
+## Idioms
+
+- Context managers (`with` / `async with`) for files, locks, sessions, transactions, sockets, connections — a manual `open(); ...; close()` leaks the descriptor on exception.
+- f-strings over `%` / `.format()`; but logging uses lazy interpolation: `logger.info("msg %s", arg)`, not f-strings.
+- Comprehensions over `map`/`filter` + `lambda` — but flag the over-clever 4-line ones; a `for` loop reads better.
+- `pathlib.Path` over `os.path`.
+- Mutable default arguments (`def foo(items=[])`) share state across calls — use a `None` sentinel.
+- A function building a list the caller iterates once should `yield` (generator) — saves memory.
+- `match/case` (3.10+) for structural pattern matching, not as a `switch` substitute. Walrus `:=` only when it improves readability.
+
+## Layout & style
+
+- PEP 8 via `ruff` / `black`; flag if missing.
+- Public symbols in `__all__`; private prefixed `_`. Avoid module-level mutable state.
+- Prefer dependency injection (function args) over global singletons.
 
 ## Performance
 
-- **`+=` on strings in a loop** is O(n²) on CPython. Use `"".join([...])`.
-- **`list.append` vs `list += [x]`** — `+=` rebuilds the list. Use `append` in hot paths.
-- **`dict.get(k)` vs `dict[k]`** — `.get` is safe; `[k]` raises `KeyError`. The right choice depends on whether the key is supposed to exist (use `[k]` for mandatory, `.get` for optional). Flag mismatches.
+- `+=` on strings in a loop is O(n²) on CPython — use `"".join([...])`.
+- `dict.get(k)` (optional key) vs `dict[k]` (mandatory key, raises `KeyError`) — flag mismatches.
 
 ## Testing-adjacent
 
-- **`pytest.raises` without `match`** can pass for the wrong exception subclass. Add `match="..."` to pin the message.
-- **`mock.patch` paths** must point at where the name is LOOKED UP, not defined. `patch("module.helper")` when `module` does `from helpers import helper` doesn't patch anything.
+- `pytest.raises` without `match="..."` can pass for the wrong exception subclass.
+- `mock.patch` paths must point where the name is LOOKED UP, not defined — `patch("module.helper")` misses a `from helpers import helper`.

@@ -379,6 +379,55 @@ export async function readAgentLanguageSupplements(
   return out;
 }
 
+/**
+ * Read a single per-framework supplement file for an agent, returning the
+ * file body or `null` when it does not exist. The `.frameworks/` layout
+ * mirrors `.langs/`:
+ *   agents/
+ *     reviewer.md            ← core
+ *     reviewer.frameworks/   ← optional directory
+ *       react.md
+ *       vue.md
+ *
+ * The directory is OPTIONAL — agents without it return null for every
+ * framework. Today only `reviewer` ships a `.frameworks/` directory.
+ */
+export async function readAgentFrameworkSupplement(
+  name: AgentName,
+  framework: string,
+): Promise<string | null> {
+  await ensureEmbeddedDir();
+  assertKnownAgent(name);
+  if (typeof framework !== "string" || !LANGUAGE_ID_REGEX.test(framework)) {
+    // Path-traversal defence: only well-formed framework ids reach the fs.
+    return null;
+  }
+  const embedded = getEmbeddedDir();
+  const supplementPath = path.join(embedded, `${name}.frameworks`, `${framework}.md`);
+  try {
+    return await fs.readFile(supplementPath, "utf8");
+  } catch {
+    // ENOENT / any read failure — supplements are an optimisation, never
+    // load-bearing. Same fail-soft envelope as the language variant.
+    return null;
+  }
+}
+
+/** Bulk variant of `readAgentFrameworkSupplement` — see `readAgentLanguageSupplements`. */
+export async function readAgentFrameworkSupplements(
+  name: AgentName,
+  frameworks: readonly string[],
+): Promise<Record<string, string>> {
+  const results = await Promise.all(
+    frameworks.map(async (fw) => [fw, await readAgentFrameworkSupplement(name, fw)] as const),
+  );
+  const out: Record<string, string> = {};
+  for (const [fw, body] of results) {
+    if (body !== null) out[fw] = body;
+  }
+  return out;
+}
+
 export async function listAvailableAgents() {
   // Trigger validation so misconfigured overrides surface here too.
   let overridden = false;

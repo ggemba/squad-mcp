@@ -93,10 +93,9 @@ Objective summary of the evaluation.
 
 ## Guidelines
 
-- Focus strictly on value delivered to the business and to the user
-- Be pragmatic: not every gap is a blocker, classify by severity
-- Frame impact in business terms, not technical ones
-- Without a user story, judge by observable behavior and product common sense
+- Classify gaps by severity — not every gap is a blocker.
+- Frame impact in business terms, not technical ones.
+- Without a user story, judge by observable behavior and product common sense.
 
 ## Score
 

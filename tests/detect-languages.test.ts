@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { detectLanguages, classifyByExtension, LANGUAGES } from "../src/exec/detect-languages.js";
+import {
+  detectLanguages,
+  classifyByExtension,
+  LANGUAGES,
+  detectFrameworks,
+  FRAMEWORKS,
+} from "../src/exec/detect-languages.js";
 
 describe("classifyByExtension", () => {
   it("recognises common extensions", () => {
@@ -147,5 +153,53 @@ describe("detectLanguages — overall result", () => {
     const r = detectLanguages(["src/a.ts", null, "", undefined, "src/b.py"]);
     expect(r.files_by_language.typescript).toEqual(["src/a.ts"]);
     expect(r.files_by_language.python).toEqual(["src/b.py"]);
+  });
+});
+
+describe("detectFrameworks", () => {
+  it("detects Vue from .vue files", () => {
+    expect(detectFrameworks(["src/App.vue", "src/components/Btn.vue"])).toEqual(["vue"]);
+  });
+
+  it("detects Svelte from .svelte files", () => {
+    expect(detectFrameworks(["src/App.svelte"])).toEqual(["svelte"]);
+  });
+
+  it("detects React from .tsx / .jsx files", () => {
+    expect(detectFrameworks(["src/App.tsx"])).toEqual(["react"]);
+    expect(detectFrameworks(["src/legacy.jsx"])).toEqual(["react"]);
+  });
+
+  it("detects Angular from component-style filenames and angular.json", () => {
+    expect(detectFrameworks(["src/app/foo.component.ts"])).toEqual(["angular"]);
+    expect(detectFrameworks(["src/app/data.service.ts"])).toEqual(["angular"]);
+    expect(detectFrameworks(["angular.json"])).toEqual(["angular"]);
+  });
+
+  it("returns empty for plain language files with no framework signal", () => {
+    expect(detectFrameworks(["src/lib.ts", "src/util.py", "cmd/main.go"])).toEqual([]);
+  });
+
+  it("returns multiple frameworks in FRAMEWORKS declaration order", () => {
+    const r = detectFrameworks(["src/App.svelte", "src/Widget.tsx", "src/Page.vue"]);
+    expect(r).toEqual(["react", "vue", "svelte"]);
+  });
+
+  it("empty input returns empty array", () => {
+    expect(detectFrameworks([])).toEqual([]);
+  });
+
+  it("is case-insensitive and handles path separators", () => {
+    expect(detectFrameworks(["SRC\\App.VUE"])).toEqual(["vue"]);
+    expect(detectFrameworks(["a/b/c/Foo.Component.TS"])).toEqual(["angular"]);
+  });
+
+  it("ignores non-string and empty entries", () => {
+    // @ts-expect-error intentional bad input
+    expect(detectFrameworks(["src/App.vue", null, "", undefined])).toEqual(["vue"]);
+  });
+
+  it("FRAMEWORKS tuple is the stable contract", () => {
+    expect(FRAMEWORKS).toEqual(["react", "vue", "angular", "svelte"]);
   });
 });

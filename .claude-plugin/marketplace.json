@@ -12,7 +12,7 @@
         "repo": "ggemba/squad-mcp"
       },
       "description": "Squad-dev workflow: deterministic classification, risk scoring, agent selection, advisory orchestration over MCP, native subagents, plus /squad:implement and /squad:review slash commands.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "license": "Apache-2.0",
       "homepage": "https://github.com/ggemba/squad-mcp"
     }

@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-16
+
+### Added — framework-aware advisory supplements
+
+`compose_advisory_bundle` now detects UI frameworks (React, Vue, Angular,
+Svelte) from the changed-file list and injects per-agent framework checklists
+the same way language supplements are injected. New `detectFrameworks()` in
+`src/exec/detect-languages.ts` (pure, path-based) and
+`readAgentFrameworkSupplement(s)()` in the agent loader.
+
+- `agents/<agent>.frameworks/<fw>.md` for `reviewer`, `developer`, `qa`,
+  `implementer` — each a framework lens scoped to that agent's role
+  (reviewer = idioms, developer = runtime bugs, qa = testing, implementer =
+  idiomatic patterns).
+- `agents/reviewer.langs/java.md` and `agents/reviewer.langs/go.md` added.
+
+### Changed — token-efficiency pass
+
+- Skill `description` fields trimmed across all 9 skills (always-on cost).
+- `skills/squad/SKILL.md` split into a stable core plus per-mode files under
+  `skills/squad/modes/` (`task.md`, `implement.md`, `review.md`) — an
+  invocation now loads the core plus only the mode that runs.
+- `agents/reviewer.md` language checklists moved out to
+  `agents/reviewer.langs/` and `agents/reviewer.frameworks/`, loaded
+  conditionally per detected stack instead of inline on every dispatch.
+- Telemetry contract extracted to `shared/_Telemetry-Contract.md` and
+  referenced instead of restated in each skill.
+- Prose trimmed across the agent definitions; load-bearing rules unchanged.
+
 ## [1.1.0] - 2026-05-16
 
 ### Added — `/squad:pipeline` cradle-to-grave orchestration skill (Fase 3)

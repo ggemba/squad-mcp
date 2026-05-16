@@ -1,6 +1,6 @@
 ---
 name: pipeline
-description: Chains the squad skills — brainstorm → grillme → tasks → next → implement → review — into one guided, human-gated sequence. The pipeline is a stateful advisor: each invocation figures out where you are, recommends the exact next command (it never auto-runs one), and explains the gate decision in front of you. State lives only in the conversation context — no file, no MCP tool, no telemetry of its own. Trigger when the user types /squad:pipeline, /pipeline, or asks to "run the full squad pipeline", "take this feature cradle-to-grave".
+description: Chains the squad skills — brainstorm → grillme → tasks → next → implement → review — into one guided, human-gated sequence. A stateful advisor — each invocation figures out where you are, recommends the exact next command (never auto-runs one), and explains the gate. State lives only in conversation context. Trigger when the user types /squad:pipeline, /pipeline, or asks to "run the full squad pipeline", "take this feature cradle-to-grave".
 ---
 
 # Skill: Pipeline
@@ -215,24 +215,3 @@ When `review` passes on the last task (or the user chooses `exit`), print:
 - The pipeline never persists its own state — context is the only store.
 - The pipeline never edits source code or runs mutating git.
 - The pipeline never carries AI attribution into anything it prints.
-
-## Considerations
-
-### Why model (b) — recommend-next-command
-
-Auto-executing each sub-skill would collapse the human gates that make the
-squad workflow safe (Gate 1 plan approval, Gate 2 Blocker halt). Recommend-next
-keeps the user firing every command, so every phase boundary is a natural
-checkpoint — at zero extra machinery.
-
-### Why no telemetry of its own
-
-A pipeline run is just N sub-skill runs, each already tracked by its own
-`record_run`. A separate pipeline run id would double-count and need its own
-store and schema. `/squad:stats` already aggregates the sub-runs.
-
-### Discoverability
-
-Registered as a command in `.claude-plugin/plugin.json`; carries a `CHANGELOG`
-entry. The `brainstorm` and `implement` "Next step" lines may mention
-`/squad:pipeline` as the cradle-to-grave alternative.

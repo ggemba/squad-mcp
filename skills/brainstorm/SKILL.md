@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Collaborative brainstorm and research skill. Takes a problem, decision, or implementation topic; runs deep web research in parallel; spawns specialist agents for multi-domain perspectives; synthesizes findings into an options matrix with pros/cons/risks/sources and a recommendation. Output is a decision aid, NOT code. Use this BEFORE /squad:implement to decide what to build; use /squad:implement after to implement. Trigger when the user types /brainstorm or asks to "brainstorm", "research approaches", "explore options", "help me think through", "what does the industry use", or "best practices for".
+description: Brainstorm and research skill. Runs parallel web research and spawns specialist agents, then synthesizes an options matrix (pros/cons/risks/sources) with a recommendation. A decision aid, NOT code — use BEFORE /squad:implement to decide what to build. Trigger when the user types /brainstorm or asks to "brainstorm", "research approaches", "explore options", "help me think through", "what does the industry use", or "best practices for".
 ---
 
 # Skill: Brainstorm
@@ -14,10 +14,6 @@ Position in the workflow:
 - **`/brainstorm`** → decide what to build (this skill)
 - **`/squad:implement`** → implement what was decided
 - **`/squad:review`** → review what was implemented
-
-## Skill Name
-
-`/brainstorm`
 
 ## Inviolable Rules
 
@@ -52,7 +48,7 @@ Read the user's prompt and extract:
 
 If the topic is ambiguous, ask **one** clarifying question before proceeding. Do not ask a list of questions; pick the most load-bearing one.
 
-## Step 1.5: Write `in_flight` telemetry row (v0.10.1+)
+## Step 1.5: Write `in_flight` telemetry row
 
 Generate a fresh run id (`Date.now().toString(36) + "-" + 6 chars from [a-z0-9]`) and append the in_flight row before launching Step 2's parallel research:
 
@@ -78,12 +74,7 @@ record_run({
 
 **Pre-populate the `agents` array at in_flight time** with one entry per specialist you'll dispatch in Step 3 (metrics zero until Step 5.5 fills them). Pre-population keeps the row informative if the run strands.
 
-Non-blocking try/catch (mirror `skills/debug/SKILL.md` Phase A):
-
-- I/O error / unknown tool: log silently, continue.
-- `SquadError`: surface code + message verbatim (Security #7 contract).
-
-If the in_flight write fails, persist a flag so Step 5.5 finalisation is skipped (no orphan terminal row without a paired in_flight).
+Non-blocking try/catch per `shared/_Telemetry-Contract.md`: I/O errors log silently; `SquadError` surfaces code + message verbatim. If this write fails, set a flag to skip the Step 5.5 finalisation.
 
 ## Step 2: Research Plan
 
@@ -224,7 +215,7 @@ Format: at most 400 words. No long template. No scorecard.
 
 For `--quick` and `--normal`, the synthesizing skill itself produces the recommendation directly (no separate tech-lead spawn).
 
-## Step 5.5: Finalise telemetry row (v0.10.1+)
+## Step 5.5: Finalise telemetry row
 
 After Step 5 synthesis completes (or after early-stop on missing topic / no-research), write the terminal half. Use the SAME `id` from Step 1.5:
 
@@ -252,7 +243,7 @@ record_run({
 });
 ```
 
-Same non-blocking try/catch. On `SquadError`, attempt a fallback with the same `id`, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. If that also fails, log and continue.
+Same non-blocking try/catch; on `SquadError` write the fallback row per `shared/_Telemetry-Contract.md`.
 
 ## Step 6: Delivery
 
@@ -338,11 +329,7 @@ If the user passed `--quick`, output is condensed: skip "Agent perspectives" det
 
 ### Cost vs depth
 
-Same vocabulary as `/squad:implement` and `/squad:review` (`--quick` / `--normal` / `--deep`) — three flags, three modes, no per-skill variants.
-
-- `--quick`: ~3 web queries + 1 agent. Roughly 5-10K tokens. Useful for quick reality-checks.
-- `--normal` (default): ~6 queries + 2-3 agents. ~20-40K tokens. Useful for genuine option exploration.
-- `--deep`: ~10+ queries + 4 agents + tech-lead. ~60-100K tokens. Useful for high-stakes decisions where multiple stakeholders need to align.
+Query / agent counts per mode are in the Inputs table. Token ballpark: `--quick` ~5-10K, `--normal` ~20-40K, `--deep` ~60-100K. Same `--quick` / `--normal` / `--deep` vocabulary as the other squad skills.
 
 ### When to use vs alternatives
 

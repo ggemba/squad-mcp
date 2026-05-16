@@ -1,6 +1,6 @@
 ---
 name: enable-journaling
-description: Opt in to auto-journaling capture plumbing. Copies the bundled PostToolUse hook scripts into your repo's .squad/hooks/ and prints the exact .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does NOT change until a follow-up release (PR2) adds distillation and retrieval. Trigger when the user types /squad:enable-journaling or asks to "enable journaling", "turn on auto-journaling", "set up the work-trail hook".
+description: Opt in to auto-journaling capture plumbing. Copies the bundled PostToolUse hook scripts into .squad/hooks/ and prints the .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does not change yet. Trigger when the user types /squad:enable-journaling or asks to "enable journaling", "turn on auto-journaling", "set up the work-trail hook".
 ---
 
 # Skill: Enable Journaling
@@ -129,18 +129,3 @@ Print both:
 - This skill never enables journaling silently — explicit consent gates the
   copy.
 - This skill never carries AI attribution into anything it writes or prints.
-
-## Considerations
-
-### Why capture-only in PR1
-
-Splitting capture (PR1) from distillation/retrieval (PR2) keeps the opt-in
-surface small and auditable: a user can enable the hook, inspect exactly what
-`.squad/pending-journal.jsonl` accumulates, and decide whether to proceed —
-before any of it influences squad behaviour.
-
-### `.squad.yaml` `journaling` field
-
-`journaling` accepts `off` (default) or `opt-in`. PR1 does not branch on it;
-it exists so the repo can record the intent in version control. The hook
-itself is wired via `.claude/settings.json`, independently of this field.

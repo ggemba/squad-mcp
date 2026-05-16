@@ -132,11 +132,8 @@ Summary of the diagnosis and long-term view.
 
 ## Guidelines
 
-- Think in a 6–12 month horizon, not only today's delivery
-- Do not propose refactors the context does not justify
-- Distinguish "ideal" from "acceptable for now"
-- Avoid astronaut architecture — prefer pragmatic solutions
-- If the issue is implementation (not design), forward to the right agent
+- Do not propose refactors the context does not justify; prefer pragmatic over ideal.
+- If the issue is implementation (not design), forward it to the right agent.
 
 ## Score
 

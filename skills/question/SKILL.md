@@ -1,6 +1,6 @@
 ---
 name: question
-description: Read-only code Q&A skill. Takes a free-form question about the codebase ("where is X defined?", "what calls Y?", "how does the auth flow work?"), spawns the code-explorer subagent (read-only, Haiku-class) to grep and excerpt the relevant lines, and synthesizes a cited answer back to the user. Never writes files, never commits, never runs the squad. Trigger when the user types /squad:question or asks "where is", "what calls", "how does X work", "find references to", "explain this code".
+description: Read-only code Q&A skill. Spawns the code-explorer subagent (read-only, Haiku-class) to grep and excerpt relevant lines, then synthesizes a cited answer. Never writes files, never commits, never runs the squad. Trigger when the user types /squad:question or asks "where is", "what calls", "how does X work", "find references to", "explain this code".
 ---
 
 # Skill: Question
@@ -15,10 +15,6 @@ Answer a question about the codebase. Fast, cited, read-only. Position in the wo
 - **`/squad:review`** — review what was built
 
 This skill exists because `/squad:implement` is heavy machinery (classification, plan, gates, advisors, consolidator) — overkill for "where is X?" or "what does this function do?". Question mode skips all of that and dispatches a single read-only subagent.
-
-## Skill Name
-
-`/squad:question`
 
 ## Inviolable Rules
 
@@ -47,7 +43,7 @@ If both `--quick` and `--thorough` are passed, the later one wins and emit a one
 3. If the question is empty after stripping flags, ask the user for a question and stop.
 4. If the question's surface implies action ("can you change X?", "refactor Y", "add Z"), reply with one sentence redirecting to `/squad:implement` and stop. Question mode does not implement.
 
-### Phase 1.5 — Write `in_flight` telemetry row (v0.10.1+)
+### Phase 1.5 — Write `in_flight` telemetry row
 
 Generate a fresh run id (`Date.now().toString(36) + "-" + 6 chars from [a-z0-9]`, per `skills/squad/SKILL.md` spec) and append the Phase-A in_flight row before dispatching the subagent:
 
@@ -74,12 +70,7 @@ record_run({
 });
 ```
 
-Wrap in a non-blocking try/catch (same shape as `skills/debug/SKILL.md` Phase A):
-
-- I/O error or unknown-tool: log silently, continue. Telemetry loss must never block a real question.
-- `SquadError` (RECORD_TOO_LARGE / INVALID_INPUT / PATH_TRAVERSAL_DENIED): surface code + message to the user verbatim. Security #7 contract.
-
-If the in_flight write fails, persist a flag so the Phase 3.5 finalisation is skipped (no orphan terminal row without a paired in_flight).
+Non-blocking try/catch per `shared/_Telemetry-Contract.md`: I/O errors log silently; `SquadError` surfaces code + message verbatim. If this write fails, set a flag to skip the Phase 3.5 finalisation.
 
 Map `breadth` → `mode`: `quick` → `"quick"`, `medium` → `"normal"`, `thorough` → `"deep"`. Keeps the journal's mode taxonomy consistent across skills for `/squad:stats`.
 
@@ -105,7 +96,7 @@ The subagent returns a Code-Explorer Report (Question / Findings / Summary / Gap
 2. **Add value on top**, not in front. If the report's Summary already answers the question, just say so and end. If the user's question has a follow-up that the report opens up (e.g. "X is defined at A — do you want to see what calls it?"), offer the follow-up as a one-line suggestion.
 3. If the report has a non-empty Gaps section, escalate it visibly — those are the cases where the user might want to re-run with `--thorough` or rephrase.
 
-### Phase 3.5 — Finalise telemetry row (v0.10.1+)
+### Phase 3.5 — Finalise telemetry row
 
 After Phase 3 synthesis completes (or after the empty-question / redirect-to-implement short-circuits — those count as `aborted`), write the terminal half:
 
@@ -139,7 +130,7 @@ record_run({
 });
 ```
 
-Same non-blocking try/catch. On `SquadError`, attempt a fallback row with the same `id`, `status: "aborted"`, and `mode_warning: { code: "RECORD_FAILED", message: <reason truncated to 200 chars> }`. If that also fails, log and continue — the aggregator's 1h TTL synthesises an aborted view at the next `/squad:stats`.
+Same non-blocking try/catch; on `SquadError` write the fallback row per `shared/_Telemetry-Contract.md`.
 
 ### Phase 4 — End
 
@@ -177,6 +168,4 @@ If the user wants action, they can:
 
 ## Guidelines
 
-- **Fast over thorough by default.** This skill exists because `/squad:implement` is too heavy for "where is X?". Don't reinvent its ceremony here.
 - **One dispatch, one answer.** Avoid loops. If the subagent's first answer is incomplete, prefer surfacing the gap to the user over chaining more searches yourself.
-- **Cite or stay silent.** If you cannot point at `file:line`, say "uncertain". Hallucinated code references are worse than "I don't know".

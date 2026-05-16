@@ -5,12 +5,10 @@
  * supplements (`agents/<name>.langs/<lang>.md`).
  *
  * Pure parsing — no I/O, no subprocess. Extension-based primary detection
- * with no content sniff. Framework detection is intentionally OUT OF SCOPE
- * here; it's already partially carried by `CONTENT_SIGNALS` in
- * `ownership-matrix.ts` for agent selection and adding a second layer would
- * duplicate maintenance. If framework granularity is needed later, extend
- * this module with an optional `frameworks` field rather than coupling it to
- * the existing signal pipeline.
+ * with no content sniff. UI-framework detection lives here too as the
+ * separate `detectFrameworks` function (path-based, used to pick
+ * `agents/<name>.frameworks/<fw>.md` supplements); it is kept apart from
+ * `detectLanguages` so the `LanguageDetection` contract stays untouched.
  *
  * Conventions:
  *  - Test files (`.test.ts`, `.spec.tsx`, `_test.go`) count toward their
@@ -234,4 +232,45 @@ export function classifyByExtension(file: string): Language | null {
   const ext = stripped.slice(lastDot + 1).toLowerCase();
 
   return EXTENSION_MAP[ext] ?? null;
+}
+
+/**
+ * Canonical UI-framework identifier. Stable contract — the strings appear in
+ * `agents/<name>.frameworks/<fw>.md` filenames, so renaming any of these is a
+ * breaking change for the on-disk supplement layout.
+ */
+export type Framework = "react" | "vue" | "angular" | "svelte";
+
+export const FRAMEWORKS: readonly Framework[] = ["react", "vue", "angular", "svelte"] as const;
+
+/** Angular file-name conventions (`foo.component.ts`, `foo.service.ts`, …). */
+const ANGULAR_FILE_RE = /\.(component|service|directive|pipe|module|guard|resolver)\.ts$/i;
+
+/**
+ * Detect UI frameworks from changed file paths. Pure, path-based, no I/O —
+ * same envelope as `detectLanguages`. This is the optional `frameworks`
+ * layer anticipated by the module header; kept as a separate function so the
+ * `LanguageDetection` contract is untouched.
+ *
+ * Signals (path-only, deterministic):
+ *  - `.vue`  → vue
+ *  - `.svelte` → svelte
+ *  - `foo.component.ts` / `.service.ts` / … or `angular.json` → angular
+ *  - `.jsx` / `.tsx` → react (the dominant JSX framework; the reviewer
+ *    agent's own fingerprinting can correct a rare Solid/Preact case)
+ *
+ * Returns every framework with ≥1 matching file, in `FRAMEWORKS` order.
+ */
+export function detectFrameworks(files: readonly string[]): Framework[] {
+  const found = new Set<Framework>();
+  for (const file of files) {
+    if (typeof file !== "string" || file.length === 0) continue;
+    const lastSep = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
+    const base = (lastSep >= 0 ? file.slice(lastSep + 1) : file).toLowerCase();
+    if (base.endsWith(".vue")) found.add("vue");
+    else if (base.endsWith(".svelte")) found.add("svelte");
+    else if (base === "angular.json" || ANGULAR_FILE_RE.test(base)) found.add("angular");
+    else if (base.endsWith(".jsx") || base.endsWith(".tsx")) found.add("react");
+  }
+  return FRAMEWORKS.filter((f) => found.has(f));
 }
