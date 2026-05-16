@@ -7,6 +7,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — `/squad:pipeline` cradle-to-grave orchestration skill (Fase 3)
+
+A new skill that chains the six squad skills — brainstorm → grillme → tasks →
+next → implement → review — into one guided sequence, so a feature can be taken
+from idea to verified change without remembering what command comes next.
+
+- **Stateful advisor, not an executor.** Each `/squad:pipeline` invocation
+  reconstructs how far the feature has progressed from the conversation
+  context, recommends the exact next command (arguments pre-filled, depth flag
+  forwarded), and explains the gate decision. The user fires every command
+  themselves — that hand-off IS the human gate.
+- **Recommend-next-command, never auto-run.** The pipeline only prints the next
+  command; it never invokes a sub-skill on the user's behalf. Auto-execution
+  would collapse the Gate 1 / Gate 2 human checkpoints that make the squad
+  workflow safe.
+- **No telemetry, no persistence.** The pipeline calls no `record_run` and
+  writes no `.squad/` state — a pipeline run is just N sub-skill runs, each
+  already tracked by its own telemetry, aggregated by `/squad:stats`. State
+  lives only in the conversation context; there is no MCP tool and no state
+  file.
+- **`--from <phase>` flag.** Enter the pipeline mid-sequence. The value is
+  validated against a closed set (`brainstorm | grillme | tasks | next |
+implement | review`); an unknown phase stops with an error and the valid set.
+- **Inner loop.** Once `tasks` produces a backlog, `next → implement → review`
+  repeats once per task until the backlog is empty.
+- **Gate semantics.** After each phase the user picks `proceed` / `adjust` /
+  `skip` / `exit`; `skip` is allowed only for `grillme` and `review`.
+- Ships `skills/pipeline/SKILL.md` and `commands/pipeline.md` (registered in
+  `.claude-plugin/plugin.json`). No MCP tool, no schema change.
+
 ### Added — auto-journaling distillation + retrieval (PR2 / Fase 1b)
 
 Builds on the PR1 capture plumbing. The squad now distills durable lessons,
