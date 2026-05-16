@@ -7,6 +7,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-16
+
 ### Added — `/squad:pipeline` cradle-to-grave orchestration skill (Fase 3)
 
 A new skill that chains the six squad skills — brainstorm → grillme → tasks →
