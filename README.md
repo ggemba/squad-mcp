@@ -1,12 +1,16 @@
 # squad-mcp
 
+<p align="center">
+  <img src="assets/banner.svg" alt="squad-mcp — advisory squad workflow as deterministic MCP tools" width="100%">
+</p>
+
 [![npm version](https://img.shields.io/npm/v/@gempack/squad-mcp.svg)](https://www.npmjs.com/package/@gempack/squad-mcp)
 [![ci](https://github.com/ggemba/squad-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ggemba/squad-mcp/actions/workflows/ci.yml)
 [![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 MCP server that exposes the `squad-dev` workflow as deterministic tools, prompts, and resources. It classifies a task, scores its risk, picks an advisory squad of specialist reviewers, slices the changed files per agent, validates the plan, and consolidates the advisory verdicts. The host LLM (Claude Code, Cursor, Warp, Claude Desktop, …) orchestrates; `squad-mcp` provides the building blocks.
 
-It also ships as a Claude Code plugin that bundles the MCP server, the slash commands (`/squad:implement`, `/squad:review`, `/squad:question`, `/squad:debug`, `/squad:tasks`, `/squad:next`, `/squad:task`, `/squad:stats`, `/brainstorm`, `/commit-suggest`), and the matching skills behind a single `/plugin install`.
+It also ships as a Claude Code plugin that bundles the MCP server, the slash commands (`/squad:implement`, `/squad:review`, `/squad:question`, `/squad:debug`, `/squad:tasks`, `/squad:next`, `/squad:task`, `/squad:grillme`, `/squad:pipeline`, `/squad:stats`, `/brainstorm`, `/commit-suggest`, `/squad:enable-journaling`), and the matching skills behind a single `/plugin install`.
 
 ## Install
 
@@ -17,7 +21,7 @@ It also ships as a Claude Code plugin that bundles the MCP server, the slash com
 /plugin install squad@gempack
 ```
 
-The plugin bundles the MCP server plus the slash commands and skills (`/squad:implement`, `/squad:review`, `/squad:question`, `/squad:debug`, `/squad:tasks`, `/squad:next`, `/squad:task`, `/squad:stats`, `/brainstorm`, `/commit-suggest`). After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
+The plugin bundles the MCP server plus the slash commands and skills (`/squad:implement`, `/squad:review`, `/squad:question`, `/squad:debug`, `/squad:tasks`, `/squad:next`, `/squad:task`, `/squad:grillme`, `/squad:pipeline`, `/squad:stats`, `/brainstorm`, `/commit-suggest`, `/squad:enable-journaling`). After install, restart Claude Code to pick up the new commands and the `squad` MCP server.
 
 ### npm package (any MCP client)
 
@@ -85,7 +89,7 @@ What happens, in order:
 2. **Depth resolution.** It also picks an execution depth — `quick`, `normal`, or `deep` — and surfaces it as `mode` + `mode_source` on the output. Auto-detect rules: `deep` on `risk == High` / Security work / auth-money-migration signals; `quick` on Low-risk diffs with ≤5 files and no high-risk signals; `normal` otherwise. Pass `--quick` / `--normal` / `--deep` to override. If you force `--quick` on a high-risk diff, `security` is force-included and a structured `mode_warning` is set so the host can surface it.
 3. **Plan.** The skill drafts an implementation plan and sends it to `tech-lead-planner` for review (skipped in `quick`). You see the plan in chat.
 4. **Gate 1.** The skill **stops** and asks you to approve. Reply `approved`, `go`, or equivalent to proceed; anything else cancels.
-5. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection; capped at 2 for `quick`, expanded with architect+security for `deep`) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
+5. **Advisory squad.** After approval, every selected agent (architect, dba, dev, qa, security, reviewer — depends on the selection; capped at 2 for `quick`, force-includes `architect` + `security` for `deep`) reviews in **parallel** and emits a findings list + a `Score: NN/100`.
 6. **Consolidation.** `tech-lead-consolidator` produces a verdict (`APPROVED` / `CHANGES_REQUIRED` / `REJECTED`) plus a scorecard like:
    ```
    SQUAD RUBRIC — weighted 82 / 100 (threshold 75)
@@ -102,11 +106,146 @@ Other commands to try once `/squad:implement` works:
 - `/squad:debug <issue>` — read-only bug investigation. Takes a bug description + optional stack trace + repro steps, orients via `code-explorer`, then dispatches the `debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. The missing middle between `/squad:question` (lookup) and `/squad:implement` (fix).
 - `/squad:tasks docs/prd.md` — decompose a PRD into atomic tasks with confirmation before they land in `.squad/tasks.json`.
 - `/squad:next` — pick the next ready task; `/squad:task 3` — work on a specific one.
+- `/squad:grillme <plan>` — Socratic plan validation. Grills your plan one question at a time against the project's domain language (`CONTEXT.md`) and prior decisions (ADRs in `docs/adr/`), and writes resolved terms back to both as it goes. Run it **before** `/squad:implement` to stress-test a plan; pass `--no-write` for a dry run.
+- `/squad:pipeline <feature>` — runs the six squad steps as one guided, human-gated sequence: `brainstorm → grillme → tasks → next → implement → review`. See [Cradle-to-grave with `/squad:pipeline`](#cradle-to-grave-with-squadpipeline) below.
 - `/brainstorm <topic>` — exploratory Q&A, no code.
 - `/commit-suggest` — generate a Conventional Commits message for staged changes.
 - `/squad:stats` — observability dashboard over `.squad/runs.jsonl`. Bar charts (verdict mix, score buckets), Unicode sparkline trend, per-agent breakdown of avg wall-clock and estimated tokens. Read-only; never writes. Flags: `--quick` (last 7d), `--thorough` (full history + health panel), `--since <ISO>`, `--last <N>`, `--no-color`. Token figures are estimates (chars ÷ 3.5).
 
 Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed to reconnect to plugin:squad:squad`, marketplace cache, SSH key) all have entries.
+
+## How it works
+
+`squad-mcp` is a **deterministic server** — it makes no LLM calls of its own. The host LLM does all the reasoning; the server hands it building blocks (tools, prompts, resources) and the skills wire them into a workflow.
+
+```mermaid
+flowchart LR
+  subgraph Host["Host LLM · Claude Code / Cursor / Warp / Claude Desktop"]
+    SK["Skills<br/>/squad:implement · /review<br/>/pipeline · /stats · ..."]
+    SA["Subagents<br/>architect · developer<br/>security · qa · ..."]
+  end
+  subgraph Server["squad-mcp server · deterministic, no LLM calls"]
+    T["Tools<br/>classify · score_risk<br/>select_squad · consolidate"]
+    P["Prompts<br/>orchestration<br/>advisory · consolidator"]
+    R["Resources<br/>agent://...<br/>severity://..."]
+  end
+  SK -->|invoke tools| T
+  SK -->|load| P
+  SA -->|read role def| R
+  T -->|verdict + rubric scorecard| SK
+```
+
+A single `/squad:implement` run threads two human gates — plan approval and a Blocker halt — so the squad never writes code you did not sign off on:
+
+```mermaid
+flowchart TD
+  A["/squad:implement &lt;task&gt;"] --> B["classify · score risk · select squad · pick depth"]
+  B --> C{"Gate 1<br/>plan approved?"}
+  C -->|no| X1["stop — nothing written"]
+  C -->|yes| D["advisory squad runs in parallel<br/>each agent emits Score 0-100"]
+  D --> E{"Gate 2<br/>any Blocker?"}
+  E -->|yes| X2["halt — ask the user"]
+  E -->|no| F["implement the approved plan"]
+  F --> G["consolidate → verdict + rubric scorecard"]
+  G --> H{"verdict"}
+  H -->|APPROVED| I["done — committing is your call"]
+  H -->|CHANGES_REQUIRED / REJECTED| J["reject loop → re-review the delta"]
+  J --> G
+```
+
+Depth (`quick` / `normal` / `deep`) auto-scales the run: `quick` caps the squad at 2 agents and skips the planner + consolidator personas; `deep` force-includes `architect` + `security` and raises the reject-loop ceiling. See [Your first `/squad:implement`](#your-first-squadimplement-in-60-seconds) for the auto-detect rules.
+
+## Examples in practice
+
+Every example is a single line you type into the host. The squad sizes itself from the prompt + the changed files — you only reach for a flag to override.
+
+**Low-risk feature — auto-detected `quick`:**
+
+```text
+/squad:implement add a /health endpoint that returns {"status":"ok"}
+```
+
+> `work_type: Feature · risk: Low · mode: quick (auto) · agents: [developer, qa]`
+> Planner skipped, 2-agent advisory, sub-30s feedback. Stops at Gate 1 for your approval.
+
+**Auth refactor — auto-detected `deep`:**
+
+```text
+/squad:implement refactor src/auth/jwt-validator to rotate signing keys
+```
+
+> `work_type: Security · risk: High · mode: deep (auto) · agents: [architect, security, developer, qa, reviewer]`
+> `touches_auth` fires → `deep`. Planner + consolidator personas run, reject-loop ceiling raised to 3.
+
+**Forcing `--quick` on a risky diff — the safety override:**
+
+```text
+/squad:implement --quick patch the refund amount rounding in src/billing/ledger.ts
+```
+
+> `mode: quick (user) · mode_warning set` — `--quick` is honoured but `security` is **force-included** as one of the 2 agents because `touches_money` fired. The host surfaces the `mode_warning` so the downgrade is never silent.
+
+**Review an existing PR and post the verdict:**
+
+```text
+/squad:review #42
+```
+
+> Runs the advisory on PR #42's diff, renders the scorecard, then **dry-runs** the PR post — shows the exact request and the markdown body it would post, and waits for your `go`.
+
+**Fast read-only code Q&A — no plan, no gates:**
+
+```text
+/squad:question where is the rubric weighted score computed?
+```
+
+> Spawns `code-explorer`, answers with `file:line` citations. Sub-second on `--quick`.
+
+**See where your runs went:**
+
+```text
+/squad:stats
+```
+
+> Reads `.squad/runs.jsonl` and renders a cyan ANSI panel — verdict mix, score buckets, sparkline trend, per-agent token + wall-clock breakdown.
+
+## Cradle-to-grave with `/squad:pipeline`
+
+Each squad skill runs standalone. **`/squad:pipeline`** chains them into one guided sequence for a feature going from idea to verified change, so you never have to remember what comes next or how to wire one step's output into the next:
+
+```mermaid
+flowchart LR
+  BS["/brainstorm<br/>decide what to build"] --> GM["/squad:grillme<br/>stress-test the plan"]
+  GM --> TK["/squad:tasks<br/>decompose into tasks"]
+  TK --> NX["/squad:next<br/>pick the next task"]
+  NX --> IM["/squad:implement<br/>build it"]
+  IM --> RV["/squad:review<br/>review the change"]
+```
+
+```text
+/squad:pipeline add multi-currency support to the checkout flow
+```
+
+The pipeline is a **stateful advisor, not an executor.** Each time you invoke it, it:
+
+1. Reconstructs how far the feature has progressed from the conversation context.
+2. Recommends the **exact next command** with arguments pre-filled.
+3. Explains the gate decision you are about to make.
+
+You fire every command yourself — that hand-off **is** the human gate. The pipeline never auto-runs a sub-skill, never records its own telemetry, and never edits source code (each sub-skill still records its own run, so `/squad:stats` aggregates them normally).
+
+| Flag                              | Purpose                                                                                                                                        |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--from <phase>`                  | Enter the pipeline mid-sequence (`brainstorm` / `grillme` / `tasks` / `next` / `implement` / `review`). Skip the phases you have already done. |
+| `--quick` / `--normal` / `--deep` | Forwarded as-is to every step the pipeline recommends.                                                                                         |
+
+```text
+# already brainstormed — jump straight to stress-testing the plan
+/squad:pipeline --from grillme add multi-currency support to the checkout flow
+
+# take a small change cradle-to-grave at quick depth
+/squad:pipeline --quick fix the timezone bug in the daily report job
+```
 
 ## What it provides
 
@@ -157,14 +296,17 @@ Stuck? Check `INSTALL.md` → Troubleshooting. The most common failures (`Failed
 
 The plugin auto-registers these skills via `skills/`:
 
-| Skill              | Trigger                     | Purpose                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/squad:implement` | implementation workflow     | Single skill, two modes. `/squad:implement <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad:review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion.                         |
-| `/squad:question`  | read-only code Q&A          | Spawns the `code-explorer` subagent (Haiku-class, read-only) to grep, glob, and excerpt the codebase, then synthesizes a `file:line`-cited answer. No plan, no gates, no implementation. Designed to be fast — single dispatch on the default `medium` budget, sub-second on `--quick`.                                                                                                        |
-| `/squad:debug`     | read-only bug investigation | Bridges `/squad:question` (lookup) and `/squad:implement` (fix). Takes a bug description + optional stack trace + repro steps; dispatches `code-explorer` to locate suspect code, then the new `debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. Read-only end-to-end. |
-| `/brainstorm`      | pre-implementation research | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad:implement` implements, `/squad:review` reviews.                                                                                                                                                    |
-| `/commit-suggest`  | commit message generator    | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                                                                |
-| `/squad:stats`     | observability dashboard     | Read `.squad/runs.jsonl`, render a single-screen ANSI panel: verdict mix, score buckets, sparkline trend (14 days default), per-agent avg wall-clock + estimated tokens. One accent colour (cyan), Unicode block bars at 1/8 granularity. Flags: `--quick`, `--thorough`, `--since <ISO>`, `--last <N>`, `--no-color`. Token figures are estimates (chars ÷ 3.5).                              |
+| Skill                      | Trigger                       | Purpose                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/squad:implement`         | implementation workflow       | Single skill, two modes. `/squad:implement <task>` builds an approved plan, distributes work to specialist subagents in parallel, implements the change, consolidates via tech-lead. `/squad:review [target]` is the same skill in review mode — never implements, just produces an advisory verdict on an existing diff/branch/PR. Optional `--codex` second-opinion.                         |
+| `/squad:question`          | read-only code Q&A            | Spawns the `code-explorer` subagent (Haiku-class, read-only) to grep, glob, and excerpt the codebase, then synthesizes a `file:line`-cited answer. No plan, no gates, no implementation. Designed to be fast — single dispatch on the default `medium` budget, sub-second on `--quick`.                                                                                                        |
+| `/squad:debug`             | read-only bug investigation   | Bridges `/squad:question` (lookup) and `/squad:implement` (fix). Takes a bug description + optional stack trace + repro steps; dispatches `code-explorer` to locate suspect code, then the new `debugger` persona to emit N ranked hypotheses (1 on `--quick`, 3 on `--normal`, 5 with a cross-check pass on `--deep`) with `file:line` evidence and verification steps. Read-only end-to-end. |
+| `/squad:grillme`           | Socratic plan validation      | Grills your plan one question at a time against the project's domain language (`CONTEXT.md`) and prior decisions (ADRs in `docs/adr/`), updating both inline as terms resolve. Use **before** `/squad:implement` to stress-test a plan. Flags: `--quick` / `--normal` / `--deep`, `--no-write` for a dry run.                                                                                  |
+| `/brainstorm`              | pre-implementation research   | Web research in parallel + specialist agent perspectives → options matrix with cited sources and a recommendation. Produces no code. Position: `/brainstorm` decides what to build, `/squad:implement` implements, `/squad:review` reviews.                                                                                                                                                    |
+| `/squad:pipeline`          | cradle-to-grave orchestration | Chains six squad steps — `brainstorm → grillme → tasks → next → implement → review` — into one guided, human-gated sequence. A stateful advisor: reconstructs where you are, recommends the exact next command (never auto-runs it), explains the gate. `--from <phase>` enters mid-sequence; `--quick` / `--normal` / `--deep` are forwarded to each step.                                    |
+| `/commit-suggest`          | commit message generator      | Read-only suggester for Conventional Commits messages. Runs only an allowlist of git commands; never executes mutations; never adds AI co-author trailers. The user runs the commit themselves.                                                                                                                                                                                                |
+| `/squad:stats`             | observability dashboard       | Read `.squad/runs.jsonl`, render a single-screen ANSI panel: verdict mix, score buckets, sparkline trend (14 days default), per-agent avg wall-clock + estimated tokens. One accent colour (cyan), Unicode block bars at 1/8 granularity. Flags: `--quick`, `--thorough`, `--since <ISO>`, `--last <N>`, `--no-color`. Token figures are estimates (chars ÷ 3.5).                              |
+| `/squad:enable-journaling` | auto-journaling opt-in        | Copies the bundled `PostToolUse` hook scripts into `.squad/hooks/` and prints the `.claude/settings.json` snippet to wire them up. Capture-only — squad behaviour is unchanged until `journaling` is set to `opt-in` in `.squad.yaml`.                                                                                                                                                         |
 
 ### Bundled subagents
 
@@ -174,17 +316,16 @@ The plugin's `agents/` directory registers eleven native Claude Code subagents y
 
 The `/squad:implement` skill orchestrates them. For non-Claude-Code MCP clients (Cursor, Claude Desktop, Warp), the same role markdowns are accessible through the MCP `agent://…` resources and `get_agent_definition` tool.
 
-Workflow positioning:
+Workflow positioning — each skill is standalone, and `/squad:pipeline` chains them:
 
+```mermaid
+flowchart LR
+  BS["/brainstorm<br/>decide what to build"] --> IM["/squad:implement<br/>implement what was decided"]
+  IM --> RV["/squad:review<br/>review what was implemented"]
+  RV --> CM["/commit-suggest<br/>craft the commit message"]
 ```
-/brainstorm   ->  decide what to build
-     v
-/squad:implement        ->  implement what was decided
-     v
-/squad:review ->  review what was implemented
-     v
-/commit-suggest -> craft the commit message
-```
+
+> `/squad:pipeline` wraps this whole sequence (with `/squad:grillme` and `/squad:tasks` in between) as one guided, human-gated flow — see [Cradle-to-grave with `/squad:pipeline`](#cradle-to-grave-with-squadpipeline).
 
 See [INSTALL.md](INSTALL.md#bundled-skills) for trigger examples and the optional `commit-msg` git hook + `permissions.deny` snippet that hard-enforce the read-only and no-AI-attribution invariants at the OS / Claude Code layer.
 
@@ -547,7 +688,7 @@ squad-mcp/
 │   └── commit-suggest/
 ├── src/
 │   ├── index.ts                # stdio entry
-│   ├── tools/                  # MCP tools (23 deterministic functions)
+│   ├── tools/                  # MCP tools (deterministic functions)
 │   ├── resources/              # MCP resources + agent loader
 │   ├── prompts/                # MCP prompt templates
 │   ├── exec/git.ts             # hardened git execution layer
