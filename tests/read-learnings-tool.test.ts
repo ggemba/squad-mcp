@@ -32,6 +32,25 @@ async function seed(rows: LearningEntry[]): Promise<void> {
   await fs.utimes(file, future, future);
 }
 
+/**
+ * Seed v3 distilled rows verbatim (caller controls `schema_version`). Used by
+ * the PR2 retrieval tests so a row can carry `lesson` / `trigger` / no
+ * `finding`.
+ */
+async function seedRaw(rows: Record<string, unknown>[]): Promise<void> {
+  const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const body = rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length > 0 ? "\n" : "");
+  await fs.writeFile(file, body, "utf8");
+  const future = new Date(Date.now() + 10_000);
+  await fs.utimes(file, future, future);
+}
+
+/** Write a `.squad.yaml` enabling auto-journaling opt-in. */
+async function enableJournaling(): Promise<void> {
+  await fs.writeFile(path.join(workspace, ".squad.yaml"), "journaling: opt-in\n", "utf8");
+}
+
 describe("readLearningsTool — include_summary", () => {
   it("returns summary counts when include_summary=true", async () => {
     await seed([
@@ -355,5 +374,129 @@ describe("readLearningsTool — backward compat with v0.10.x rows", () => {
     expect(r.summary!.active).toBe(1);
     expect(r.summary!.archived).toBe(0);
     expect(r.summary!.promoted).toBe(0);
+  });
+});
+
+describe("readLearningsTool — PR2 distilled-lesson retrieval", () => {
+  it("injects a v3 lesson row when its trigger glob matches a changed file", async () => {
+    await enableJournaling();
+    await seedRaw([
+      {
+        schema_version: 3,
+        ts: "2026-02-01T00:00:00Z",
+        agent: "tech-lead-consolidator",
+        lesson: "Gate CSRF at the edge",
+        trigger: "src/auth/**",
+        decision: "accept",
+      },
+    ]);
+
+    // changed file under src/auth/** → the trigger glob matches → lesson injected.
+    const matched = await readLearningsTool({
+      workspace_root: workspace,
+      limit: 50,
+      include_rendered: true,
+      include_archived: false,
+      include_summary: false,
+      changed_files: ["src/auth/login.ts"],
+    });
+    expect(matched.rendered).toContain("Gate CSRF at the edge");
+
+    // changed file elsewhere → trigger does NOT match → lesson filtered out.
+    __resetLearningStoreCacheForTests();
+    const unmatched = await readLearningsTool({
+      workspace_root: workspace,
+      limit: 50,
+      include_rendered: true,
+      include_archived: false,
+      include_summary: false,
+      changed_files: ["src/db/index.ts"],
+    });
+    expect(unmatched.rendered).not.toContain("Gate CSRF at the edge");
+  });
+
+  it("always-injects an entry whose normalised title recurs >= 3 times (derived recurrence)", async () => {
+    await enableJournaling();
+    // Three rows sharing a normalised title, each scoped to src/auth/** so a
+    // changed file OUTSIDE that scope would normally exclude them. Derived
+    // recurrence >= 3 promotes them to always-inject, bypassing the glob.
+    const rows = [1, 2, 3].map((i) => ({
+      schema_version: 3,
+      ts: `2026-0${i}-01T00:00:00Z`,
+      agent: "tech-lead-consolidator",
+      lesson: "Recurring policy lesson",
+      trigger: "src/auth/**",
+      decision: "accept",
+    }));
+    await seedRaw(rows);
+
+    const r = await readLearningsTool({
+      workspace_root: workspace,
+      limit: 50,
+      include_rendered: true,
+      include_archived: false,
+      include_summary: false,
+      // changed file is OUTSIDE src/auth/** — only the recurrence override
+      // can surface the lesson.
+      changed_files: ["src/db/index.ts"],
+    });
+    expect(r.rendered).toContain("Recurring policy lesson");
+  });
+
+  it("does NOT always-inject an entry recurring only twice (below threshold)", async () => {
+    await enableJournaling();
+    const rows = [1, 2].map((i) => ({
+      schema_version: 3,
+      ts: `2026-0${i}-01T00:00:00Z`,
+      agent: "tech-lead-consolidator",
+      lesson: "Twice-only lesson",
+      trigger: "src/auth/**",
+      decision: "accept",
+    }));
+    await seedRaw(rows);
+
+    const r = await readLearningsTool({
+      workspace_root: workspace,
+      limit: 50,
+      include_rendered: true,
+      include_archived: false,
+      include_summary: false,
+      changed_files: ["src/db/index.ts"],
+    });
+    // Recurrence is 2 (< 3) and the trigger glob does not match → excluded.
+    expect(r.rendered).not.toContain("Twice-only lesson");
+  });
+
+  it("no-ops the v3 lesson-injection path when journaling is not opt-in", async () => {
+    // No .squad.yaml → journaling defaults to `off`. A v3 lesson row must NOT
+    // surface; a legacy finding-only row is unaffected.
+    await seedRaw([
+      {
+        schema_version: 3,
+        ts: "2026-02-01T00:00:00Z",
+        agent: "tech-lead-consolidator",
+        lesson: "Should-not-appear lesson",
+        decision: "accept",
+      },
+      {
+        schema_version: 2,
+        ts: "2026-01-01T00:00:00Z",
+        agent: "dba",
+        finding: "legacy finding still visible",
+        decision: "accept",
+      },
+    ]);
+
+    const r = await readLearningsTool({
+      workspace_root: workspace,
+      limit: 50,
+      include_rendered: true,
+      include_archived: false,
+      include_summary: false,
+    });
+    expect(r.rendered).not.toContain("Should-not-appear lesson");
+    expect(r.rendered).toContain("legacy finding still visible");
+    // The lesson row is filtered out of entries too.
+    expect(r.entries.some((e) => e.lesson === "Should-not-appear lesson")).toBe(false);
   });
 });

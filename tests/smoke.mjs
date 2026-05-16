@@ -72,6 +72,7 @@ try {
     "compose_prd_parse",
     "compose_squad_workflow",
     "detect_changed_files",
+    "drain_journal",
     "expand_task",
     "get_agent_definition",
     "init_local_config",

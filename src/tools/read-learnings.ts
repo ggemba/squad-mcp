@@ -2,9 +2,54 @@ import { z } from "zod";
 import type { ToolDef } from "./registry.js";
 import { readLearnings, tailRecent, type LearningEntry } from "../learning/store.js";
 import { formatLearningsForPrompt } from "../learning/format.js";
-import { readSquadYaml } from "../config/squad-yaml.js";
+import { normalizeFindingTitle } from "../learning/normalize.js";
+import { readSquadYaml, matchesGlob } from "../config/squad-yaml.js";
 import { resolveSafePath, createSafePathContext } from "../util/path-safety.js";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
+
+/**
+ * PR2 / Fase 1b — derived-recurrence threshold. An entry whose normalised
+ * title (`normalizeFindingTitle(lesson ?? finding)`) recurs at least this
+ * many times across the journal is treated as ALWAYS-INJECT — the same role
+ * the persisted `promoted` flag plays. Recurrence is DERIVED here at read
+ * time and never stored (no `count` field) — see learning/store.ts.
+ *
+ * 3 mirrors `prune_learnings`' default `min_recurrence` (1× anecdote, 2×
+ * pattern, 3× team policy).
+ */
+const DERIVED_RECURRENCE_THRESHOLD = 3;
+
+/**
+ * Count how many entries share each normalised title. Used to derive
+ * recurrence without persisting a counter. Title key is
+ * `normalizeFindingTitle(lesson ?? finding)`; entries that normalise to an
+ * empty key are not counted.
+ */
+function countRecurrence(entries: LearningEntry[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const e of entries) {
+    const title = e.lesson ?? e.finding;
+    if (title === undefined) continue;
+    const key = normalizeFindingTitle(title);
+    if (key.length === 0) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * True when an entry should be treated as always-inject: either it carries
+ * the persisted `promoted` flag, or its normalised title recurs ≥ threshold
+ * across the journal (derived recurrence).
+ */
+function isAlwaysInject(e: LearningEntry, recurrence: Map<string, number>): boolean {
+  if (e.promoted === true) return true;
+  const title = e.lesson ?? e.finding;
+  if (title === undefined) return false;
+  const key = normalizeFindingTitle(title);
+  if (key.length === 0) return false;
+  return (recurrence.get(key) ?? 0) >= DERIVED_RECURRENCE_THRESHOLD;
+}
 
 const schema = z.object({
   workspace_root: z.string().min(1).max(4096),
@@ -94,10 +139,26 @@ export async function readLearningsTool(input: Input): Promise<ReadLearningsOutp
   }
   const configuredPath = config.learnings.path;
 
-  const allEntries = await readLearnings(safeRoot, { configuredPath });
+  const allEntriesRaw = await readLearnings(safeRoot, { configuredPath });
 
-  // v0.11.0: compute summary over the FULL file before any filter is applied.
-  // Counts respect file-level state, not query-level filters.
+  // PR2 journaling guard. The v3 lesson-injection path is gated on the
+  // `.squad.yaml` `journaling` switch: when journaling is NOT `opt-in`, any
+  // distilled `lesson`-bearing row is dropped before injection so a team
+  // that has not opted into auto-journaling never sees auto-distilled rules
+  // surface in advisory prompts. Legacy `finding`-only rows (v2 and v3
+  // without a `lesson`) are unaffected — the existing `/squad:review` flow
+  // keeps working regardless of the journaling switch. The guard lives HERE
+  // at the tool level, not inside the pure `formatLearningsForPrompt`, which
+  // stays version-agnostic.
+  const journalingOptIn = config.journaling === "opt-in";
+  const allEntries = journalingOptIn
+    ? allEntriesRaw
+    : allEntriesRaw.filter((e) => e.lesson === undefined);
+
+  // Compute summary over the journaling-visible entries (post journaling
+  // guard, pre agent/decision/scope query filters). When journaling is not
+  // opt-in, v3 lesson rows are already excluded from `allEntries`, so the
+  // summary reflects what the tool exposes — not the raw file row count.
   const summary: LearningsSummary | undefined = input.include_summary
     ? {
         total: allEntries.length,
@@ -113,7 +174,7 @@ export async function readLearningsTool(input: Input): Promise<ReadLearningsOutp
     ? allEntries
     : allEntries.filter((e) => e.archived !== true);
 
-  // v0.11.0 (cycle-2 Blocker B1 fix): promoted entries surface FIRST in
+  // v0.11.0 (cycle-2 Blocker B1 fix): always-inject entries surface FIRST in
   // BOTH the entries[] array (API view for direct callers) AND in the
   // rendered markdown block (LLM prompt view).
   //
@@ -124,37 +185,57 @@ export async function readLearningsTool(input: Input): Promise<ReadLearningsOutp
   // reverses the array before rendering, so even in small fixtures the
   // promoted entries landed at the BOTTOM of the rendered output.
   //
-  // New flow:
-  //   1. Partition visible entries into promoted vs. rest.
-  //   2. Cap promoted at MAX_PROMOTED_IN_PROMPT to bound prompt size as
-  //      the journal accumulates promoted entries over a project lifetime
-  //      (architect cycle-2 Major M2). Pick the most-recent N by ts.
-  //   3. Apply the user's agent / decision filter ONLY to `rest` — promoted
-  //      entries are team policy and bypass per-agent narrowing by design.
+  // PR2: the "always-inject" set is no longer just the persisted `promoted`
+  // flag. It now also includes DERIVED-recurrence entries — an entry whose
+  // normalised title recurs ≥ DERIVED_RECURRENCE_THRESHOLD across the
+  // journal is treated identically to a promoted entry (always injected,
+  // bypassing the trigger/scope glob filter). Recurrence is counted over
+  // the journaling-filtered `allEntries` so an opted-out team's v3 lessons
+  // never contribute to a count. Entries below the threshold inject only on
+  // a `trigger` (or legacy `scope`) glob match — that filtering happens
+  // inside `formatLearningsForPrompt` via `changedFiles`.
+  //
+  // Flow (otherwise unchanged from the cycle-2 B1 fix):
+  //   1. Partition visible entries into always-inject vs. rest.
+  //   2. Cap always-inject at MAX_PROMOTED_IN_PROMPT to bound prompt size.
+  //   3. Apply the user's agent / decision filter ONLY to `rest`.
   //   4. Order BOTH lists newest-first.
-  //   5. Build the API-visible `entries` array as
-  //      `[...promotedNewestFirst, ...restNewestFirst]` so direct API
-  //      consumers see promoted at the top.
-  //   6. For the render input, REVERSE `entries` once so the formatter's
-  //      internal `.reverse()` flips it back to the same shape — promoted
-  //      stays at the top of the rendered output. This keeps the formatter
-  //      contract (input is chronological-oldest-first) intact for the
-  //      existing test suite.
+  //   5. Build `entries` as `[...alwaysFirst, ...restNewestFirst]`.
+  //   6. Reverse once before the formatter so its internal `.reverse()`
+  //      restores the shape — always-inject stays at the top of the render.
   const MAX_PROMOTED_IN_PROMPT = 10;
-  const promoted = visible.filter((e) => e.promoted === true);
-  const rest = visible.filter((e) => e.promoted !== true);
+  const recurrence = countRecurrence(allEntries);
+  const promoted = visible.filter((e) => isAlwaysInject(e, recurrence));
+  const rest = visible.filter((e) => !isAlwaysInject(e, recurrence));
 
   // promoted: sort ascending by ts so slice(-N) returns newest N (in oldest-
   // first order), then reverse to get newest-first.
   const promotedSorted = [...promoted].sort((a, b) => a.ts.localeCompare(b.ts));
   const promotedCappedNewestFirst = [...promotedSorted.slice(-MAX_PROMOTED_IN_PROMPT)].reverse();
 
+  // rest: glob-filter by `changed_files` BEFORE the tail slice. An entry
+  // without a trigger/scope tag is repo-wide and always passes; a tagged
+  // entry passes only when a changed file matches its `trigger` (or legacy
+  // `scope`) glob. This filtering happens HERE (not in the formatter) so the
+  // always-inject set above bypasses it — a derived-recurrence entry is
+  // injected regardless of whether its trigger matches the current diff,
+  // exactly like a `promoted` entry. The formatter is then called WITHOUT
+  // `changedFiles` so it does not re-filter the always-inject portion.
+  const restScoped =
+    input.changed_files && input.changed_files.length > 0
+      ? rest.filter((e) => {
+          const tag = e.trigger ?? e.scope;
+          if (!tag) return true;
+          return input.changed_files!.some((p) => matchesGlob(tag, p));
+        })
+      : rest;
+
   // rest: tailRecent returns tail-N in storage order (oldest-first within
   // the tail). Reverse for newest-first display.
   const restBudget = Math.max(0, input.limit - promotedCappedNewestFirst.length);
   const restTail =
     restBudget > 0
-      ? tailRecent(rest, restBudget, {
+      ? tailRecent(restScoped, restBudget, {
           ...(input.agent !== undefined ? { agent: input.agent } : {}),
           ...(input.decision !== undefined ? { decision: input.decision } : {}),
         })
@@ -170,10 +251,15 @@ export async function readLearningsTool(input: Input): Promise<ReadLearningsOutp
   // This is the load-bearing detail that keeps the existing
   // `learning-format.test.ts` contract intact while also putting promoted
   // entries at the top of the rendered output (cycle-2 Blocker B1 fix).
+  //
+  // `changedFiles` is deliberately NOT passed to the formatter: the `rest`
+  // partition was already glob-filtered above, and the always-inject
+  // partition must bypass glob filtering entirely. Passing `changedFiles`
+  // here would re-filter and silently drop always-inject entries that carry
+  // a non-matching `trigger`.
   const rendered =
     input.include_rendered && input.limit > 0
       ? formatLearningsForPrompt([...filtered].reverse(), {
-          ...(input.changed_files ? { changedFiles: input.changed_files } : {}),
           limit: input.limit,
         })
       : "";

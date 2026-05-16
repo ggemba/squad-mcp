@@ -22,6 +22,13 @@ import {
  *
  * Migration to v2 is via `tools/migrate-jsonl-agents.mjs` (see the
  * migrate-jsonl-agents test for the round-trip contract).
+ *
+ * PR2 / Fase 1b: the version constant is now PER-STORE. `runs.jsonl` stays
+ * at v2 (`RUNS_SCHEMA_VERSION`); `learnings.jsonl` accepts BOTH v2 and v3
+ * (`LEARNINGS_SCHEMA_VERSION` = 3). The runs gate's "future/unknown" row is
+ * still v1 (it would now also reject v3+, but v1 is the canonical legacy
+ * case). The learnings gate's "future/unknown" row is reseeded to v4 — v3
+ * is a VALID learnings version post-PR2.
  */
 describe("schema_version v1 → v2 skip+log contract", () => {
   let workspace: string;
@@ -148,6 +155,38 @@ describe("schema_version v1 → v2 skip+log contract", () => {
 
     const entries = await readLearnings(workspace);
     expect(entries).toHaveLength(0);
+
+    const siblings = await fs.readdir(path.dirname(file));
+    expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);
+  });
+
+  it("learnings.jsonl: v4 row (future/unknown) is skip+logged; v3 is VALID (PR2 per-store gate)", async () => {
+    // PR2: learnings accepts {2, 3}. A v3 row reads cleanly; only an
+    // out-of-range version (v4 here) hits the skip+log branch. This pins the
+    // post-PR2 per-store gate so a future refactor cannot regress either the
+    // v3-is-valid contract or the v4-is-skipped contract.
+    const file = path.join(workspace, DEFAULT_LEARNING_PATH);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const v3row = {
+      schema_version: 3,
+      ts: "2026-05-01T00:00:00Z",
+      agent: "tech-lead-consolidator",
+      lesson: "Gate CSRF at the edge",
+      decision: "accept",
+    };
+    const v4row = {
+      schema_version: 4,
+      ts: "2027-01-01T00:00:00Z",
+      agent: "dba",
+      finding: "from a newer client",
+      decision: "accept",
+    };
+    await fs.writeFile(file, JSON.stringify(v3row) + "\n" + JSON.stringify(v4row) + "\n");
+
+    const entries = await readLearnings(workspace);
+    // v3 kept, v4 skipped.
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.lesson).toBe("Gate CSRF at the edge");
 
     const siblings = await fs.readdir(path.dirname(file));
     expect(siblings.some((n) => n.startsWith("learnings.jsonl.corrupt-"))).toBe(false);

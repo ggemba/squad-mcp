@@ -23,6 +23,7 @@ import { composeSquadWorkflowTool } from "./compose-squad-workflow.js";
 import { composeAdvisoryBundleTool } from "./compose-advisory-bundle.js";
 import { recordRunToolDef } from "./record-run.js";
 import { listRunsToolDef } from "./list-runs.js";
+import { drainJournalToolDef } from "./drain-journal.js";
 import { isSquadError } from "../errors.js";
 import { pathSafe, pathSafeDetails } from "../util/path-safety.js";
 import { logger, newRequestId } from "../observability/logger.js";
@@ -67,6 +68,7 @@ export function registerTools(): void {
   register(composeAdvisoryBundleTool);
   register(recordRunToolDef);
   register(listRunsToolDef);
+  register(drainJournalToolDef);
 }
 
 export function listTools() {

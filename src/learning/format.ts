@@ -41,14 +41,18 @@ export function formatLearningsForPrompt(
   const limit = Math.min(options.limit ?? DEFAULT_LIMIT, HARD_LIMIT);
   const heading = options.heading ?? DEFAULT_HEADING;
 
-  // Filter by scope glob match against changedFiles. An entry without a scope
-  // is repo-wide and always passes. An entry WITH a scope passes if any
-  // changed file matches the scope glob.
+  // Filter by scope glob match against changedFiles. An entry without a
+  // scope-tag is repo-wide and always passes. An entry WITH a scope-tag
+  // passes if any changed file matches that glob. PR2: a v3 row may carry a
+  // `trigger` glob instead of (or in addition to) a legacy `scope` — prefer
+  // `trigger`, fall back to `scope`. Pure function: this stays
+  // version-agnostic (the journaling on/off guard lives at the tool layer).
   let relevant = entries;
   if (options.changedFiles && options.changedFiles.length > 0) {
     relevant = entries.filter((e) => {
-      if (!e.scope) return true;
-      return options.changedFiles!.some((p) => matchesGlob(e.scope!, p));
+      const tag = e.trigger ?? e.scope;
+      if (!tag) return true;
+      return options.changedFiles!.some((p) => matchesGlob(tag, p));
     });
   }
 
@@ -71,13 +75,21 @@ export function formatLearningsForPrompt(
     const ref = e.pr ? `PR #${e.pr}` : e.branch ? `branch ${e.branch}` : e.ts.slice(0, 10);
     const verdict = e.decision === "reject" ? "REJECTED" : "ACCEPTED";
     const sev = e.severity ? ` [${e.severity}]` : "";
-    // Sanitize fields that flow VERBATIM into the LLM prompt. `finding` and
-    // `reason` are bounded by SafeString at the tool edge (NUL rejected) but
-    // control / bidi / zero-width codepoints slip through SafeString. Strip
-    // them at render time. `scope` and `branch` get the same treatment because
-    // they appear inline in the rendered line and are user-influenceable.
-    const safeFinding = sanitizeForPrompt(e.finding);
-    const safeScope = e.scope ? sanitizeForPrompt(e.scope) : "";
+    // Sanitize fields that flow VERBATIM into the LLM prompt. `finding`,
+    // `lesson`, `reason`, `trigger`, `scope` are bounded by SafeString at the
+    // tool edge (NUL rejected) but control / bidi / zero-width codepoints slip
+    // through SafeString. Strip them at render time.
+    //
+    // PR2: a v3 distilled row carries `lesson` and MAY have no `finding`; a
+    // legacy v2 row has `finding` and no `lesson`. Render `lesson ?? finding`
+    // as the entry text and `trigger ?? scope` as the scope tag. NEVER call
+    // `sanitizeForPrompt(undefined)` — guard each optional field first. The
+    // object-level schema refine guarantees at least one of finding/lesson is
+    // present, so `entryText` is always a non-empty string.
+    const entryText = e.lesson ?? e.finding;
+    const safeEntryText = entryText ? sanitizeForPrompt(entryText) : "";
+    const scopeTag = e.trigger ?? e.scope;
+    const safeScope = scopeTag ? sanitizeForPrompt(scopeTag) : "";
     const scope = safeScope ? ` (scope: \`${safeScope}\`)` : "";
     // v0.11.0+ : flag promoted entries explicitly so the advisor reads them
     // as team policy rather than ordinary precedent. Matches the SKILL.md
@@ -85,7 +97,7 @@ export function formatLearningsForPrompt(
     // as binding.
     const promotedTag = e.promoted === true ? " ⭐ PROMOTED" : "";
     lines.push(
-      `${i + 1}. **${verdict}**${promotedTag} at ${ref}${scope} — ${e.agent}${sev}: "${safeFinding}"`,
+      `${i + 1}. **${verdict}**${promotedTag} at ${ref}${scope} — ${e.agent}${sev}: "${safeEntryText}"`,
     );
     if (e.reason) {
       // Wrap reason in a markdown blockquote (`> `) so the LLM lexically
@@ -97,4 +109,83 @@ export function formatLearningsForPrompt(
   });
 
   return lines.join("\n") + "\n";
+}
+
+/**
+ * One distilled lesson parsed out of a consolidator's `squad-distilled-lessons`
+ * fenced block. `lesson` is the imperative one-liner; `trigger` is an optional
+ * retrieval glob.
+ */
+export interface DistilledLesson {
+  lesson: string;
+  trigger?: string;
+}
+
+/**
+ * Parse the `squad-distilled-lessons` fenced block out of consolidator output
+ * (PR2 / Fase 1b — C4). The squad skill calls this after the consolidator
+ * returns; each returned lesson is recorded via `record_learning`.
+ *
+ * FAIL-SILENT contract — returns `[]` (never throws) when:
+ *  - no fence with the exact info-string `squad-distilled-lessons` is present;
+ *  - the fence is partial / unclosed so no body can be extracted;
+ *  - the body is not valid JSON;
+ *  - the parsed value is not an array;
+ *  - (per element) the element is not an object with a non-empty string
+ *    `lesson` and an optional string `trigger` — malformed elements are
+ *    dropped, valid siblings are kept.
+ *
+ * The fence is located by its exact info-string: a ```` ```squad-distilled-lessons ````
+ * opening line, then the body up to the next closing ```` ``` ```` line. An
+ * opening fence with no matching close is treated as absent (fail-silent).
+ */
+export function parseDistilledLessonsBlock(text: string): DistilledLesson[] {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const lines = text.split(/\r?\n/);
+  let openIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    // Exact info-string match — leading/trailing whitespace tolerated, but the
+    // info-string itself must be exactly `squad-distilled-lessons`.
+    if (lines[i]!.trim() === "```squad-distilled-lessons") {
+      openIdx = i;
+      break;
+    }
+  }
+  if (openIdx === -1) return [];
+
+  let closeIdx = -1;
+  for (let i = openIdx + 1; i < lines.length; i++) {
+    if (lines[i]!.trim() === "```") {
+      closeIdx = i;
+      break;
+    }
+  }
+  // Unclosed / partial fence — fail-silent.
+  if (closeIdx === -1) return [];
+
+  const body = lines
+    .slice(openIdx + 1, closeIdx)
+    .join("\n")
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const out: DistilledLesson[] = [];
+  for (const el of parsed) {
+    if (el === null || typeof el !== "object" || Array.isArray(el)) continue;
+    const obj = el as Record<string, unknown>;
+    if (typeof obj.lesson !== "string" || obj.lesson.length === 0) continue;
+    if (obj.trigger !== undefined && typeof obj.trigger !== "string") continue;
+    const lesson: DistilledLesson = { lesson: obj.lesson };
+    if (typeof obj.trigger === "string" && obj.trigger.length > 0) {
+      lesson.trigger = obj.trigger;
+    }
+    out.push(lesson);
+  }
+  return out;
 }

@@ -6,7 +6,7 @@ import { SquadError } from "../errors.js";
 import { ensureRelativeInsideRoot } from "../util/path-safety.js";
 import { withFileLock } from "../util/file-lock.js";
 import { logger } from "../observability/logger.js";
-import { CURRENT_SCHEMA_VERSION } from "../util/schema-version.js";
+import { RUNS_SCHEMA_VERSION } from "../util/schema-version.js";
 import { SafeString } from "../tools/_shared/schemas.js";
 
 /**
@@ -210,7 +210,7 @@ const AgentMetricsSchema = z.object({
  * appropriate subset at the call site (`appendRun` vs `finalizeRun`).
  */
 const runRecordSchema = z.object({
-  schema_version: z.literal(CURRENT_SCHEMA_VERSION),
+  schema_version: z.literal(RUNS_SCHEMA_VERSION),
   id: SafeString(40),
   status: StatusEnum,
   started_at: SafeString(40),
@@ -297,6 +297,21 @@ const runRecordSchema = z.object({
       agents_with_supplement: z.array(z.enum(AGENT_NAMES_TUPLE)).max(8),
     })
     .optional(),
+  /**
+   * PR2 / Fase 1b — auto-journaling drain telemetry. Optional; populated on
+   * the terminal `record_run` from `drain_journal`'s `touched_paths` output
+   * (the de-duplicated set of files the implementer Edit/Write-touched during
+   * the run, drained from the pending-journal staging buffer). Older records
+   * and runs with journaling `off` omit it.
+   *
+   * Cap: at most 100 paths, each ≤512 chars (`SafeString`). This counts
+   * toward `MAX_RECORD_BYTES` (4000) — the cap is deliberately conservative.
+   * Worst case 100 × ~80-byte paths ≈ 8KB would overflow the row, so
+   * `drain_journal` is responsible for keeping the realistic set small; the
+   * 100-cap is a hard ceiling, not a target. If a row would overflow,
+   * `appendRun` rejects with RECORD_TOO_LARGE rather than truncating.
+   */
+  touched_paths: z.array(SafeString(512)).max(100).optional(),
 });
 
 export type RunRecord = z.infer<typeof runRecordSchema>;
@@ -372,7 +387,7 @@ export function generateRunId(): string {
  * current version is via `tools/migrate-jsonl-agents.mjs`. The pinning
  * test for this contract is `tests/schema-version-skip-log.test.ts`.
  *
- * Rows that DO match `schema_version === CURRENT_SCHEMA_VERSION` but fail
+ * Rows that DO match `schema_version === RUNS_SCHEMA_VERSION` but fail
  * Zod validation ARE quarantined to `.squad/runs.jsonl.corrupt-<ts>.jsonl`
  * alongside the source — those are real schema violations within the
  * current version's contract.
@@ -442,7 +457,7 @@ export async function readRuns(
     if (
       typeof parsed === "object" &&
       parsed !== null &&
-      (parsed as { schema_version: unknown }).schema_version !== CURRENT_SCHEMA_VERSION
+      (parsed as { schema_version: unknown }).schema_version !== RUNS_SCHEMA_VERSION
     ) {
       skippedUnknownVersion++;
       continue;

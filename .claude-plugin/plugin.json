@@ -35,7 +35,8 @@
     "./commands/commit-suggest.md",
     "./commands/stats.md",
     "./commands/debug.md",
-    "./commands/grillme.md"
+    "./commands/grillme.md",
+    "./commands/enable-journaling.md"
   ],
   "skills": "./skills/",
   "mcpServers": {

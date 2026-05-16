@@ -196,7 +196,14 @@ export async function pruneLearningsTool(input: Input): Promise<PruneLearningsOu
     stage1.forEach((e, idx) => {
       if (e.archived === true) return;
       if (e.decision !== "accept") return;
-      const key = normalizeFindingTitle(e.finding);
+      // PR2: `finding` is now optional (a distilled v3 row may carry only
+      // `lesson`). Group by `lesson ?? finding` — the same normalised-title
+      // key `read_learnings` derives recurrence from, so promotion grouping
+      // and retrieval recurrence stay consistent. A row with neither field
+      // is impossible (store schema refine), but the empty-key guard below
+      // covers a defensively-undefined title regardless.
+      const title = e.lesson ?? e.finding;
+      const key = title !== undefined ? normalizeFindingTitle(title) : "";
       if (key.length === 0) return;
       const acc = groups.get(key) ?? [];
       acc.push(idx);
