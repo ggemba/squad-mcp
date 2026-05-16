@@ -28,5 +28,14 @@ coverage/
 .squad/tasks.json
 .squad/tasks.json.prev
 
+# squad-mcp auto-journaling staging buffer (PR1 / Fase 1a) — local-only
+# transient breadcrumbs captured by the opt-in PostToolUse hook, plus its
+# atomic-rename drain sidecars, quarantine side files, and the copied hook
+# scripts. None of these are meant to ship with releases.
+.squad/pending-journal.jsonl
+.squad/pending-journal.jsonl.draining-*.jsonl
+.squad/pending-journal.jsonl.corrupt-*.jsonl
+.squad/hooks/
+
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs

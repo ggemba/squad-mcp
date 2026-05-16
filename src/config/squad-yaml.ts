@@ -134,6 +134,15 @@ const squadYamlSchema = z.object({
       enabled: z.boolean().optional(),
     })
     .optional(),
+  /**
+   * Optional auto-journaling switch (PR1 / Fase 1a). When `opt-in`, the user
+   * has chosen to participate in work-trail capture; when `off` (the default),
+   * journaling is disabled. PR1 ships capture plumbing only — the opt-in
+   * PostToolUse hook is wired via `.claude/settings.json`, NOT this field, so
+   * PR1 code does not branch on it. The field exists so the repo can record
+   * the intent in version control; distillation and retrieval land in PR2.
+   */
+  journaling: z.enum(["off", "opt-in"]).optional(),
 });
 
 export type SquadYamlConfig = z.infer<typeof squadYamlSchema>;
@@ -187,6 +196,8 @@ export interface ResolvedSquadConfig {
   learnings: LearningsConfig;
   /** Tasks store policy — fully populated with defaults. */
   tasks: TasksConfig;
+  /** Auto-journaling switch (PR1). Default `off`. */
+  journaling: "off" | "opt-in";
   /** Where the config was loaded from, or null if defaults only. */
   source: string | null;
 }
@@ -289,6 +300,7 @@ function applyDefaults(parsed: SquadYamlConfig, source: string | null): Resolved
     pr_posting,
     learnings,
     tasks,
+    journaling: parsed.journaling ?? "off",
     source,
   };
 }
