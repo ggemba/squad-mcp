@@ -1,6 +1,6 @@
 ---
 name: grillme
-description: Socratic plan validation. Grills the user's plan one question at a time against the project's domain language (CONTEXT.md) and prior decisions (ADRs in docs/adr/), updating both inline as terms resolve. Use BEFORE /squad:implement to stress-test a plan. Trigger when the user types /squad:grillme, /grillme, or asks to "grill my plan", "stress-test this plan", "is this consistent with our domain".
+description: Socratic plan validation. Grills your plan one question at a time against the project's domain language (CONTEXT.md) and prior decisions (ADRs in docs/adr/), updating both inline as terms resolve. Catches terminology drift, hidden assumptions, and undocumented decisions BEFORE implementation. WRITES to CONTEXT.md and docs/adr/ with per-write confirmation — use --no-write for dry-run. Triggers: "grill my plan", "stress-test this plan", "validate this approach", "is this consistent with our domain", "are there decisions missing", "before I implement", "challenge my assumptions", "/grillme". Example: "/squad:grillme --deep store user notifications in a separate table". For exploring options BEFORE a plan exists, use /brainstorm. For implementation, use /squad:implement.
 ---
 
 # Skill: Grillme

@@ -1,5 +1,5 @@
 ---
-description: Multi-agent advisory squad workflow for implementing changes — classification, risk scoring, agent selection, advisory review, consolidation. Auto-detects depth (quick / normal / deep) from risk + file count; pass --quick or --deep to override. Stops at plan-approval gate before implementing.
+description: Multi-agent advisory squad workflow for implementing code changes: classify → score risk → select agents → planner → Gate 1 (plan approval) → advisory squad → Gate 2 (Blocker halt) → implementer → consolidator → verdict. Auto-detects depth (quick/normal/deep) from risk + file count; pass --quick or --deep to override. Stops at plan-approval gate BEFORE writing any code. Triggers: "implement X", "add feature Y", "build this", "refactor Z", "with the squad", "using advisory review". Example: "/squad:implement --normal add OAuth login flow". For pre-implementation brainstorming, use /brainstorm. For plan stress-test, use /squad:grillme.
 argument-hint: "[--quick | --normal | --deep] [--codex] <task description>"
 ---
 

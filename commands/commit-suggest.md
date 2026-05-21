@@ -1,5 +1,5 @@
 ---
-description: Suggest a concise Conventional Commits message for the current changes. Read-only — runs only the allowlisted git commands, never executes git mutations, and never adds AI co-author trailers.
+description: Suggest a Conventional Commits message from the current staged + unstaged changes. Read-only — runs only allowlisted git commands, never commits, never pushes, never adds AI co-author trailers. Output is plain text the user pastes. Triggers: "suggest a commit", "commit message", "commit msg", "write a commit", "gen conventional commit", "/commit". Classifies type (feat/fix/chore/refactor/docs/test/perf); subject under 50 chars; body only when "why" isn't obvious.
 argument-hint: "[--scope <name>] [--type <type>] [--no-body]"
 ---
 

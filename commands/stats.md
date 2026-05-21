@@ -1,5 +1,5 @@
 ---
-description: Show squad-mcp observability dashboard for past runs in this workspace. Bar charts, score distribution, verdict mix, sparkline trend, per-agent token & wall-clock breakdown. Reads `.squad/runs.jsonl`; never writes. Flags: --quick (last 7d), --thorough (full history + per-agent panel), --since <ISO>, --last <N>, --no-color.
+description: Show squad-mcp observability dashboard for past runs in this workspace. Bar charts, score distribution, verdict mix, sparkline trend, per-agent token + wall-clock cost breakdown. Reads .squad/runs.jsonl; never writes. Triggers: "squad stats", "run history", "score distribution", "where did the tokens go", "how much did squad cost", "agent cost breakdown". Example: "/squad:stats --quick" (last 7d) or "/squad:stats --thorough". Flags: --quick (last 7d), --thorough (full history + per-agent panel), --since <ISO>, --last <N>, --no-color.
 argument-hint: "[--quick | --thorough] [--since <ISO>] [--last <N>] [--no-color]"
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "squad",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Squad-dev workflow as a Claude Code plugin: classification, risk scoring, agent selection, advisory orchestration. Bundles an MCP server, native subagents, and the /squad:implement and /squad:review slash commands.",
   "license": "Apache-2.0",
   "author": {
@@ -37,7 +37,8 @@
     "./commands/debug.md",
     "./commands/grillme.md",
     "./commands/enable-journaling.md",
-    "./commands/pipeline.md"
+    "./commands/pipeline.md",
+    "./commands/inventory.md"
   ],
   "skills": "./skills/",
   "mcpServers": {

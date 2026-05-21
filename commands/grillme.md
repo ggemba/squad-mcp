@@ -1,5 +1,5 @@
 ---
-description: Socratic plan validation. Grills your plan one question at a time against the project's CONTEXT.md glossary and prior ADRs; resolves terminology and decisions inline. WRITES to CONTEXT.md and docs/adr/ (with confirmation) — use --no-write for dry-run. Pass --quick / --normal / --deep to tune session depth.
+description: Socratic plan validation. Grills your plan one question at a time against the project's CONTEXT.md glossary and prior ADRs; resolves terminology and decisions inline. WRITES to CONTEXT.md and docs/adr/ (with per-write confirmation) — use --no-write for dry-run. Triggers: "grill my plan", "stress-test this plan", "validate this approach", "before I implement X", "is this consistent with our domain", "challenge my assumptions". Example: "/grillme --deep store notifications in a separate table". Pre-implementation only — for exploring options first, use /brainstorm.
 argument-hint: "[--quick | --normal | --deep] [--no-write] [--domain <name>] <plan text>"
 ---
 

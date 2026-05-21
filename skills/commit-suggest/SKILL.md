@@ -1,6 +1,6 @@
 ---
 name: commit-suggest
-description: Suggests a Conventional Commits message for the current staged and unstaged changes. Read-only — allowlisted git commands only, never adds AI co-author trailers, output is text the user chooses to use. Trigger when the user types /commit-suggest or asks to "suggest a commit", "commit message", or "commit msg".
+description: Conventional Commits message generator from current staged + unstaged changes. Read-only — runs only allowlisted git commands, never commits, never pushes, never adds AI co-author trailers. Output is plain text the user pastes. Triggers: "suggest a commit", "commit message", "commit msg", "write a commit", "gen conventional commit", "what should this commit say", "/commit". Classifies type (feat/fix/chore/refactor/docs/test/perf); subject under 50 chars; body only when "why" isn't obvious from the diff.
 ---
 
 # Skill: Commit Suggest

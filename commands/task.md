@@ -1,5 +1,5 @@
 ---
-description: Run the squad on a specific task by id from .squad/tasks.json. Confirms with the user, flips status to in-progress, then proceeds in implement mode against the task's scope only.
+description: Run the squad on a specific task by id from .squad/tasks.json. Confirms with the user, flips status to in-progress, then proceeds in implement-mode against the task's scope only. Triggers: "run task X", "work on task ID", "implement task abc-123". Pairs with /squad:tasks (decompose PRD) and /squad:next (pick next ready task).
 argument-hint: "<task-id>"
 ---
 

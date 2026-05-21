@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Brainstorm and research skill. Runs parallel web research and spawns specialist agents, then synthesizes an options matrix (pros/cons/risks/sources) with a recommendation. A decision aid, NOT code — use BEFORE /squad:implement to decide what to build. Trigger when the user types /brainstorm or asks to "brainstorm", "research approaches", "explore options", "help me think through", "what does the industry use", or "best practices for".
+description: Pre-implementation brainstorming with parallel web research + specialist agents. Use BEFORE coding to decide what to build, compare 3-5 alternatives, scan industry patterns, surface trade-offs, weigh "build vs buy". Produces an options matrix with cited sources and a recommendation — never code, never file edits. Triggers: "brainstorm X", "research approaches to", "explore options for", "compare X vs Y", "should we use X", "help me think through", "what does the industry use", "best practices for", "what's the right approach to". Example: "/brainstorm --deep should we replace our queue layer". For stress-testing a plan you've already drafted, use /squad:grillme. For implementing the decision, use /squad:implement.
 ---
 
 # Skill: Brainstorm
