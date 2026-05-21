@@ -1,5 +1,5 @@
 ---
-description: Read-only bug investigation. Dispatches code-explorer + debugger to emit ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence and verification steps. Never writes code. Follow up with /squad:implement to fix.
+description: Read-only bug investigation. Dispatches code-explorer + debugger to emit N ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Triggers: "investigate this bug", "what could cause X", "help me debug", "why is X failing", "diagnose this error", "root cause of", "trace this issue". Example: "/squad:debug rate limit returns 429 even when under quota". Follow up with /squad:implement to fix. For "where does X live" without a failure, use /squad:question.
 argument-hint: "[--quick | --normal | --deep] <bug description> [stack trace] [repro steps]"
 ---
 

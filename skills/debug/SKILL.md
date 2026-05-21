@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Read-only bug investigation skill. Orients via the code-explorer subagent, then dispatches the debugger persona to emit N ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Trigger when the user types /squad:debug or asks to "investigate this bug", "what could cause...", "help me debug...".
+description: Read-only bug investigation skill. Takes a bug description + optional stack trace + optional repro steps; orients via code-explorer (Haiku grep/excerpt), then dispatches the debugger persona to emit N ranked hypotheses (1/3/5 on --quick/--normal/--deep) with file:line evidence, verification steps, and confidence labels. Never writes code, never commits. Triggers: "investigate this bug", "what could cause X", "help me debug", "why is X failing", "diagnose this error", "root cause of", "trace this issue", "why does Y throw", "intermittent failure". Example: "/squad:debug --normal 500 errors started after rate-limit change". For "where does X live" without a failure yet, use /squad:question. To fix after diagnosis, use /squad:implement.
 ---
 
 # Skill: Debug

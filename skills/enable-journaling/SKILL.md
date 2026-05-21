@@ -1,6 +1,6 @@
 ---
 name: enable-journaling
-description: Opt in to auto-journaling capture plumbing. Copies the bundled PostToolUse hook scripts into .squad/hooks/ and prints the .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does not change yet. Trigger when the user types /squad:enable-journaling or asks to "enable journaling", "turn on auto-journaling", "set up the work-trail hook".
+description: Opt-in setup for auto-journaling capture plumbing. Copies bundled PostToolUse hook scripts into .squad/hooks/ and prints the .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does NOT change until a follow-up release adds distillation + retrieval. Triggers: "enable journaling", "turn on auto-journaling", "set up the work-trail hook", "capture tool calls", "opt in to journal", "/squad:enable-journaling". One-shot setup — no args, no flags.
 ---
 
 # Skill: Enable Journaling

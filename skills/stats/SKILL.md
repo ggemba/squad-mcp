@@ -1,6 +1,6 @@
 ---
 name: stats
-description: Observability dashboard for the squad-mcp run journal. Reads `.squad/runs.jsonl` and renders a single-color (cyan) ANSI panel of verdict mix, score buckets, sparkline trend, per-invocation distribution, and a per-agent breakdown. All figures are estimates (chars ÷ 3.5). Never writes. Trigger when the user types `/squad:stats` or asks for "squad stats", "run history", "score distribution", or "where did the tokens go".
+description: Observability dashboard for the squad-mcp run journal in this workspace. Reads .squad/runs.jsonl and renders a single-color (cyan) ANSI panel of verdict mix, score buckets, sparkline trend, per-invocation distribution (implement/review/question/debug/brainstorm/grillme), and a per-agent breakdown of token + wall-clock cost. All token figures are estimates (chars ÷ 3.5). Never writes. Triggers: "squad stats", "run history", "score distribution", "where did the tokens go", "how much did squad cost", "agent cost breakdown", "how often does X verdict happen", "/squad:stats". Example: "/squad:stats --quick" (last 7d) or "/squad:stats --thorough --since 2026-04-01".
 ---
 
 # Skill: Stats

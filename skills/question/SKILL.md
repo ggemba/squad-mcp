@@ -1,6 +1,6 @@
 ---
 name: question
-description: Read-only code Q&A skill. Spawns the code-explorer subagent (read-only, Haiku-class) to grep and excerpt relevant lines, then synthesizes a cited answer. Never writes files, never commits, never runs the squad. Trigger when the user types /squad:question or asks "where is", "what calls", "how does X work", "find references to", "explain this code".
+description: Read-only code Q&A. Spawns the code-explorer subagent (Haiku-class) for grep/glob/excerpt and synthesizes a cited answer with file:line citations. Fast. Never writes files, never commits, never runs the squad. Use for "where is X defined", "what calls Y", "how does Z work", "show me the implementation of", "find references to", "explain this code", "locate in the codebase", "trace through", "what files use X", "where does Y happen". Example: "/squad:question where is the rate-limit middleware applied?". For a known failure with stack trace, use /squad:debug instead. For implementing a fix or feature, use /squad:implement.
 ---
 
 # Skill: Question

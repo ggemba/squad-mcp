@@ -1,5 +1,5 @@
 ---
-description: Collaborative brainstorm + deep web research. Takes a problem or decision; spawns specialist agents in parallel with targeted web queries; synthesizes findings into an options matrix with cited sources and a recommendation. Exploratory only — produces no code or file changes. Use BEFORE /squad:implement to decide what to build.
+description: Pre-implementation brainstorm + parallel web research. Spawns specialist agents in parallel with targeted web queries; synthesizes findings into an options matrix with cited sources and a recommendation. Exploratory only — never writes code or files. Use BEFORE /squad:implement to decide what to build, compare alternatives, scan industry patterns. Triggers: "brainstorm X", "compare X vs Y", "research approaches", "explore options for", "should we use X", "best practices for". Example: "/brainstorm --deep should we replace our queue layer".
 argument-hint: "[--quick | --normal | --deep] [--no-web] [--focus <domain>] [--sources <N>] <topic>"
 ---
 

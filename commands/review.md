@@ -1,5 +1,5 @@
 ---
-description: Multi-agent advisory review of an existing branch, PR, or diff — same agents and severity model as /squad:implement, but review-only. Auto-detects depth (quick / normal / deep) from risk + file count; pass --quick or --deep to override. Never implements, commits, or pushes.
+description: Multi-agent advisory review of an existing branch, PR, diff, or current uncommitted changes — same agents and severity model as /squad:implement but review-only. Auto-detects depth (quick/normal/deep) from risk + file count; pass --quick or --deep to override. Never implements, commits, or pushes. Triggers: "review this branch", "review this PR", "review my diff", "advisory review", "code review by specialists", "review my changes". Example: "/squad:review --deep main..feature/auth-rewrite" or "/squad:review #42" or "/squad:review" (current uncommitted diff). For pre-merge implementation flow, use /squad:implement.
 argument-hint: "[--quick | --normal | --deep] [--codex] <branch | PR# | path | nothing for current diff>"
 ---
 

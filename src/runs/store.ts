@@ -134,6 +134,7 @@ export const INVOCATION_VALUES = [
   "brainstorm",
   "debug",
   "grillme",
+  "inventory",
 ] as const;
 
 const InvocationEnum = z.enum(INVOCATION_VALUES);

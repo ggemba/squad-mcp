@@ -1,5 +1,5 @@
 ---
-description: Runs the squad skills as one guided, human-gated sequence — brainstorm → grillme → tasks → next → implement → review. The pipeline is a stateful ADVISOR: it figures out where you are, recommends the exact next command, and explains the gate in front of you. It NEVER auto-runs a sub-skill, records telemetry, or persists state. Pass --from <phase> to enter mid-sequence; --quick / --normal / --deep are forwarded to each step.
+description: Cradle-to-grave guided orchestration of the full squad workflow: brainstorm → grillme → tasks → next → implement → review. Stateful ADVISOR — figures out where you are, recommends the exact next command, and explains the gate in front of you. NEVER auto-runs a sub-skill, never records telemetry, never persists state (lives only in conversation context). Triggers: "run the full squad pipeline", "take this feature cradle-to-grave", "walk me through from idea to merge", "guide me end-to-end". Pass --from <phase> to enter mid-sequence; --quick/--normal/--deep are forwarded to each step. Example: "/squad:pipeline new notifications system".
 argument-hint: "[--from <phase>] [--quick | --normal | --deep] <feature description>"
 ---
 

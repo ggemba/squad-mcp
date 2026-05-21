@@ -7,6 +7,83 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-20
+
+### Added — `/squad:inventory` skill (codebase audit / inventory)
+
+New skill that scans a codebase for a named pattern defined by a YAML "recipe pack"
+and emits a structured Markdown inventory cross-referenced with framework metadata
+(routes, handlers). Closes the gap surfaced in the brainstorm `brMTc3OTMystk3jd`:
+audits like "scan all PHP files for inline SQL and emit an MD" had no skill that
+fit, forcing ad-hoc orchestration.
+
+Hybrid pipeline for cost efficiency:
+
+1. Deterministic `rg` sweep (zero LLM) extracts raw findings per pack rule.
+2. Cross-tier enrichment dispatch — Haiku tier-1 by default, Sonnet escalation
+   for rules tagged `requires_semantic: true` OR Haiku self-reported
+   `confidence < 0.7`. `--quick` skips escalation; `--deep` uses Sonnet for
+   tier-1 and Opus for cross-ref summary.
+3. Cross-ref pass (e.g. Laravel route → controller) attaches each finding
+   to the HTTP endpoint that exercises it.
+4. Deterministic MD renderer (`src/inventory/render-md.ts`) — same JSON
+   intermediate → byte-identical output, pinned by snapshot tests.
+
+Default output: `./docs/inventory/<recipe>-<YYYY-MM-DD>.md`. Override via
+`--out <path>` (accepts Obsidian vault paths). Write-authority gate prompts
+before overwriting an existing file (same pattern as `/squad:grillme`).
+
+Bundled pack v1: `php-inline-sql` (Laravel `DB::statement` / `DB::select` /
+PDO calls / dynamic concatenation). Custom packs live anywhere — pass the
+path as the recipe argument.
+
+New files:
+
+- `skills/inventory/SKILL.md` — orchestration spec (Phases 0-12).
+- `commands/inventory.md` — slash trigger.
+- `skills/inventory/packs/php-inline-sql.yaml` — bundled pack.
+- `src/inventory/types.ts` — `InventoryFinding` / `InventoryReport` / `Pack` Zod schemas.
+- `src/inventory/render-md.ts` — deterministic JSON → MD renderer.
+- `tests/inventory-render.test.ts` — snapshot + determinism + edge cases.
+
+Telemetry: `"inventory"` added to `INVOCATION_VALUES` in `src/runs/store.ts`;
+`tests/runs-aggregate.test.ts` updated.
+
+Plugin manifest: `commands/inventory.md` registered in `.claude-plugin/plugin.json`.
+
+Cost ballpark vs ad-hoc Explore-based workflows: ~5× cheaper in `--normal`
+(118K vs 626K tokens on a 1023-file Laravel sweep) and deterministic across
+re-runs. v2 follow-ups: fingerprint-cache layer, ast-grep pattern support,
+hybrid MCP `scan_codebase` tool to remove orchestrator-side `rg` shelling.
+
+### Changed — skill description tune-up for routing/discoverability
+
+Rewrote `description:` frontmatter of all 9 SKILL.md files and 13 command
+files to be keyword-dense and include one concrete example each. Per
+Anthropic's own skill best-practices doc, this is the load-bearing field
+Claude reads at session start when deciding which skill to invoke — there
+is no algorithmic router. Verbatim user phrasings ("where is X defined",
+"compare X vs Y", "review my diff", "investigate this bug", etc.) now
+appear in the descriptions so the LLM picks the right skill on first try.
+
+Added cross-references between siblings:
+
+- `/squad:question` → suggests `/squad:debug` when intent is bug-shaped
+- `/squad:debug` → suggests `/squad:question` for locate-only intent
+- `/brainstorm` → suggests `/squad:grillme` for plan stress-test
+- `/squad:grillme` → suggests `/brainstorm` for pre-plan exploration
+- `/squad:implement` ↔ `/squad:review` cross-linked
+- task family (`/squad:tasks`, `/squad:next`, `/squad:task`) cross-linked
+
+No behavioural change. No new code, no test changes. Cost: zero runtime,
+zero token overhead — descriptions are read once at session start.
+
+Rationale: brainstorm (`brMTc3OTMystk3jd`) flagged skill discoverability
+as the root cause of "MCP didn't know which skill to call" complaints.
+Web research showed activation rates move 20%→50%→90% with this kind of
+tune-up. The companion `/squad:inventory` skill (see Added entry above)
+addresses the capability half of the same gap.
+
 ## [1.2.0] - 2026-05-16
 
 ### Added — framework-aware advisory supplements

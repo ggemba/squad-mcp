@@ -236,6 +236,7 @@ describe("aggregateOutcomes", () => {
     expect(out.invocation_counts.brainstorm).toBe(0);
     expect(out.invocation_counts.debug).toBe(0);
     expect(out.invocation_counts.grillme).toBe(0);
+    expect(out.invocation_counts.inventory).toBe(0);
   });
 
   it("counts verdicts and bucketizes scores from completed rows only", () => {
@@ -261,6 +262,19 @@ describe("aggregateOutcomes", () => {
     ]);
     const out = aggregateOutcomes(folded);
     expect(out.invocation_counts.debug).toBe(2);
+    expect(out.invocation_counts.implement).toBe(1);
+    expect(out.invocation_counts.review).toBe(0);
+  });
+
+  it("initialises invocation_counts.inventory to 0 and counts inventory runs", () => {
+    const folded = foldById([
+      rec({ id: "i1", invocation: "inventory", verdict: null }),
+      rec({ id: "i2", invocation: "inventory", verdict: null }),
+      rec({ id: "i3", invocation: "inventory", verdict: null }),
+      rec({ id: "x", invocation: "implement", verdict: "APPROVED" }),
+    ]);
+    const out = aggregateOutcomes(folded);
+    expect(out.invocation_counts.inventory).toBe(3);
     expect(out.invocation_counts.implement).toBe(1);
     expect(out.invocation_counts.review).toBe(0);
   });

@@ -1,5 +1,5 @@
 ---
-description: Decompose a PRD (file or inline text) into atomic tasks via the squad skill. Stops for user confirmation before recording.
+description: Decompose a PRD (file path or inline text) into atomic tasks via the squad skill. Stops for user confirmation BEFORE recording into .squad/tasks.json. Triggers: "break down this PRD", "split into tasks", "decompose feature into tasks", "task breakdown for", "create tasks from". Example: "/squad:tasks docs/prd-feature-X.md". Pairs with /squad:next (pick ready task) and /squad:task <id> (run squad on one).
 argument-hint: "<prd-file-or-text>"
 ---
 

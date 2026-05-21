@@ -1,5 +1,5 @@
 ---
-description: Read-only code Q&A. Spawns the code-explorer subagent to grep, glob, and read excerpts of the codebase, then synthesizes an answer with file:line citations. No plan, no gates, no implementation. Fast.
+description: Read-only code Q&A. Spawns the code-explorer subagent (Haiku-class) to grep, glob, and read excerpts of the codebase, then synthesizes a cited answer with file:line citations. No plan, no gates, no implementation. Fast. Triggers: "where is X defined", "what calls Y", "how does Z work", "find references to", "explain this code", "show me how X happens", "trace through", "what files use X", "locate in codebase". Example: "/squad:question where does the rate-limit middleware apply?". For a known bug with stack trace, use /squad:debug.
 argument-hint: "[--quick | --thorough] <question about the code>"
 ---
 

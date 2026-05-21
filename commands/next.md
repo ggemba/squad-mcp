@@ -1,5 +1,5 @@
 ---
-description: Pick the next ready task from .squad/tasks.json (deps satisfied, optional agent or scope filter) and surface it for confirmation before flipping to in-progress.
+description: Pick the next ready task from .squad/tasks.json (dependencies satisfied, optional agent or scope filter) and surface it for user confirmation before flipping status to in-progress. Triggers: "next task", "what's next", "pick the next task", "give me a task to work on". Pairs with /squad:tasks (decompose PRD into tasks) and /squad:task <id> (run squad on a specific task).
 argument-hint: "[--agent <name>] [--scope <glob>]"
 ---
 

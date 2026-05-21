@@ -1,0 +1,100 @@
+# php-inline-sql — bundled inventory pack v1.
+#
+# Detects inline SQL embedded in PHP source: raw queries via Laravel's DB
+# facade, PDO calls, and dynamic concatenation patterns. Use to build a
+# migration inventory before extracting SQL to a separate API/repository.
+#
+# Targets PHP codebases (Laravel, Symfony, plain PHP). Excludes vendor/,
+# migrations/, seeders/, and tests by default.
+#
+# Cross-ref index resolves Laravel route file → controller method to attach
+# each finding to the HTTP endpoint that exercises it.
+
+name: php-inline-sql
+version: 1
+description: Inventory of inline SQL inside PHP source — raw queries, DB::statement, $pdo->query, dynamic concat.
+language: php
+
+file_patterns:
+  - "**/*.php"
+
+exclude_patterns:
+  - "vendor/**"
+  - "node_modules/**"
+  - "**/database/migrations/**"
+  - "**/database/seeders/**"
+  - "**/tests/**"
+  - "**/storage/framework/**"
+  - "**/bootstrap/cache/**"
+
+rules:
+  # Laravel DB::statement / DB::select / DB::insert / DB::update / DB::delete
+  # with a string literal. Static, low-risk — Haiku tier-1 is enough.
+  - id: php-db-statement
+    severity: info
+    category: ddl
+    requires_semantic: false
+    description: Laravel DB facade method with a literal SQL string.
+    regex: 'DB::(statement|unprepared)\s*\(\s*[''"][^''"]+[''"]'
+    summary_hint: "Raw DDL/exec via Laravel DB facade."
+
+  - id: php-db-select
+    severity: info
+    category: query
+    requires_semantic: false
+    description: Laravel DB::select / DB::get with a literal SQL string.
+    regex: 'DB::(select|selectOne|scalar|get)\s*\(\s*[''"][^''"]+[''"]'
+    summary_hint: "Read query via Laravel DB facade."
+
+  - id: php-db-insert-update-delete
+    severity: info
+    category: query
+    requires_semantic: false
+    description: Laravel DB::insert / DB::update / DB::delete with a literal SQL string.
+    regex: 'DB::(insert|update|delete)\s*\(\s*[''"][^''"]+[''"]'
+    summary_hint: "Write query via Laravel DB facade."
+
+  # PDO direct calls — pre-Laravel-era patterns common in legacy code.
+  - id: php-pdo-query
+    severity: info
+    category: query
+    requires_semantic: false
+    description: PDO query / exec / prepare with a literal SQL string.
+    regex: '->(query|exec|prepare)\s*\(\s*[''"][^''"]+[''"]'
+    summary_hint: "PDO direct query call."
+
+  # Concatenation / dynamic SQL — high-risk. ALWAYS escalates to Sonnet+.
+  # `requires_semantic: true` bypasses Haiku tier-1.
+  - id: php-db-raw-concat
+    severity: warning
+    category: dynamic
+    requires_semantic: true
+    description: Dynamic SQL built via string concatenation — potential injection vector if any operand is user-supplied.
+    regex: '\$\w+\s*=\s*[''"][^''"]*\b(SELECT|INSERT|UPDATE|DELETE|MERGE)\b[^''"]*[''"]\s*\.'
+    summary_hint: "Dynamic SQL concat — check whether any operand is user-controlled."
+
+  - id: php-db-raw-call
+    severity: warning
+    category: dynamic
+    requires_semantic: true
+    description: Laravel DB::raw with a non-literal expression.
+    regex: 'DB::raw\s*\(\s*\$'
+    summary_hint: "DB::raw with a variable — almost always a sign that user data reaches the SQL builder."
+
+  # Schema mutations from PHP — these should usually live in migrations,
+  # not inline. Useful to flag when present.
+  - id: php-schema-mutation
+    severity: warning
+    category: ddl
+    requires_semantic: false
+    description: Schema-mutating SQL (CREATE/ALTER/DROP/TRUNCATE) inline in PHP source.
+    regex: '[''"]\s*(CREATE|ALTER|DROP|TRUNCATE)\s+(TABLE|INDEX|VIEW|PROCEDURE|FUNCTION)\b'
+    summary_hint: "Schema mutation outside migrations — review for proper placement."
+
+cross_ref:
+  # Laravel route → controller method. The orchestrator scans the route
+  # files and resolves each `Controller@method` reference back to the
+  # controller file owning the finding.
+  - kind: laravel_route
+    glob: "routes/**/*.php"
+    regex: '(?:Route::|->)\s*(get|post|put|patch|delete|any|match)\s*\(\s*[''"]([^''"]+)[''"]'

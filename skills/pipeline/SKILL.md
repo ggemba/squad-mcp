@@ -1,6 +1,6 @@
 ---
 name: pipeline
-description: Chains the squad skills — brainstorm → grillme → tasks → next → implement → review — into one guided, human-gated sequence. A stateful advisor — each invocation figures out where you are, recommends the exact next command (never auto-runs one), and explains the gate. State lives only in conversation context. Trigger when the user types /squad:pipeline, /pipeline, or asks to "run the full squad pipeline", "take this feature cradle-to-grave".
+description: Cradle-to-grave orchestration advisor for the full squad workflow: brainstorm → grillme → tasks → next → implement → review. Stateful advisor — each invocation figures out where you are, recommends the exact next command, and explains the gate in front of you. NEVER auto-runs a sub-skill, never records telemetry, never persists state (lives only in conversation context). Triggers: "run the full squad pipeline", "take this feature cradle-to-grave", "walk me through from idea to merge", "whole feature flow", "guide me end-to-end", "/squad:pipeline". Pass --from <phase> to enter mid-sequence. Example: "/squad:pipeline new notifications system".
 ---
 
 # Skill: Pipeline

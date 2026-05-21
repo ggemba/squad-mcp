@@ -1,5 +1,5 @@
 ---
-description: Opt in to auto-journaling capture plumbing. Copies the bundled PostToolUse hook scripts into .squad/hooks/ and prints the exact .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does NOT change until a follow-up release (PR2) adds distillation and retrieval.
+description: Opt-in setup for auto-journaling capture plumbing. Copies bundled PostToolUse hook scripts into .squad/hooks/ and prints the exact .claude/settings.json snippet to wire them up. Capture-only — squad behaviour does NOT change until a follow-up release adds distillation + retrieval. Triggers: "enable journaling", "turn on auto-journaling", "set up the work-trail hook", "capture tool calls", "opt in to journal". One-shot setup — no args, no flags.
 argument-hint: ""
 ---
 
