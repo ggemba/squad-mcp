@@ -48,6 +48,7 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `list_agents` — list configured agents with role, ownership, and dimension weight
 - `read_learnings` — load past accept/reject decisions (filtered by agent + scope), returns a markdown block ready to inject into agent or consolidator prompts
 - `record_learning` — append a new accept/reject decision (or a distilled `lesson`) to `.squad/learnings.jsonl` (Phase 12 batched-prompt record path; also the Phase 10 distilled-lessons capture path)
+- `prune_learnings` — lifecycle for `.squad/learnings.jsonl` — archive aged entries and promote recurring ones to team policy
 - `drain_journal` — drain the auto-journaling staging buffer and return de-duplicated touched paths (Phase 10, before the terminal `record_run`; no-op unless `.squad.yaml` `journaling: opt-in`)
 - `compose_prd_parse` — build a prompt + JSON schema for the host LLM to decompose a PRD into atomic tasks (Phase 0.5)
 - `list_tasks` — read tasks from `.squad/tasks.json` with optional filters (status / agent / changed_files)
@@ -56,6 +57,10 @@ Use the `squad` MCP server for orchestration. Available tools:
 - `update_task_status` — flip task or subtask status (pending / in-progress / review / done / blocked / cancelled)
 - `expand_task` — append subtasks to a task (mechanical; LLM supplies the subtasks)
 - `slice_files_for_task` — filter a file list to those matching a task's `scope` glob
+- `init_local_config` — scaffold a local `.squad.yaml` config in the workspace
+- `read_squad_config` — read the resolved `.squad.yaml` config for the workspace
+- `record_run` — append a RunRecord to `.squad/runs.jsonl` (terminal telemetry; single-writer)
+- `list_runs` — read aggregated run history from `.squad/runs.jsonl`
 
 Available named subagents (Claude Code `Task(subagent_type=…)`): `product-owner`, `architect`, `dba`, `developer`, `reviewer`, `security`, `qa`, `tech-lead-planner`, `tech-lead-consolidator`, plus the utility `code-explorer` (fast read-only code search, Haiku-class; not an advisor — does not score the rubric, never auto-selected by the matrix). The plugin registers these from `agents/`. In other MCP clients, the same role can be obtained via `get_agent_definition` and embedded in a generic dispatch prompt.
 
