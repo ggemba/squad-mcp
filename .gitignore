@@ -21,6 +21,12 @@ coverage/
 .squad/runs.jsonl.lock
 .squad/.stats-seen
 
+# squad-mcp learning store — local team accept/reject decisions and distilled
+# lessons. This is per-team workflow data, not source; it should not ship with
+# releases. The `.prev` snapshot backup is already covered by the `.squad/*.prev`
+# glob above. Remove this line if your team wants to share learnings.
+.squad/learnings.jsonl
+
 # squad-mcp task store — local task decomposition per /squad:tasks. The SKILL
 # leaves trackable-or-not to each repo's discretion. For this repo (which IS
 # the squad-mcp project) we don't want internal task snapshots shipping with

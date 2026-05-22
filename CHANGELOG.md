@@ -7,6 +7,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-21
+
+Internal hardening batch — all changes backward-compatible.
+
+### Added
+
+- New language-agnostic inventory pack `hardcoded-secrets`: AWS access keys,
+  PEM private-key headers, GitHub/Slack tokens, Google API keys, and a
+  `requires_semantic` generic secret-assignment rule.
+- Optional `path_template` field on `cross_ref` entries — a path with
+  `{n}`/`{name}` placeholders filled from the cross-ref regex capture groups,
+  letting a pack declare its own resolution instead of relying on a built-in
+  orchestrator resolver. `laravel_route` remains the built-in default.
+- `scripts/check-skill-drift.mjs` + `npm run check-drift` + a CI step — fails
+  the build when the `skills/squad/SKILL.md` Phase 0 tool list drifts from the
+  registered MCP tools.
+
+### Changed
+
+- `skills/squad/SKILL.md` Phase 0 tool list now lists all 27 registered tools
+  (was missing `init_local_config`, `read_squad_config`, `prune_learnings`,
+  `record_run`, `list_runs`).
+- Extracted the shared detect/classify/score/select/mode-resolution pipeline of
+  `compose_squad_workflow` and `compose_advisory_bundle` into
+  `src/tools/_shared/compose-core.ts`. Both MCP tools keep identical input and
+  output schemas — a behavior-preserving internal refactor.
+- The task CLIs `tools/list-tasks.mjs` and `tools/next-task.mjs` now share a
+  single `matchesAgentHint` helper in `tools/_tasks-io.mjs`.
+- `.squad/learnings.jsonl` is now gitignored (local team-decision data).
+
 ## [1.4.0] - 2026-05-21
 
 ### Fixed — `zodToJsonSchema` silent fallback (broken MCP tool schemas)
