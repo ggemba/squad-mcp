@@ -72,6 +72,18 @@ export const VALID_STATUSES = ["pending", "in-progress", "review", "done", "bloc
 
 export const VALID_PRIORITIES = ["low", "medium", "high"];
 
+/**
+ * Agent-hint match predicate, shared by list-tasks and next-task. A task is
+ * relevant to `agent` when it has no agent_hints (repo-wide) or its hints
+ * include that agent. Mirrors the `agent` branch of listTasks() in
+ * src/tasks/select.ts — kept here as a tiny pure helper so the two task CLIs
+ * don't each carry their own copy.
+ */
+export function matchesAgentHint(task, agent) {
+  if (!task.agent_hints || task.agent_hints.length === 0) return true;
+  return task.agent_hints.includes(agent);
+}
+
 export function fail(prog, code, msg) {
   process.stderr.write(`${prog}: ${msg}\n`);
   process.exit(code);

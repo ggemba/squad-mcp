@@ -95,6 +95,15 @@ cross_ref:
   # Laravel route → controller method. The orchestrator scans the route
   # files and resolves each `Controller@method` reference back to the
   # controller file owning the finding.
+  #
+  # Capture groups: (1) HTTP method, (2) route path, (3) controller class
+  # from a classic `'X@method'` string handler. Group 3 is OPTIONAL — the
+  # trailing handler-string clause is `(?:...)?`, so array-syntax and
+  # closure routes still match exactly as before, just without group 3.
+  #
+  # `path_template` expresses the built-in Laravel convention declaratively:
+  # a `'X@method'` handler resolves to `app/Http/Controllers/X.php`.
   - kind: laravel_route
     glob: "routes/**/*.php"
-    regex: '(?:Route::|->)\s*(get|post|put|patch|delete|any|match)\s*\(\s*[''"]([^''"]+)[''"]'
+    regex: '(?:Route::|->)\s*(get|post|put|patch|delete|any|match)\s*\(\s*[''"]([^''"]+)[''"](?:\s*,\s*[''"]([A-Za-z0-9_\\]+)@[A-Za-z0-9_]+[''"])?'
+    path_template: "app/Http/Controllers/{3}.php"

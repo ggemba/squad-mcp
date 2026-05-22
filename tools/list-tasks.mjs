@@ -12,7 +12,7 @@
 //   0 success
 //   2 invalid input
 
-import { readTasksFile, VALID_STATUSES, fail } from "./_tasks-io.mjs";
+import { readTasksFile, VALID_STATUSES, matchesAgentHint, fail } from "./_tasks-io.mjs";
 
 const args = process.argv.slice(2);
 const PROG = "list-tasks";
@@ -71,9 +71,7 @@ function filter(tasks, opts) {
     out = out.filter((t) => s.has(t.status));
   }
   if (opts.agent) {
-    out = out.filter(
-      (t) => !t.agent_hints || t.agent_hints.length === 0 || t.agent_hints.includes(opts.agent),
-    );
+    out = out.filter((t) => matchesAgentHint(t, opts.agent));
   }
   return out;
 }
