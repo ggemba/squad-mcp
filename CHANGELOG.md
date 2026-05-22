@@ -7,6 +7,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-21
+
+### Fixed
+
+- The `tools/*.mjs` task and learning CLIs (`list-tasks`, `next-task`,
+  `record-tasks`, `update-task-status`, `record-learning`) crashed with a
+  `path.isAbsolute(null)` `TypeError` when `--file` was omitted — the form
+  documented in `INSTALL.md` and `README.md`. `parseArgs` defaults `file` to
+  `null`, and the `!== undefined` path guard let `null` through. Guard
+  corrected to `!= null`.
+- `tools/post-review.mjs` imported `dist/format/pr-review.js` and
+  `dist/format/sarif.js`, which the single-bundle `esbuild` build never
+  emitted — the CLI failed at module load. The `bundle` script now also
+  bundles `src/format/{pr-review,sarif}.ts` into `dist/format/`.
+
+New `tests/cli-smoke.test.ts` spawns every affected CLI without `--file`,
+runs `post-review.mjs --dry-run` end-to-end, and verifies the `dist/format`
+modules are importable.
+
 ## [1.4.1] - 2026-05-21
 
 Internal hardening batch — all changes backward-compatible.
