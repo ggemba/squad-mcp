@@ -1,6 +1,6 @@
 {
   "name": "@gempack/squad-mcp",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "MCP server for the squad-dev workflow: classification, risk scoring, agent selection, advisory orchestration",
   "type": "module",
   "license": "Apache-2.0",
@@ -32,7 +32,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "npm run typecheck && npm run bundle && chmod +x dist/index.js",
-    "bundle": "esbuild src/index.ts --bundle --minify --sourcemap=external --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=none --log-level=warning",
+    "bundle": "esbuild src/index.ts --bundle --minify --sourcemap=external --platform=node --target=node20 --format=esm --outfile=dist/index.js --legal-comments=none --log-level=warning && esbuild src/format/pr-review.ts src/format/sarif.ts --bundle --platform=node --target=node20 --format=esm --outdir=dist/format --sourcemap=external --legal-comments=none --log-level=warning",
     "watch": "tsc --watch",
     "start": "node --enable-source-maps dist/index.js",
     "dev": "tsx src/index.ts",

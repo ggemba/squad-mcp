@@ -27,7 +27,7 @@ export function ensureRelativeInsideRoot(workspace, configuredPath, settingName)
 }
 
 export async function readTasksFile(workspace, file) {
-  if (file !== undefined) {
+  if (file != null) {
     ensureRelativeInsideRoot(workspace, file, "tasks.path");
   }
   const filePath = path.resolve(workspace, file ?? DEFAULT_TASKS_PATH);

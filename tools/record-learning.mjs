@@ -127,7 +127,7 @@ async function main() {
   if (opts.branch) entry.branch = opts.branch;
   if (opts.scope) entry.scope = opts.scope;
 
-  if (opts.file !== undefined) {
+  if (opts.file != null) {
     ensureRelativeInsideRoot(opts.workspace, opts.file, "learnings.path");
   }
   const target = path.resolve(opts.workspace, opts.file ?? ".squad/learnings.jsonl");
