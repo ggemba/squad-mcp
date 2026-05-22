@@ -7,6 +7,44 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-21
+
+### Fixed — `zodToJsonSchema` silent fallback (broken MCP tool schemas)
+
+`zodToJsonSchema` in `src/tools/registry.ts` handled nine Zod types and
+returned a vacuous `{}` for anything else, shipping a broken JSON Schema
+to MCP clients with no error signal. `apply_consolidation_rules` and
+`score_rubric` (via `z.record`) and `record_run` (via `z.literal` and
+`.nullable()` in `runRecordSchema`) all published untyped fields.
+
+- Added `ZodRecord`, `ZodLiteral`, `ZodUnion`, and `ZodNullable` branches.
+- Replaced the silent `return {}` fallback with a `throw` that names the
+  unhandled type — an unsupported type now fails fast at server startup
+  instead of degrading silently.
+- Exported `zodToJsonSchema`; `listTools()` wraps the conversion and logs
+  the offending tool name before re-throwing.
+- New `tests/registry-schema.test.ts`: per-variant unit coverage, a
+  throw-propagation check through `listTools()`, and a deep-recursive
+  regression guard over every registered tool's schema.
+
+### Changed — `/squad:inventory` is now language/technology agnostic
+
+The inventory engine was already pack-driven and language-neutral, but the
+bundled content and docs read as PHP-only.
+
+- Neutralised `skills/inventory/SKILL.md` and `commands/inventory.md`:
+  multi-stack trigger examples, language-agnostic cost table, and an honest
+  rewrite of the Phase 3 cross-ref prose (`laravel_route` is the one `kind`
+  with a built-in resolver; `kind` is open but resolution is orchestrator-side).
+- Added three genuinely agnostic recipe packs: `todo-fixme-debt`,
+  `deprecated-api-markers`, and `debug-leftovers`. Each is `language: multi`
+  with enumerated `file_patterns` and ripgrep-default-engine-safe regex.
+- Extended `tests/inventory-pack.test.ts`: globs every bundled pack, a static
+  ripgrep-compatibility check, and per-rule positive / per-pack negative
+  fixtures.
+
+`php-inline-sql` and the inventory engine are unchanged.
+
 ## [1.3.0] - 2026-05-20
 
 ### Added — `/squad:inventory` skill (codebase audit / inventory)
