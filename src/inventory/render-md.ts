@@ -179,8 +179,10 @@ function renderSources(r: InventoryReport): string {
 }
 
 function humanizeKind(kind: string): string {
-  // `laravel_route` → "route", `http_endpoint` → "endpoint" — best-effort,
-  // never breaks on unknown kinds.
+  // `kind` values come from a pack's `cross_ref[].kind` field — a free-form
+  // string the pack author chooses. This takes the last `_`-delimited segment
+  // as a human label: `laravel_route` → "route", `http_endpoint` → "endpoint".
+  // Best-effort and language-agnostic — never breaks on an unknown kind.
   const parts = kind.split("_");
   return parts[parts.length - 1] ?? kind;
 }

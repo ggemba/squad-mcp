@@ -1,0 +1,128 @@
+# debug-leftovers — bundled inventory pack v1.
+#
+# Detects leftover debug-output calls — `console.log`, `print(`, `var_dump`,
+# `System.out.println`, `fmt.Print`, `dbg!`, `pp` — that were meant to be
+# removed before commit. Use to sweep a codebase for stray debug noise and
+# accidental data leaks before a release.
+#
+# Language-agnostic: each rule targets one language's debug-print idiom.
+# Excludes vendor/, node_modules/, build output, minified files, AND test
+# directories — debug calls inside tests are intentional, not leftovers.
+#
+# No cross_ref section — debug calls have no framework relationship to
+# resolve, so Phase 3 is skipped for this pack.
+
+name: debug-leftovers
+version: 1
+description: Inventory of leftover debug output — console.log, print(), var_dump, System.out.println, fmt.Print, dbg!, pp.
+language: "multi"
+
+# Explicit patterns are required: `language: "multi"` has no single file
+# extension, so no default glob can be derived — the file types to scan must
+# be enumerated here explicitly.
+file_patterns:
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.py"
+  - "**/*.go"
+  - "**/*.rb"
+  - "**/*.java"
+  - "**/*.kt"
+  - "**/*.php"
+  - "**/*.rs"
+  - "**/*.cs"
+  - "**/*.swift"
+  - "**/*.scala"
+  - "**/*.c"
+  - "**/*.cpp"
+  - "**/*.h"
+
+# Test directories are excluded on top of the usual build/vendor excludes —
+# debug-print calls inside tests are intentional, not leftovers.
+exclude_patterns:
+  - "node_modules/**"
+  - "vendor/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.min.*"
+  - ".git/**"
+  - "**/test/**"
+  - "**/tests/**"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+
+rules:
+  # console.log / console.debug — JavaScript / TypeScript. Literal call
+  # form; the `\(` anchors it to an invocation, not a bare reference.
+  - id: debug-console-call
+    severity: info
+    category: debug
+    requires_semantic: false
+    description: "console.log / console.debug call — JavaScript / TypeScript."
+    regex: 'console\.(log|debug)\s*\('
+    summary_hint: "Leftover JS console call — confirm it is not deliberate operational logging."
+
+  # print( — Python (and Ruby's `print`). Common debug leftover; the `\(`
+  # anchors it to a call, `\b` keeps it off `pprint`/`sprint` identifiers.
+  - id: debug-print-call
+    severity: info
+    category: debug
+    requires_semantic: false
+    description: "print( call — Python / Ruby debug output."
+    regex: '\bprint\s*\('
+    summary_hint: "Leftover print() — confirm it is not intentional CLI output."
+
+  # var_dump( / dd( — PHP (and Laravel's `dd` dump-and-die). Both are
+  # debug-only helpers that should never reach production.
+  - id: debug-php-dump
+    severity: warning
+    category: debug
+    requires_semantic: false
+    description: "var_dump( / dd( call — PHP / Laravel debug dump."
+    regex: '\b(var_dump|dd)\s*\('
+    summary_hint: "Leftover PHP dump — var_dump/dd must not ship; remove before release."
+
+  # System.out.println — Java. The fully-qualified call form is an
+  # unambiguous debug-print marker.
+  - id: debug-java-stdout
+    severity: info
+    category: debug
+    requires_semantic: false
+    description: "System.out.println call — Java stdout debug print."
+    regex: 'System\.out\.println\s*\('
+    summary_hint: "Leftover Java stdout print — confirm it is not deliberate logging."
+
+  # fmt.Print / fmt.Println / fmt.Printf — Go. `fmt.Print` as a prefix
+  # covers all three forms in one rule.
+  - id: debug-go-fmt-print
+    severity: info
+    category: debug
+    requires_semantic: false
+    description: "fmt.Print / fmt.Println / fmt.Printf call — Go debug output."
+    regex: 'fmt\.Print(ln|f)?\s*\('
+    summary_hint: "Leftover Go fmt.Print — confirm it is not intentional CLI output."
+
+  # dbg!( — Rust's debug macro, and `pp(` — Ruby's pretty-print. Both are
+  # debug-only and should not survive to a release build.
+  - id: debug-rust-ruby-macro
+    severity: info
+    category: debug
+    requires_semantic: false
+    description: "dbg!( macro (Rust) / pp( call (Ruby) — debug output."
+    regex: '\b(dbg!|pp)\s*\('
+    summary_hint: "Leftover Rust dbg!/Ruby pp — debug helpers that should not ship."
+
+  # A debug call whose argument is a bare variable or expression rather
+  # than a string literal — e.g. `console.log(token)`. This can leak a
+  # secret or PII to logs, so it MUST escalate to the semantic tier:
+  # only a model reading local context can judge whether the variable
+  # holds sensitive data.
+  - id: debug-variable-argument
+    severity: warning
+    category: debug
+    requires_semantic: true
+    description: Debug call whose argument is a variable or expression — potential secret/PII leak to logs.
+    regex: '\b(console\.(log|debug)|print|var_dump|dd|fmt\.Print(ln|f)?|pp|System\.out\.println)\s*\(\s*[A-Za-z_$][A-Za-z0-9_.$]*\s*\)'
+    summary_hint: "Debug call dumping a variable — check whether the value is a secret, token, or PII."
