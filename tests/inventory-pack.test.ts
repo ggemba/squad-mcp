@@ -84,6 +84,16 @@ describe("bundled pack: php-inline-sql.yaml", () => {
     }
   });
 
+  it("the laravel_route cross_ref carries a path_template", () => {
+    // php-inline-sql declares path_template so route → controller resolution
+    // is pack-driven, not orchestrator-hardcoded. Pinned so a future pack
+    // edit can't silently drop the field.
+    const parsed = loadPack(bundledPackPath);
+    const route = parsed.cross_ref.find((x) => x.kind === "laravel_route");
+    expect(route, "laravel_route cross_ref missing").toBeDefined();
+    expect(route?.path_template).toBe("app/Http/Controllers/{3}.php");
+  });
+
   it("rule ids are unique", () => {
     const parsed = loadPack(bundledPackPath);
     const ids = parsed.rules.map((r) => r.id);
@@ -323,6 +333,84 @@ describe("agnostic pack: debug-leftovers.yaml", () => {
   });
 });
 
+describe("agnostic pack: hardcoded-secrets.yaml", () => {
+  const pack = loadPack(join(packsDir, "hardcoded-secrets.yaml"));
+
+  it("uses the secret category and secret- id prefix on every rule", () => {
+    for (const rule of pack.rules) {
+      expect(rule.category, rule.id).toBe("secret");
+      expect(rule.id.startsWith("secret-"), rule.id).toBe(true);
+    }
+  });
+
+  it("flags the generic-assignment rule with requires_semantic", () => {
+    // A secret-named assignment over-fires on placeholders and env-var names —
+    // Haiku-tier classification is unsafe, so this rule must escalate.
+    const genericRule = pack.rules.find((r) => r.id === "secret-generic-assignment");
+    expect(genericRule, "secret-generic-assignment rule missing").toBeDefined();
+    expect(genericRule?.requires_semantic).toBe(true);
+  });
+
+  it("excludes lockfiles and example/sample configs", () => {
+    // Example and sample files exist to carry placeholder credentials; the
+    // pack must exclude them so they are not flagged as noise.
+    for (const glob of ["**/*.lock", "**/*.example", "**/*.sample"]) {
+      expect(pack.exclude_patterns, `missing exclude ${glob}`).toContain(glob);
+    }
+  });
+
+  const positives: Record<string, string> = {
+    "secret-aws-access-key": "AKIAABCDEFGHIJKLMNOP",
+    "secret-pem-private-key": "-----BEGIN RSA PRIVATE KEY-----",
+    "secret-gh-token": "ghp_abcdefghijklmnopqrstuvwxyz0123456789AB",
+    "secret-slack-token": "xoxb-0123456789-abcdefABCDEF",
+    "secret-google-api-key": "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ0123456",
+    "secret-generic-assignment": 'api_key = "s3cr3tvalue123"',
+  };
+
+  it("every rule matches its known-positive fixture", () => {
+    for (const rule of pack.rules) {
+      const fixture = positives[rule.id];
+      expect(fixture, `no fixture for ${rule.id}`).toBeDefined();
+      expect(
+        compilePackRegex(rule.regex as string).test(fixture),
+        `rule ${rule.id} should match its positive fixture`,
+      ).toBe(true);
+    }
+  });
+
+  it("the aws-access-key rule matches the ASIA temporary-key prefix", () => {
+    // `secret-aws-access-key` alternates `(AKIA|ASIA)` — AKIA is long-term,
+    // ASIA is a temporary STS key. The known-positive fixture above only
+    // exercises AKIA; this covers the second alternation branch.
+    const awsRule = pack.rules.find((r) => r.id === "secret-aws-access-key");
+    expect(awsRule, "secret-aws-access-key rule missing").toBeDefined();
+    expect(
+      compilePackRegex(awsRule!.regex as string).test("ASIAABCDEFGHIJKLMNOP"),
+      "secret-aws-access-key should match an ASIA-prefixed temporary key",
+    ).toBe(true);
+  });
+
+  it("does not fire on a known false-positive", () => {
+    // A lowercased `akia...` token is not an AWS key; a short literal stays
+    // under the generic rule's 8-char minimum; a comment merely naming a
+    // token without an assignment must not match the structural rules.
+    const negatives = [
+      "const akiaHelper = makeClient();",
+      'password = "short"',
+      "// remember to rotate the slack token before launch",
+    ];
+    for (const negative of negatives) {
+      for (const rule of pack.rules) {
+        expect(
+          compilePackRegex(rule.regex as string).test(negative),
+          `rule ${rule.id} false-matched "${negative}"`,
+        ).toBe(false);
+      }
+    }
+  });
+});
+
 describe("PackRuleSchema.superRefine", () => {
   const base = { id: "r1", category: "query" };
 
@@ -375,5 +463,38 @@ describe("PackSchema", () => {
     expect(p.file_patterns).toEqual([]);
     expect(p.exclude_patterns).toEqual([]);
     expect(p.cross_ref).toEqual([]);
+  });
+
+  it("accepts a cross_ref entry WITH an optional path_template", () => {
+    // path_template lets a pack declare route → owning-file resolution
+    // without an orchestrator-side resolver for the kind.
+    const p = PackSchema.parse({
+      name: "with-template",
+      version: 1,
+      language: "php",
+      rules: [{ id: "r1", category: "query", regex: "SELECT" }],
+      cross_ref: [
+        {
+          kind: "laravel_route",
+          glob: "routes/**/*.php",
+          regex: "(get|post)\\s*\\(\\s*['\"]([^'\"]+)['\"]",
+          path_template: "app/Http/Controllers/{3}.php",
+        },
+      ],
+    });
+    expect(p.cross_ref[0]?.path_template).toBe("app/Http/Controllers/{3}.php");
+  });
+
+  it("accepts a cross_ref entry WITHOUT a path_template (optional field)", () => {
+    // path_template is optional — packs that omit it fall back to the
+    // built-in resolver for the kind and must still parse.
+    const p = PackSchema.parse({
+      name: "without-template",
+      version: 1,
+      language: "php",
+      rules: [{ id: "r1", category: "query", regex: "SELECT" }],
+      cross_ref: [{ kind: "laravel_route", glob: "routes/**/*.php" }],
+    });
+    expect(p.cross_ref[0]?.path_template).toBeUndefined();
   });
 });

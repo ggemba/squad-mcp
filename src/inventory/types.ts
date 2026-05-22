@@ -191,6 +191,16 @@ export const PackSchema = z.object({
         glob: z.string().min(1),
         /** Optional rg pattern for extraction. Default depends on `kind`. */
         regex: z.string().optional(),
+        /**
+         * Optional repo-relative path with `{name}` placeholders, filled from
+         * the cross-ref `regex`'s capture groups, used to resolve a finding's
+         * owning file. Placeholders are `{1}`, `{2}`, ... for numbered groups
+         * and `{name}` for named groups. When present, the orchestrator
+         * resolves the owning file via this template; when absent, it falls
+         * back to the built-in resolver for that `kind` (only `laravel_route`
+         * has one). Fully additive — packs that omit it are unaffected.
+         */
+        path_template: z.string().optional(),
       }),
     )
     .default([]),
