@@ -15,7 +15,7 @@
 //   1 no ready task (text mode only — for shell pipelines)
 //   2 invalid input
 
-import { readTasksFile, fail } from "./_tasks-io.mjs";
+import { readTasksFile, matchesAgentHint, fail } from "./_tasks-io.mjs";
 
 const args = process.argv.slice(2);
 const PROG = "next-task";
@@ -60,9 +60,7 @@ function pickNext(tasks, opts) {
   const doneIds = new Set(tasks.filter((t) => t.status === "done").map((t) => t.id));
   let candidates = tasks.filter((t) => t.status === "pending");
   if (opts.agent) {
-    candidates = candidates.filter(
-      (t) => !t.agent_hints || t.agent_hints.length === 0 || t.agent_hints.includes(opts.agent),
-    );
+    candidates = candidates.filter((t) => matchesAgentHint(t, opts.agent));
   }
   if (candidates.length === 0) {
     return { task: null, reason: "no_candidates", blocked: [] };

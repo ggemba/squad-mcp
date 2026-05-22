@@ -1,10 +1,11 @@
 import { z } from "zod";
 import type { ToolDef } from "./registry.js";
+import { EXEC_MODES } from "./compose-squad-workflow.js";
 import {
-  composeSquadWorkflow,
-  EXEC_MODES,
+  composeWorkflowCore,
+  type ComposeCoreInput,
   type ComposeWorkflowOutput,
-} from "./compose-squad-workflow.js";
+} from "./_shared/compose-core.js";
 import { sliceFilesForAgent, type SliceOutput } from "./slice-files.js";
 import { validatePlanText, type ValidatePlanOutput } from "./validate-plan-text.js";
 import { extractFileHunks, type FileHunk } from "../exec/diff-hunks.js";
@@ -187,11 +188,16 @@ export interface AdvisoryBundleOutput {
 export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundleOutput> {
   // Sanitize at the prompt boundary — strips invisibles, role tokens, normalises NFKC.
   // See src/util/prompt-sanitize.ts. Apply once at the top of the handler; downstream
-  // calls (composeSquadWorkflow, validatePlanText) receive the sanitized values.
+  // calls (composeWorkflowCore, validatePlanText) receive the sanitized values.
   const safeUserPrompt = sanitizeForPrompt(input.user_prompt);
   const safePlan = sanitizeForPrompt(input.plan);
 
-  const workflowInput: Parameters<typeof composeSquadWorkflow>[0] = {
+  // Run the shared compose pipeline. `compose_advisory_bundle` and
+  // `compose_squad_workflow` both delegate the detect -> classify -> score ->
+  // select -> mode-resolution work to `composeWorkflowCore` (see
+  // `_shared/compose-core.ts`); this tool then layers slices / hunks /
+  // plan_validation / language supplements on top of the result.
+  const workflowInput: ComposeCoreInput = {
     workspace_root: input.workspace_root,
     user_prompt: safeUserPrompt,
     staged_only: input.staged_only,
@@ -203,9 +209,9 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
   if (input.risk_signals !== undefined) workflowInput.risk_signals = input.risk_signals;
   if (input.mode !== undefined) workflowInput.mode = input.mode;
 
-  const workflow = await composeSquadWorkflow(workflowInput);
+  const workflow = await composeWorkflowCore(workflowInput);
 
-  // Use the FILTERED list (skip_paths already applied by composeSquadWorkflow).
+  // Use the FILTERED list (skip_paths already applied by composeWorkflowCore).
   // Slicing has to operate on the same set of files the squad was selected over,
   // otherwise an agent would receive paths the composer just hid.
   const allChanged = workflow.changed_files.files.map((f) => f.path);
