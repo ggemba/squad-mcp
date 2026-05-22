@@ -1,6 +1,6 @@
 ---
 name: inventory
-description: Codebase inventory skill — scans the repo for a named pattern (inline SQL, fetch calls, feature flags, etc.) defined by a YAML "recipe pack" and emits a structured Markdown inventory cross-referenced with framework metadata (routes, handlers). Hybrid pipeline (deterministic rg sweep + LLM enrichment) for cost efficiency. Reads source; writes one MD report at the user-chosen path (default ./docs/inventory/<recipe>-<YYYY-MM-DD>.md). Triggers: "list all X in the codebase", "inventory of Y", "find every occurrence of Z", "scan the codebase for", "audit all the SQL in PHP", "extract all the fetch calls", "where is X used across all files", "map all routes / endpoints / handlers". Example: "/squad:inventory php-inline-sql" produces a cross-referenced SQL migration inventory. For implementing changes after the inventory, use /squad:implement. For single-question Q&A (no structured doc), use /squad:question.
+description: Codebase inventory skill — scans the repo for a named pattern (inline SQL, fetch calls, feature flags, debug leftovers, deprecated APIs, etc.) defined by a YAML "recipe pack" and emits a structured Markdown inventory cross-referenced with framework metadata (routes, handlers). The engine is language-agnostic and pack-driven — it matches whatever the pack's regex rules define, across any language the pack's file_patterns enumerate. Hybrid pipeline (deterministic rg sweep + LLM enrichment) for cost efficiency. Reads source; writes one MD report at the user-chosen path (default ./docs/inventory/<recipe>-<YYYY-MM-DD>.md). Triggers: "list all X in the codebase", "inventory of Y", "find every occurrence of Z", "scan the codebase for", "audit all the inline SQL", "extract all the fetch calls", "find leftover debug output", "inventory deprecated APIs", "where is X used across all files", "map all routes / endpoints / handlers". Example: "/squad:inventory php-inline-sql" produces a cross-referenced SQL migration inventory; "/squad:inventory debug-leftovers" sweeps a polyglot repo for stray debug calls. For implementing changes after the inventory, use /squad:implement. For single-question Q&A (no structured doc), use /squad:question.
 ---
 
 # Skill: Inventory
@@ -109,13 +109,15 @@ If `--dry-run`, stop here: emit a summary table `(rule_id, finding_count, est_to
 
 ## Phase 3 — Cross-ref scan (optional)
 
+A pack without a `cross_ref` section simply skips this phase — most packs do not declare one.
+
 If `pack.cross_ref` is non-empty:
 
 For each cross-ref entry:
 
 1. Build a second `rg` command using the entry's `glob` and `regex`.
 2. Parse results into a transient working map keyed by `kind`. Each row of this working map is `{ target, source_file, source_line, controller, action }` (the latter two captured via the regex). This is the SCAN intermediate, not the schema shape — keep it in memory only.
-3. Resolve each finding's owning controller/handler via path heuristics — for `laravel_route` the rule is: route handler string `"X@method"` → controller file matches `app/Http/Controllers/X.php` (or `**/X.php`). When the heuristic matches a finding's `file`, the finding gets a `cross_refs` entry `{ kind, target, evidence: "source_file:source_line" }` and the finding's `id` joins the reverse index for that target.
+3. Resolve each finding's owning controller/handler via the orchestrator's path-resolution heuristic for that `kind`. The `cross_ref[].kind` field is an open, free-form string, but resolution is NOT pack-declarable: each `kind` needs a resolver implemented in this orchestrator. Today `laravel_route` is the ONLY `kind` with a built-in resolver — its rule is: route handler string `"X@method"` → controller file matches `app/Http/Controllers/X.php` (or `**/X.php`). A pack may name any other `kind`, but without a matching orchestrator resolver its entries will not resolve. When the heuristic matches a finding's `file`, the finding gets a `cross_refs` entry `{ kind, target, evidence: "source_file:source_line" }` and the finding's `id` joins the reverse index for that target.
 4. Build the `cross_ref_index` that ships in the report — keyed by `kind`, each entry is `{ target, finding_ids: string[] }` per `InventoryReportSchema`. This is what Phase 6 places in the JSON intermediate; the working map from step 2 is discarded after this projection.
 
 This phase is best-effort: a finding without a matched cross-ref still ships, just without the `cross_refs` attribute and without contributing to `cross_ref_index`. The two shapes (working map vs. schema) must not be confused — `InventoryReportSchema.parse` in Phase 6 will reject anything other than `{ target, finding_ids }`.
@@ -277,13 +279,13 @@ Stop. Do not re-run, do not chain into another skill.
 
 ### Cost vs depth
 
-| Mode       | Tier-1 | Escalation                     | Typical token cost (1000 PHP files, ~200 findings) |
-| ---------- | ------ | ------------------------------ | -------------------------------------------------- |
-| `--quick`  | Haiku  | none                           | ~80K                                               |
-| `--normal` | Haiku  | Sonnet for ~10-15% of findings | ~120K                                              |
-| `--deep`   | Sonnet | Opus for cross-ref summary     | ~280K                                              |
+| Mode       | Tier-1 | Escalation                     | Typical token cost (1000 source files, pack-dependent finding count) |
+| ---------- | ------ | ------------------------------ | -------------------------------------------------------------------- |
+| `--quick`  | Haiku  | none                           | ~80K                                                                 |
+| `--normal` | Haiku  | Sonnet for ~10-15% of findings | ~120K                                                                |
+| `--deep`   | Sonnet | Opus for cross-ref summary     | ~280K                                                                |
 
-For comparison, the ad-hoc workflow this skill replaces (7 parallel Explore agents on Opus) cost ~626K tokens for the same shape of inventory. The deterministic rg sweep eliminates ~60% of that overhead by removing LLM "where is the SQL?" steps.
+For comparison, the ad-hoc workflow this skill replaces (7 parallel Explore agents on Opus) cost ~626K tokens for the same shape of inventory. The deterministic rg sweep eliminates ~60% of that overhead by removing LLM "where is the X?" exploration steps.
 
 ### Pack authoring
 
@@ -292,7 +294,7 @@ A pack is a YAML file conforming to `PackSchema` in `src/inventory/types.ts`. Bu
 When you write a pack:
 
 - `requires_semantic: true` on any rule that detects security-sensitive patterns (concat dynamic SQL, raw user input near network egress, etc.). Haiku will misclassify these.
-- Keep `regex` rg-flavored (PCRE-lite). Avoid lookahead/lookbehind unless necessary.
+- Keep `regex` rg-flavored. The sweep runs ripgrep WITHOUT `--pcre2`, so patterns are evaluated by ripgrep's default Rust regex engine — which **rejects** lookahead (`(?=`, `(?!`), lookbehind (`(?<=`, `(?<!`), and backreferences (`\1`–`\9`). A pattern using any of those will fail the run. Word boundaries (`\b`) and inline case-insensitive flags (`(?i)`) ARE supported and safe to use.
 - `summary_hint` is for the LLM, not the user. One sentence describing what the matched code typically does in this domain.
 
 ### When to use vs alternatives

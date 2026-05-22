@@ -1,0 +1,101 @@
+# deprecated-api-markers — bundled inventory pack v1.
+#
+# Detects deprecation markers across the mainstream comment/annotation
+# conventions: `@deprecated` doc tags, `@Deprecated` / `[Obsolete]` /
+# `#[deprecated]` annotations, and Python `DeprecationWarning`. Use to build
+# an inventory of APIs slated for removal before a major-version bump.
+#
+# Language-agnostic: each rule targets one ecosystem's deprecation idiom,
+# so a polyglot repo surfaces every flavour in a single sweep. Excludes
+# vendor/, node_modules/, build output, and minified files.
+#
+# No cross_ref section — deprecation markers have no framework relationship
+# to resolve, so Phase 3 is skipped for this pack.
+
+name: deprecated-api-markers
+version: 1
+description: Inventory of deprecation markers — @deprecated tags, @Deprecated/[Obsolete] annotations, #[deprecated], DeprecationWarning.
+language: "multi"
+
+# Explicit patterns are required: `language: "multi"` has no single file
+# extension, so no default glob can be derived — the file types to scan must
+# be enumerated here explicitly.
+file_patterns:
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.py"
+  - "**/*.go"
+  - "**/*.rb"
+  - "**/*.java"
+  - "**/*.kt"
+  - "**/*.php"
+  - "**/*.rs"
+  - "**/*.cs"
+  - "**/*.swift"
+  - "**/*.scala"
+  - "**/*.c"
+  - "**/*.cpp"
+  - "**/*.h"
+
+exclude_patterns:
+  - "node_modules/**"
+  - "vendor/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.min.*"
+  - ".git/**"
+
+rules:
+  # `@deprecated` doc tag — JSDoc, TSDoc, PHPDoc, Javadoc all share it.
+  # Lowercase initial letter distinguishes the doc tag from the Java
+  # annotation; `\b` anchors the trailing edge of the word.
+  - id: deprecated-doc-tag
+    severity: warning
+    category: deprecation
+    requires_semantic: false
+    description: "@deprecated documentation tag — JSDoc/TSDoc/PHPDoc/Javadoc."
+    regex: '@deprecated\b'
+    summary_hint: "Doc-tag-deprecated API — describe what replaces it and the removal timeline."
+
+  # `@Deprecated` annotation — Java / Kotlin. Capital D distinguishes it
+  # from the lowercase doc tag above.
+  - id: deprecated-java-annotation
+    severity: warning
+    category: deprecation
+    requires_semantic: false
+    description: "@Deprecated annotation — Java / Kotlin."
+    regex: '@Deprecated\b'
+    summary_hint: "Annotation-deprecated symbol — describe the replacement API."
+
+  # `#[deprecated]` attribute — Rust. The bracketed attribute form is
+  # unambiguous; no anchoring needed beyond the literal brackets.
+  - id: deprecated-rust-attribute
+    severity: warning
+    category: deprecation
+    requires_semantic: false
+    description: "#[deprecated] attribute — Rust."
+    regex: '#\[deprecated'
+    summary_hint: "Rust-deprecated item — describe the `since`/`note` and the replacement."
+
+  # `DeprecationWarning` — Python's stdlib warning category, raised via
+  # `warnings.warn(...)`. `\b` keeps it from matching longer identifiers.
+  - id: deprecated-python-warning
+    severity: warning
+    category: deprecation
+    requires_semantic: false
+    description: "DeprecationWarning — Python warnings category."
+    regex: '\bDeprecationWarning\b'
+    summary_hint: "Python-deprecated path — describe the warned-against behaviour and its successor."
+
+  # `[Obsolete]` attribute — C# / .NET. The trailing char class requires the
+  # real attribute terminator (`]`, `(`, or whitespace) right after `Obsolete`
+  # so `[ObsoleteHelper]`-style identifiers don't prefix-match.
+  - id: deprecated-dotnet-obsolete
+    severity: warning
+    category: deprecation
+    requires_semantic: false
+    description: "[Obsolete] attribute — C# / .NET."
+    regex: '\[Obsolete[\]\( ]'
+    summary_hint: "C#-obsolete member — describe the replacement and whether the attribute errors."

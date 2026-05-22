@@ -1,0 +1,98 @@
+# todo-fixme-debt — bundled inventory pack v1.
+#
+# Detects TODO / FIXME / HACK / XXX / DEBT comment markers across any source
+# language. Use to build a technical-debt inventory before a cleanup sprint
+# or to size the backlog of deferred work hiding in the codebase.
+#
+# Language-agnostic: matches the marker keywords inside comments regardless
+# of the host language's comment syntax (`//`, `#`, `/* */`, `--`, etc.).
+# Excludes vendor/, node_modules/, build output, and minified files.
+#
+# No cross_ref section — debt markers have no framework relationship to
+# resolve, so Phase 3 is skipped for this pack.
+
+name: todo-fixme-debt
+version: 1
+description: Inventory of TODO/FIXME/HACK/XXX/DEBT comment markers — deferred work and technical debt across any language.
+language: "multi"
+
+# Explicit patterns are required: `language: "multi"` has no single file
+# extension, so no default glob can be derived — the file types to scan must
+# be enumerated here explicitly.
+file_patterns:
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.py"
+  - "**/*.go"
+  - "**/*.rb"
+  - "**/*.java"
+  - "**/*.kt"
+  - "**/*.php"
+  - "**/*.rs"
+  - "**/*.cs"
+  - "**/*.swift"
+  - "**/*.scala"
+  - "**/*.c"
+  - "**/*.cpp"
+  - "**/*.h"
+
+exclude_patterns:
+  - "node_modules/**"
+  - "vendor/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/*.min.*"
+  - ".git/**"
+
+rules:
+  # TODO — deferred work. `\b` anchors so `XTODO` / `TODOS` style tokens
+  # don't false-match; the marker is its own word.
+  - id: todo-marker
+    severity: info
+    category: debt
+    requires_semantic: false
+    description: TODO comment marker — a deferred task left inline in source.
+    regex: '(?i)\bTODO\b'
+    summary_hint: "Deferred task — describe what work the TODO defers and whether it is still relevant."
+
+  # FIXME — known-broken code flagged for repair. Slightly higher signal
+  # than TODO; surfaced as a warning.
+  - id: todo-fixme
+    severity: warning
+    category: debt
+    requires_semantic: false
+    description: FIXME comment marker — code the author flagged as broken or wrong.
+    regex: '(?i)\bFIXME\b'
+    summary_hint: "Flagged-broken code — describe the defect the FIXME points at."
+
+  # HACK — an intentional shortcut or workaround. `\b` keeps `HACKATHON`
+  # and similar longer words from matching.
+  - id: todo-hack
+    severity: warning
+    category: debt
+    requires_semantic: false
+    description: HACK comment marker — an acknowledged workaround or shortcut.
+    regex: '(?i)\bHACK\b'
+    summary_hint: "Acknowledged workaround — describe what the HACK works around and the proper fix."
+
+  # XXX — generic attention marker. `\b` keeps it from matching inside
+  # hex literals like `0xXXXX` or placeholder strings.
+  - id: todo-xxx
+    severity: warning
+    category: debt
+    requires_semantic: false
+    description: XXX comment marker — a generic "needs attention" flag.
+    regex: '(?i)\bXXX\b'
+    summary_hint: "Attention marker — describe what about this code needs review."
+
+  # DEBT — explicit technical-debt marker used by teams that tag debt
+  # directly. `\b` anchors the standalone word.
+  - id: todo-debt
+    severity: info
+    category: debt
+    requires_semantic: false
+    description: DEBT comment marker — code explicitly tagged as technical debt.
+    regex: '(?i)\bDEBT\b'
+    summary_hint: "Explicit technical-debt tag — describe the debt and its remediation cost."
