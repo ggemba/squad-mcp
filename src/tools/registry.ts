@@ -41,6 +41,15 @@ export function register<T extends ZodTypeAny>(def: ToolDef<T>): void {
   tools.set(def.name, def as unknown as ToolDef);
 }
 
+/**
+ * Remove a tool from the registry. The registry is a module-level singleton,
+ * so this exists for tests that register a throwaway tool and must not leak it
+ * into the shared Map for any test that runs afterwards.
+ */
+export function unregister(name: string): void {
+  tools.delete(name);
+}
+
 export function registerTools(): void {
   register(scoreRiskTool);
   register(selectSquadTool);
@@ -72,11 +81,27 @@ export function registerTools(): void {
 }
 
 export function listTools() {
-  return Array.from(tools.values()).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: zodToJsonSchema(t.schema),
-  }));
+  return Array.from(tools.values()).map((t) => {
+    let inputSchema: Record<string, unknown>;
+    try {
+      inputSchema = zodToJsonSchema(t.schema);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("schema conversion failed", {
+        tool: t.name,
+        details: { message },
+      });
+      // Re-throw so an unconvertible schema fails fast at startup rather than
+      // shipping a vacuous schema to MCP clients; the log above makes it
+      // diagnosable from structured context, not just a bare stack trace.
+      throw err;
+    }
+    return {
+      name: t.name,
+      description: t.description,
+      inputSchema,
+    };
+  });
 }
 
 interface ToolErrorBody {
@@ -197,7 +222,7 @@ export async function dispatchTool(name: string, args: unknown) {
   }
 }
 
-function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
+export function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
   if (schema instanceof z.ZodObject) {
     const shape = schema.shape as Record<string, ZodTypeAny>;
     const properties: Record<string, unknown> = {};
@@ -221,5 +246,39 @@ function zodToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
   if (schema instanceof z.ZodOptional) return zodToJsonSchema(schema.unwrap());
   if (schema instanceof z.ZodDefault) return zodToJsonSchema(schema.removeDefault());
   if (schema instanceof z.ZodEffects) return zodToJsonSchema(schema.innerType());
-  return {};
+  // A literal pins a single permitted value. JSON Schema `const` is the exact
+  // equivalent; `.value` is the public Zod v3 getter for the literal payload.
+  if (schema instanceof z.ZodLiteral) return { const: schema.value };
+  // A union admits any of its variant schemas. `.options` is the public Zod v3
+  // array of variant schemas; map each through the converter.
+  if (schema instanceof z.ZodUnion) {
+    return { anyOf: (schema.options as ZodTypeAny[]).map(zodToJsonSchema) };
+  }
+  // A nullable field accepts the inner schema OR JSON `null`. `.unwrap()`
+  // returns the wrapped inner schema; pair it with an explicit null branch.
+  if (schema instanceof z.ZodNullable) {
+    return { anyOf: [zodToJsonSchema(schema.unwrap()), { type: "null" }] };
+  }
+  if (schema instanceof z.ZodRecord) {
+    const out: Record<string, unknown> = {
+      type: "object",
+      additionalProperties: zodToJsonSchema(schema.valueSchema),
+    };
+    // An enum-keyed record constrains which property names are legal; a
+    // string-keyed record (the Zod default key type) does not, so guard the
+    // instanceof check and only emit propertyNames for the enum case.
+    if (schema.keySchema instanceof z.ZodEnum) {
+      out.propertyNames = { enum: schema.keySchema.options };
+    }
+    return out;
+  }
+  // Fail loud on any unhandled Zod type. A silent `return {}` previously let a
+  // vacuous JSON Schema reach MCP clients with no error signal; an explicit
+  // throw makes an unsupported type a startup-time failure instead.
+  const typeName =
+    (schema as { _def?: { typeName?: string } })._def?.typeName ?? schema.constructor.name;
+  throw new Error(
+    `zodToJsonSchema: unsupported Zod type "${typeName}". ` +
+      `Add a branch for it in src/tools/registry.ts.`,
+  );
 }
