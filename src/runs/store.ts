@@ -140,7 +140,10 @@ export const INVOCATION_VALUES = [
 ] as const;
 
 const InvocationEnum = z.enum(INVOCATION_VALUES);
-const ModeEnum = z.enum(["quick", "normal", "deep"]);
+// Kept duplicated with EXEC_MODES in src/tools/mode/exec-mode.ts to avoid a
+// runs/ → tools/ import cycle (the runs store is a low-level dependency).
+// Must stay in sync — see tests/runs-mode-enum-parity.test.ts.
+const ModeEnum = z.enum(["micro", "quick", "normal", "deep"]);
 const ModeSourceEnum = z.enum(["user", "auto"]);
 const StatusEnum = z.enum(["in_flight", "completed", "aborted"]);
 const WorkTypeEnum = z.enum([

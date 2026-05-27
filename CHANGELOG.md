@@ -5,6 +5,40 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`micro` execution depth — single-pass inline review (review mode).** New
+  fourth depth alongside `quick`/`normal`/`deep`. Auto-trips when the diff is
+  cirurgical: `files_count <= 2` AND `loc_changed < 30` AND `risk.level == Low`
+  AND no auth/money/migration paths AND `work_type ∈ {Feature, Bug Fix,
+Refactor, Performance}`. Skips Phase 2 (planner), Phase 5 (advisor
+  dispatch), and Phase 10 (consolidator) entirely. `compose_advisory_bundle`
+  returns a ready-to-emit `micro_prompt` with the full diff + criteria +
+  scorecard template; the orchestrator pastes it inline and produces the
+  verdict in the same turn. Typical wall-clock ~10-30s vs ~30-60s for `quick`.
+  Manual `--micro` flag is accepted but DEGRADES to `quick` on high-risk
+  diffs with `mode_warning.code === "forced_micro_on_high_risk"` (micro has
+  no advisor dispatch and is unsafe on security-relevant changes). V1 is
+  review-only; `/squad:implement --micro` degrades the same way.
+- **`detect_changed_files` accepts `with_stats: true`** to compute
+  `total_loc_changed` via a parallel `git diff --numstat`. Used by
+  `compose-core` automatically on the auto-detect path (when the caller
+  omits `mode`) so `selectMode` can apply the `micro` LOC cap. Binary files
+  and malformed rows are silently excluded from the sum.
+- **`score_risk` schema accepts `loc_changed`** as a passthrough signal (does
+  NOT affect the Low/Medium/High score — exists so the new `micro` cap can
+  read it via `selectMode`).
+
+### Notes
+
+- Reintroduces `loc_changed` to mode resolution (the heuristic that was
+  removed in 2026-05). The earlier removal was wrong: `loc_changed` and
+  `files_count` are orthogonal signals, not redundant. A single-file
+  4000-LOC rewrite and a 4-file 16-LOC fix have very different review needs;
+  capping only on file count conflated them.
+
 ## [1.6.1] - 2026-05-27
 
 ### Agent prompts

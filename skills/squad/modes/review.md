@@ -126,6 +126,8 @@ This phase runs ONLY when:
 
 If neither, skip Phase 13 — Phase 12 already produced the local report.
 
+**Works with `mode === "micro"` too** (v1.7+). When micro ran, you declared the verdict + Nota Geral inline in Phase 5. Pass the SAME verdict + a synthetic `weighted_score` (Nota Geral × 10) into the consolidation JSON for `tools/post-review.mjs`. The CLI's `--request-changes-below` threshold reads `weighted_score` exactly the same way it does in quick/normal/deep, so the `gh pr review` action selection is consistent.
+
 ### 1. Build the dry-run command
 
 Pipe the consolidator JSON output into `tools/post-review.mjs`:

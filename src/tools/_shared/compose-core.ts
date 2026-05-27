@@ -50,8 +50,8 @@ import {
 
 /**
  * Optional caller-supplied risk-signal overrides. Each field, when present,
- * overrides the path-inferred value; `files_count` is always inferred (a
- * caller cannot lie about how many files changed).
+ * overrides the path-inferred value; `files_count` and `loc_changed` are
+ * always inferred (callers cannot lie about diff shape).
  */
 export interface ComposeRiskSignalsInput {
   touches_auth?: boolean;
@@ -117,6 +117,15 @@ export interface ComposeWorkflowOutput {
     touches_money: boolean;
     touches_migration: boolean;
     files_count: number;
+    /**
+     * Total lines added + removed across the diff. Present only when the
+     * upstream `detect_changed_files` call ran with `with_stats: true`
+     * (which `composeWorkflowCore` triggers automatically when the caller
+     * did NOT pass an explicit `mode` — i.e. when auto-detect is in play).
+     * Undefined otherwise; downstream `selectMode` treats undefined as
+     * "micro auto-detect not eligible". Stable contract from v1.7.
+     */
+    loc_changed?: number;
     new_module: boolean;
     api_contract_change: boolean;
   };
@@ -150,9 +159,10 @@ const API_CONTRACT_PATTERN =
 function inferRiskSignals(
   files: ChangedFile[],
   override: ComposeRiskSignalsInput | undefined,
+  totalLocChanged: number | undefined,
 ): ComposeWorkflowOutput["inferred_risk_signals"] {
   const paths = files.map((f) => f.path);
-  const auto = {
+  const auto: ComposeWorkflowOutput["inferred_risk_signals"] = {
     touches_auth: paths.some((p) => AUTH_PATTERN.test(p)),
     touches_money: paths.some((p) => MONEY_PATTERN.test(p)),
     touches_migration: paths.some((p) => MIGRATION_PATTERN.test(p)),
@@ -160,8 +170,9 @@ function inferRiskSignals(
     new_module: files.some((f) => f.status === "added"),
     api_contract_change: paths.some((p) => API_CONTRACT_PATTERN.test(p)),
   };
+  if (totalLocChanged !== undefined) auto.loc_changed = totalLocChanged;
   if (!override) return auto;
-  return {
+  const merged: ComposeWorkflowOutput["inferred_risk_signals"] = {
     touches_auth: override.touches_auth ?? auto.touches_auth,
     touches_money: override.touches_money ?? auto.touches_money,
     touches_migration: override.touches_migration ?? auto.touches_migration,
@@ -169,6 +180,8 @@ function inferRiskSignals(
     new_module: override.new_module ?? auto.new_module,
     api_contract_change: override.api_contract_change ?? auto.api_contract_change,
   };
+  if (totalLocChanged !== undefined) merged.loc_changed = totalLocChanged;
+  return merged;
 }
 
 /**
@@ -186,13 +199,21 @@ export async function composeWorkflowCore(input: ComposeCoreInput): Promise<Comp
   // sanitized before delegating, this is a no-op (proven in D4 property tests).
   const safeUserPrompt = sanitizeForPrompt(input.user_prompt);
 
+  // Caller did not pass an explicit `mode` → auto-detect is in play. Auto-
+  // detect of `micro` needs `loc_changed`, which only `detect_changed_files`
+  // can produce (via `--numstat`). Pay the extra git subprocess (~50-150ms
+  // cold) only on the auto-detect path; explicit `--quick`/`--normal`/`--deep`
+  // callers don't need the stat and keep the v1.6 cheap path.
+  const wantsStats = input.mode === undefined;
   const detectInput: {
     workspace_root: string;
     base_ref?: string;
     staged_only: boolean;
+    with_stats: boolean;
   } = {
     workspace_root: input.workspace_root,
     staged_only: input.staged_only ?? false,
+    with_stats: wantsStats,
   };
   if (input.base_ref !== undefined) detectInput.base_ref = input.base_ref;
 
@@ -226,8 +247,18 @@ export async function composeWorkflowCore(input: ComposeCoreInput): Promise<Comp
   // Risk signals use the FULL file list — disabling a file from advisory does
   // not make the change less risky (e.g. a migration in skip_paths still
   // touches schema).
-  const riskSignals = inferRiskSignals(changed.files, input.risk_signals);
-  const risk = scoreRisk(riskSignals);
+  const riskSignals = inferRiskSignals(
+    changed.files,
+    input.risk_signals,
+    changed.total_loc_changed,
+  );
+  // scoreRisk's zod schema declares `loc_changed` with `.default(0)`, which
+  // makes the inferred TS type `number` (not `number | undefined`). The
+  // inferred-signals shape carries it optionally because we want `selectMode`
+  // to distinguish "stat unavailable" from "stat says 0". Bridge the gap by
+  // passing 0 explicitly to scoreRisk — it doesn't read the field anyway
+  // (passthrough only), so the substitution is safe.
+  const risk = scoreRisk({ ...riskSignals, loc_changed: riskSignals.loc_changed ?? 0 });
 
   const squad = await selectSquad({
     work_type: workType,

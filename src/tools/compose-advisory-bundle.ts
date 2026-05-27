@@ -46,6 +46,131 @@ export const LANGUAGE_AWARE_AGENTS: readonly AgentName[] = [
   "implementer",
 ] as const;
 
+/**
+ * Build the ready-to-emit single-pass review prompt for `mode: "micro"`
+ * (v1.7+). Concatenates all changed-file hunks, the user's stated criteria
+ * (or defaults), and a scorecard template. The orchestrator pastes the
+ * result into its own response — no subagent dispatch is involved.
+ *
+ * Why a separate helper: the existing per-agent slice + per-agent hunks path
+ * is wired for N parallel dispatches, and threading micro through it would
+ * leak the "no dispatch" branch into every per-agent loop. Separating keeps
+ * the existing path untouched for quick/normal/deep callers.
+ *
+ * Fail-soft on hunk extraction: matches the bundle's existing policy. If git
+ * diff fails mid-call, the prompt is still emitted with a "[diff extraction
+ * failed: <code>]" placeholder so the orchestrator surfaces something
+ * actionable instead of erroring.
+ */
+async function buildMicroPrompt(args: {
+  workflow: ComposeWorkflowOutput;
+  filePaths: string[];
+  workspaceRoot: string;
+  baseRef?: string;
+  stagedOnly: boolean;
+  maxHunkBytes: number;
+  userPrompt: string;
+}): Promise<{
+  prompt: string;
+  hunks_status: AdvisoryBundleOutput["hunks_status"];
+  hunks_error?: { code: string; message: string };
+  detected_languages?: LanguageDetection;
+}> {
+  const { workflow, filePaths } = args;
+  const detected = filePaths.length > 0 ? detectLanguages(filePaths) : undefined;
+
+  let diffText = "[no changed files]";
+  let hunks_status: AdvisoryBundleOutput["hunks_status"] = "skipped";
+  let hunks_error: { code: string; message: string } | undefined;
+
+  if (filePaths.length > 0) {
+    try {
+      const ctx = createSafePathContext();
+      const safeCwd = await resolveSafePath(args.workspaceRoot, ".", ctx);
+      const hunksInput: Parameters<typeof extractFileHunks>[0] = {
+        cwd: safeCwd,
+        files: filePaths,
+        staged_only: args.stagedOnly,
+        max_bytes_per_file: args.maxHunkBytes,
+      };
+      if (args.baseRef !== undefined) hunksInput.base_ref = args.baseRef;
+      const allHunks = await extractFileHunks(hunksInput);
+      const parts: string[] = [];
+      for (const p of filePaths) {
+        const h = allHunks[p];
+        if (h === undefined) continue;
+        parts.push(`### ${p}${h.truncated ? "  (truncated)" : ""}`);
+        parts.push("```diff");
+        parts.push(h.diff);
+        parts.push("```");
+      }
+      diffText = parts.length > 0 ? parts.join("\n") : "[diff produced no hunks]";
+      hunks_status = "ok";
+    } catch (err) {
+      const code = isSquadError(err) ? err.code : "UNKNOWN";
+      const message = err instanceof Error ? err.message : String(err);
+      hunks_status = "extraction_failed";
+      hunks_error = { code, message };
+      diffText = `[diff extraction failed: ${code}: ${message}]`;
+      logger.warn("micro_prompt: hunks extraction failed", {
+        details: { code, message, files_count: filePaths.length },
+      });
+    }
+  }
+
+  const triggerLabel = workflow.mode_source === "user" ? "user-forced" : "auto-detected";
+  const locShown = workflow.inferred_risk_signals.loc_changed ?? "n/a";
+  const stack = detected && detected.all.length > 0 ? detected.all.join(", ") : "unrecognised";
+
+  const userCriteria = args.userPrompt.trim();
+  const criteriaSection =
+    userCriteria.length > 0
+      ? `O solicitante pediu foco em:\n\n> ${userCriteria.replace(/\n/g, "\n> ")}\n\nAplique esses critérios ao analisar o diff abaixo.`
+      : `Nenhum critério específico informado. Análise geral cobrindo:\n` +
+        `- Qualidade e legibilidade\n` +
+        `- Possíveis bugs / edge cases\n` +
+        `- Boas práticas e padrões idiomáticos do stack\n` +
+        `- Segurança visível no diff\n` +
+        `- Performance visível no diff`;
+
+  const prompt =
+    `# Code Review — micro mode\n\n` +
+    `- **Modo:** micro (${triggerLabel}: ${workflow.inferred_risk_signals.files_count} files, ${locShown} LOC, risk=${workflow.risk.level})\n` +
+    `- **Stack detectado:** ${stack}\n` +
+    `- **Work type:** ${workflow.work_type}\n\n` +
+    `## Critérios\n\n${criteriaSection}\n\n` +
+    `## Diff\n\n${diffText}\n\n` +
+    `## Instruções\n\n` +
+    `Analise o diff acima. Aponte problemas, sugestões e elogios. Cite file:line. Seja específico e construtivo.\n\n` +
+    `Ao final emita o scorecard EXATAMENTE neste formato:\n\n` +
+    `### Scorecard\n\n` +
+    `| Critério                | Nota (0-10) | Observação                |\n` +
+    `|-------------------------|-------------|---------------------------|\n` +
+    `| Segurança               | X           | ...                       |\n` +
+    `| Legibilidade            | X           | ...                       |\n` +
+    `| Manutenibilidade        | X           | ...                       |\n` +
+    `| Performance             | X           | ...                       |\n` +
+    `| Boas Práticas / Padrões | X           | ...                       |\n` +
+    `| Tratamento de Erros     | X           | ...                       |\n` +
+    `| **Nota Geral**          | **X**       | Média ponderada ou parecer|\n\n` +
+    `Regras: 0-3 crítico, 4-6 aceitável, 7-8 bom, 9-10 excelente.\n\n` +
+    `### Verdict\n\n` +
+    `Após o scorecard, declare o verdict em uma linha:\n` +
+    `- \`APPROVED\` quando a Nota Geral é ≥ 7.5 e não há finding com severidade Blocker.\n` +
+    `- \`CHANGES_REQUIRED\` quando 5.0 ≤ Nota Geral < 7.5 OU há pelo menos 1 Blocker.\n` +
+    `- \`REJECTED\` quando Nota Geral < 5.0 ou o diff demonstra defeito estrutural.\n`;
+
+  const result: {
+    prompt: string;
+    hunks_status: AdvisoryBundleOutput["hunks_status"];
+    hunks_error?: { code: string; message: string };
+    detected_languages?: LanguageDetection;
+  } = { prompt, hunks_status };
+  if (hunks_error) result.hunks_error = hunks_error;
+  if (detected) result.detected_languages = detected;
+  return result;
+}
+
 const schema = z.object({
   workspace_root: safeString(4096),
   /** User prompt. Sanitized for prompt-injection codepoints before interpolation. */
@@ -183,6 +308,20 @@ export interface AdvisoryBundleOutput {
    */
   language_supplements_by_agent?: Partial<Record<AgentName, Record<string, string>>>;
   plan_validation: ValidatePlanOutput;
+  /**
+   * Ready-to-emit single-pass review prompt (v1.7+). Present iff
+   * `workflow.mode === "micro"`. The orchestrator pastes this string into its
+   * own response — no subagent dispatch happens. When this field is present,
+   * `slices_by_agent` is `{}` and `hunks_by_agent` / `language_supplements_by_agent`
+   * are absent (micro mode bypasses per-agent fan-out entirely).
+   *
+   * Includes the full diff inline (concatenation of all per-file hunks),
+   * detected stack, work type, user criteria (or defaults), and a scorecard +
+   * verdict template. Sized for the orchestrator's prompt budget — files are
+   * still capped at `max_hunk_bytes_per_file`, and micro mode only triggers
+   * on diffs of <30 LOC by default so truncation is rare.
+   */
+  micro_prompt?: string;
 }
 
 export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundleOutput> {
@@ -217,6 +356,36 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
   const allChanged = workflow.changed_files.files.map((f) => f.path);
   const skippedSet = new Set(workflow.skipped_paths);
   const filePaths = allChanged.filter((p) => !skippedSet.has(p));
+
+  // v1.7+ micro mode: short-circuit the per-agent fan-out entirely. Build the
+  // single-pass `micro_prompt` and return early. `slices_by_agent` is empty
+  // (shapeSquadForMode already returned `agents: []` so there's nothing to
+  // slice anyway); hunks / language supplements are absent because micro
+  // bundles the full diff inline in the prompt instead of fanning it out.
+  // plan_validation still runs (it's cheap and the empty plan path produces
+  // an empty validation, which the orchestrator ignores in review mode).
+  if (workflow.mode === "micro") {
+    const micro = await buildMicroPrompt({
+      workflow,
+      filePaths,
+      workspaceRoot: input.workspace_root,
+      ...(input.base_ref !== undefined ? { baseRef: input.base_ref } : {}),
+      stagedOnly: input.staged_only,
+      maxHunkBytes: input.max_hunk_bytes_per_file ?? 8192,
+      userPrompt: safeUserPrompt,
+    });
+    const plan_validation = validatePlanText({ plan: safePlan });
+    const out: AdvisoryBundleOutput = {
+      workflow,
+      slices_by_agent: {},
+      plan_validation,
+      hunks_status: micro.hunks_status,
+      micro_prompt: micro.prompt,
+    };
+    if (micro.hunks_error) out.hunks_error = micro.hunks_error;
+    if (micro.detected_languages) out.detected_languages = micro.detected_languages;
+    return out;
+  }
 
   const slices_by_agent: Record<string, SliceOutput> = {};
   for (const agent of workflow.squad.agents) {
