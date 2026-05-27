@@ -74,6 +74,8 @@ Mode-specific phases live in sibling files so each invocation loads only the pha
 
 The phase list below is the full ordered spine. A phase whose body reads `→ modes/<file>.md` is executed from that file at its numbered slot; phase numbers are global and stable across files.
 
+**Implement-mode execution order (v1.5+).** Phase numbers are stable across files, but `/squad:implement` runs Phase 5 (advisory squad) AFTER Phase 8 (implementation) — not before. Rationale: advisory agents score the diff that actually landed, not a plan draft that may be revised. Eliminates plan-version drift (advisors stress-test plan v1, plan gets revised to v2, advisor scores become stale). See `modes/implement.md` for the full inverted order. Review mode order is unchanged (no implementation step exists).
+
 ## Phase 0.5 — Decompose PRD into tasks (task-mode only)
 
 → Body in `modes/task.md`. Triggered by `/squad:tasks`; skipped in plain `/squad:implement` and `/squad:review`.
@@ -167,19 +169,27 @@ If `--codex` flag present, or risk is High and the user opts in, dispatch Codex 
 
 ## Phase 5 — Advisory squad (parallel, sliced) — both modes
 
+> **In implement mode (v1.5+), this phase runs AFTER Phase 8 implementation, not before Phase 4.** See `modes/implement.md` "Execution order" for the rationale. Phase 5 advisors review the diff that the implementer just landed — not a plan draft. In review mode the phase runs in its declared spine position (review has no implementation step).
+
 > **PARALLEL DISPATCH IS MANDATORY (Inviolable Rule 9).** All `Task` calls for the advisory agents in this phase MUST be emitted as multiple tool_use blocks **inside a single assistant message**. Do not dispatch one, await its result, then dispatch the next — that linearises wall time by N×. The host runs same-message tool calls concurrently; cross-message tool calls are sequential.
 
-### Model strategy by mode (binding)
+### Model strategy by mode (binding, v1.5+)
 
-Each agent declares its preferred model in its own frontmatter (`agents/<name>.md`). The skill respects that pin in `quick` and `normal` modes. In `deep` mode, the skill **overrides every dispatch with `model: "opus"`**, regardless of the agent's frontmatter — `--deep` is the explicit user signal that depth matters more than cost or latency on this run.
+Each agent declares its preferred model in its own frontmatter (`agents/<name>.md`). **The frontmatter pin wins in EVERY mode** — quick, normal, and deep alike. The skill never overrides a dispatch's model based on the resolved mode.
 
-| Mode     | `model` parameter on every `Task()` dispatch                                                                                                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `quick`  | **Omit** the `model` parameter — agent frontmatter wins (sonnet for product-owner / reviewer / qa; haiku for code-explorer; inherit for the rest).                                                                                  |
-| `normal` | **Omit** the `model` parameter — same precedence as `quick`.                                                                                                                                                                        |
-| `deep`   | **Pass `model: "opus"`** on every `Task()` dispatch (advisory in Phase 5, planner in Phase 2, consolidator in Phase 10, any code-explorer sub-dispatch in Phase 2). The frontmatter pin is overridden — `--deep` upgrades everyone. |
+| Mode     | `model` parameter on every `Task()` dispatch                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quick`  | **Omit** the `model` parameter — agent frontmatter wins (sonnet for product-owner / reviewer / qa; haiku for code-explorer; opus for implementer / consolidator). |
+| `normal` | **Omit** the `model` parameter — same precedence as `quick`.                                                                                                      |
+| `deep`   | **Omit** the `model` parameter — same precedence as `quick` and `normal`.                                                                                         |
 
-This rule applies uniformly: there is no per-agent exception in `deep`. If the user wants speed on a `deep` run, they should not have passed `--deep`.
+What `--deep` actually changes (v1.5+, semantic only — never the model):
+
+- Force-includes `architect` + `security` in the advisory squad regardless of file signals.
+- Raises the Phase 11 reject-loop cap from 2 to 3.
+- Suggests Codex as an optional extra review (Phase 3 / Phase 9), still gated on explicit `--codex` consent.
+
+Pre-v1.5, `--deep` also overrode every dispatch to `model: opus`, which made wall-clock 3-5x worse for the marginal quality gain of Opus over Sonnet 4.6 on advisory pattern-matching. Implementer and the consolidator persona are already pinned to opus via their frontmatter; that pin is the right place for the high-stakes upgrade, not a mode-level sledgehammer.
 
 ### Dispatch steps
 
@@ -187,7 +197,7 @@ For each agent in `squad.agents`:
 
 1. Call `slice_files_for_agent` to get the file slice. (These reads can run in parallel too — batch them in one message.) **Preferred:** call `compose_advisory_bundle` ONCE up front — it returns `slices_by_agent` AND `hunks_by_agent` in a single roundtrip. Skip step 1's individual `slice_files_for_agent` calls when the bundle already carries them.
 2. Call `read_learnings` with `workspace_root`, `agent: "<agent-name>"`, and `changed_files: <file slice>` to fetch past team decisions for this agent. (Same — batch the per-agent reads.)
-3. Then in **one** assistant message, emit N `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>{, model: "opus" when mode === "deep"})` blocks — one per selected agent.
+3. Then in **one** assistant message, emit N `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>)` blocks — one per selected agent. The `model` parameter is OMITTED in every mode (v1.5+); the agent frontmatter pin governs.
 
 ### Hunks vs full-file content (perf path)
 
@@ -301,7 +311,8 @@ Per-agent advisory prompt template (use the `agent_advisory` MCP prompt with arg
 You are participating in an advisory review.
 
 ## Plan / Context
-{plan in implement mode; "Review of existing changes" in review mode}
+{In implement mode (v1.5+): the approved plan AND a one-paragraph summary of what the implementer just landed (from the Implementation Report Section 2). Advisors score the actual diff, not the plan draft.
+ In review mode: "Review of existing changes" plus any user-supplied context.}
 
 ## Your sliced view
 Files in scope (from slices_by_agent[agent].matched_files):
@@ -332,6 +343,18 @@ For each finding: severity, file:line, observation, recommendation.
 - Never re-raise a previously-rejected finding silently. The team has already paid for that conversation.
 
 You do NOT implement. Output is text only.
+
+## Hard cap (binding)
+
+Each agent emits at most:
+
+- **1 Blocker** — only if a concrete exploit chain, data-loss path, or user-flow regression can be demonstrated in 1-2 lines of attack/test code.
+- **2 Major** — each with cited file:line evidence and a concrete repro or impact statement.
+- **2 Minor + Suggestion combined** — keep these tight; they are advisory only.
+
+If you find more candidates than the cap permits, fold the weakest into the most-related neighbor or drop them entirely. Prioritization is the deliverable; enumeration is not. Padding (findings without concrete evidence, repro path, or known incident class) is treated as low signal, not thoroughness, and degrades the rubric.
+
+See your role file's "Realism Rule (binding)" section for the threshold between theoretical edge cases (Suggestion only) and findings that earn Major/Blocker.
 
 ## Score
 
@@ -389,11 +412,20 @@ Call `apply_consolidation_rules` with the reports array (each with `score` popul
 - `rubric` with `weighted_score`, per-dimension breakdown, and `scorecard_text` (pre-formatted ASCII)
 - `downgraded_by_score: true` if you supplied `min_score` and the weighted score fell below it (only downgrades APPROVED → CHANGES_REQUIRED, never further)
 
+**Fast-path (skip consolidator persona on clean APPROVED).** When `apply_consolidation_rules` returns ALL of:
+
+- `verdict === "APPROVED"`
+- `blockers.length === 0`
+- `majors_unjustified.length === 0`
+- `rubric.weighted_score >= rubric.threshold`
+
+then SKIP the `tech-lead-consolidator` subagent dispatch. Surface the tool output (verdict + `rubric.scorecard_text` + summary) directly to the user. Rationale: a clean APPROVED has nothing for the consolidator persona to arbitrate; the rubric speaks for itself. Saves one Opus dispatch (~30s) on the happy path. A user who wants the consolidator's narration + rollback plan on an already-approved diff can re-run `/squad:review` against the merged commit — that path goes through the persona unconditionally.
+
 **When `mode === "quick"`**, `apply_consolidation_rules` still runs and produces the verdict + scorecard. The tech-lead-consolidator subagent dispatch (below) is SKIPPED — surface the verdict + scorecard directly to the user without the consolidator-persona narration / rollback plan. Quick mode trades depth for speed; users who want the consolidator's full arbitration re-run without `--quick` or with `--deep`.
 
-Before dispatching the consolidator (normal / deep only), call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
+Before dispatching the consolidator (normal / deep only; not on fast-path), call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
 
-Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>{, model: "opus" when mode === "deep"})`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance.
+Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance. The `model` parameter is OMITTED (v1.5+); the consolidator's frontmatter already pins opus, which is the right level for an arbitration step.
 
 The consolidator prompt should include the learnings block under a `## Past team decisions` heading so the consolidator can:
 

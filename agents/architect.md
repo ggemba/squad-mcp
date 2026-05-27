@@ -31,6 +31,16 @@ Prevent incremental architectural decay. Every change must respect design princi
 - Do not review data-cache strategy and invalidation (dba)
 - Architectural patterns (repository as boundary, anti-corruption layer) are yours; code-level patterns (LINQ use, async/await) are reviewer
 
+## Realism Rule (binding)
+
+Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — scaling concerns at orders of magnitude beyond the project's profile, cross-platform considerations for platforms the CI matrix excludes, future-proofing abstractions for features not on the roadmap, hypothetical bounded-context violations the codebase has tolerated for years, "what if a 100-team org adopts this" — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented constraint in `docs/threat-model.md` OR a past incident logged in CHANGELOG.
+
+Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Single contributor's cognitive load is finite; an abstraction that pays off in 12 months at the expense of comprehension today is a Major liability.
+
+If a real coupling/boundary violation can be demonstrated by a concrete failing scenario or compounding debt that already shows up in the codebase: escalate to Major or Blocker. If demonstrating it requires "imagine if we had 5 teams" OR "what if the project pivots to mobile" OR "future regulatory environment": Suggestion only.
+
+Goal: prevent decay that's actually compounding, not enumerate ideal architecture.
+
 ## Responsibilities
 
 ### Architectural Integrity

@@ -43,5 +43,12 @@ coverage/
 .squad/pending-journal.jsonl.corrupt-*.jsonl
 .squad/hooks/
 
+# squad-mcp pipeline resume cache (v1.5+) — thin state file the /squad:pipeline
+# skill writes to survive context compaction or a closed session. Carries phase
+# status + 1-line outcomes only (no full outputs, no secrets). Per-feature, not
+# meant to ship with releases.
+.squad/pipeline-state.json
+.squad/pipeline-state.json.prev
+
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs

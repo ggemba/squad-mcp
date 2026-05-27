@@ -11,15 +11,26 @@ const REF_REGEX = /^[a-zA-Z0-9_/][a-zA-Z0-9_./-]*$/;
 const FORBIDDEN_REF_SUBSTRINGS = ["..", "@{", ".lock"];
 const REF_MAX_LEN = 200;
 
-const FORBIDDEN_FLAG_PATTERNS: RegExp[] = [
-  /^-c$/,
-  /^-c=/,
-  /^--config$/,
-  /^--config=/,
-  /^--exec-path/,
-  /^--upload-pack/,
-  /^--receive-pack/,
-];
+/**
+ * Allowlist of long flags that the squad's git callers (today: `diff` and
+ * `status`) legitimately pass. The two-phase grammar in `validateArg` rejects
+ * everything else outright — a closed allowlist is the only defensible posture
+ * against future flag additions in upstream git (e.g. `--output`,
+ * `--exec-path`) that would otherwise sneak through a blocklist.
+ *
+ * Frozen at module load to keep runtime mutation off the table (a future
+ * refactor cannot append to the set inadvertently).
+ */
+const ALLOWED_FLAGS: ReadonlySet<string> = Object.freeze(
+  new Set(["--", "--cached", "--name-status", "--no-renames", "--no-ext-diff"] as const),
+) as ReadonlySet<string>;
+
+/**
+ * Long flags that take a value (`--flag=value`). Each pattern matches the
+ * whole arg so a hostile suffix like `--unified=3=4` or `--unified=abc`
+ * cannot piggy-back on a permissive prefix match. Frozen at module load.
+ */
+const ALLOWED_FLAG_VALUE_PATTERNS: readonly RegExp[] = Object.freeze([/^--unified=\d+$/]);
 
 const NUL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
 
@@ -118,19 +129,98 @@ export function validateRef(ref: string): void {
   }
 }
 
-function validateArg(arg: string): void {
+/**
+ * Two-phase argument grammar:
+ *  1. byte-level rejections (NUL, CR/LF, length cap)
+ *  2. structural classification — long flag (`--…`), short flag (`-…`),
+ *     or positional. Long flags must be in `ALLOWED_FLAGS` or match one of
+ *     `ALLOWED_FLAG_VALUE_PATTERNS`. Short flags are rejected categorically
+ *     BEFORE a `--` separator is seen. Once `--` has appeared in the arg
+ *     list, every subsequent arg is treated as positional and only the
+ *     byte-level checks apply — that is how a caller passes a path like
+ *     `-file.txt` safely.
+ *
+ * Closed allowlist deliberately: a blocklist of forbidden long flags
+ * (the pre-v1.5 design) silently accepted `--output=/tmp/x` and Unicode
+ * homoglyph variants like `––unified=3`. The allowlist makes the next
+ * upstream git flag addition a no-op instead of a regression.
+ *
+ * Every rejection path throws `SquadError("GIT_EXEC_DENIED", …)`. The error
+ * code is load-bearing: tests grep on it and the dispatch boundary keys on
+ * it for the sanitised tool-error response.
+ *
+ * `afterDoubleDash` is the caller's tracking flag: once a `--` arg has
+ * been seen, pass `true` for every subsequent arg.
+ */
+function validateArg(arg: string, afterDoubleDash: boolean): void {
   if (typeof arg !== "string") {
     throw new SquadError("GIT_EXEC_DENIED", "arg must be string");
   }
   if (arg.indexOf("\0") !== -1) {
     throw new SquadError("GIT_EXEC_DENIED", "arg contains NUL byte");
   }
-  for (const pattern of FORBIDDEN_FLAG_PATTERNS) {
-    if (pattern.test(arg)) {
-      throw new SquadError("GIT_EXEC_DENIED", `forbidden flag: ${arg}`);
-    }
+  if (arg.indexOf("\r") !== -1 || arg.indexOf("\n") !== -1) {
+    throw new SquadError("GIT_EXEC_DENIED", "arg contains control character");
   }
+  if (arg.length > 4096) {
+    throw new SquadError("GIT_EXEC_DENIED", "arg too long");
+  }
+  if (afterDoubleDash) {
+    // Past `--`, every arg is a positional path. Skip the flag classification.
+    return;
+  }
+  // Defense against Unicode dash homoglyphs: en-dash (U+2013), em-dash
+  // (U+2014), fullwidth hyphen-minus (U+FF0D), and the rest of the
+  // Unicode-Pd "dash" punctuation class look like an ASCII hyphen to a
+  // human reviewer but are NOT classified as a flag prefix by git itself.
+  // Without this gate, a hostile caller could smuggle `––unified=3`
+  // (en-dash en-dash) past the allowlist because the arg does not start
+  // with ASCII `-`. Forward such args through the flag-allowlist path so
+  // they reject with the same "flag not in allowlist" error code.
+  const firstCp = arg.codePointAt(0);
+  const looksLikeFlagViaUnicodeDash =
+    firstCp !== undefined && firstCp !== 0x2d /* `-` */ && UNICODE_DASH_CODEPOINTS.has(firstCp);
+  if (looksLikeFlagViaUnicodeDash) {
+    throw new SquadError("GIT_EXEC_DENIED", `flag not in allowlist: ${arg}`);
+  }
+  if (arg.startsWith("--")) {
+    if (ALLOWED_FLAGS.has(arg)) return;
+    for (const pattern of ALLOWED_FLAG_VALUE_PATTERNS) {
+      if (pattern.test(arg)) return;
+    }
+    throw new SquadError("GIT_EXEC_DENIED", `flag not in allowlist: ${arg}`);
+  }
+  if (arg.startsWith("-")) {
+    // Short flags (-c, -p, -foo) are never required by the squad's callers
+    // and have a long-flag-with-value cousin that IS narrowly allowlisted
+    // when needed. Reject categorically.
+    throw new SquadError("GIT_EXEC_DENIED", `short flags not allowed: ${arg}`);
+  }
+  // Positional argument: ref, path. Accept.
 }
+
+/**
+ * Subset of Unicode dash characters that are visually confusable with ASCII
+ * `-` (U+002D). Args whose first codepoint is one of these are forced
+ * through the flag allowlist (which is ASCII-only) so a homoglyph cannot
+ * smuggle a flag past the validator. Codepoints sourced from the General
+ * Punctuation block plus the fullwidth and small forms variants used in
+ * CJK input methods.
+ */
+const UNICODE_DASH_CODEPOINTS: ReadonlySet<number> = Object.freeze(
+  new Set<number>([
+    0x2010, // hyphen
+    0x2011, // non-breaking hyphen
+    0x2012, // figure dash
+    0x2013, // en dash
+    0x2014, // em dash
+    0x2015, // horizontal bar
+    0x2212, // minus sign
+    0xfe58, // small em dash
+    0xfe63, // small hyphen-minus
+    0xff0d, // fullwidth hyphen-minus
+  ]),
+) as ReadonlySet<number>;
 
 /**
  * Inspect cwd and confirm it is a git working tree (either a normal repo
@@ -190,7 +280,11 @@ export async function runGit(
   if (!ALLOWED_SUBCOMMANDS.has(subcommand)) {
     throw new SquadError("GIT_EXEC_DENIED", `subcommand not allowed: ${subcommand}`);
   }
-  for (const a of args) validateArg(a);
+  let seenDoubleDash = false;
+  for (const a of args) {
+    validateArg(a, seenDoubleDash);
+    if (a === "--") seenDoubleDash = true;
+  }
   const { real: realCwd, isWorktree } = await validateCwd(cwd);
 
   const gitBin = getResolvedGitPath();

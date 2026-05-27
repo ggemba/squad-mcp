@@ -95,6 +95,102 @@ describe("runGit error paths", () => {
     });
   });
 
+  // ── v1.5 hardening: allowlist grammar ──────────────────────────────────
+  // The argv validator is closed-set: a tight allowlist of long flags
+  // (`--`, `--cached`, `--name-status`, `--no-renames`, `--no-ext-diff`)
+  // plus `^--unified=\d+$`. Short flags are rejected categorically until
+  // `--` is seen, after which every subsequent arg is a positional path
+  // (the caller separator pattern).
+
+  describe("validateArg — allowlist accepts the legitimate set", () => {
+    it.each([
+      ["--"],
+      ["--cached"],
+      ["--name-status"],
+      ["--no-renames"],
+      ["--no-ext-diff"],
+      ["--unified=3"],
+      ["--unified=0"],
+      ["HEAD~1..HEAD"],
+      ["src/foo.ts"],
+    ])("accepts %s", async (arg) => {
+      const dir = await tmpRepoDir();
+      const fakeSpawn = vi.fn(() =>
+        createFakeChild({ stdoutChunks: [Buffer.from("")], exitCode: 0 }),
+      ) as never;
+      await expect(runGit("diff", [arg], dir, { spawnFn: fakeSpawn })).resolves.toMatchObject({
+        code: 0,
+      });
+    });
+
+    it("accepts a positional path starting with `-` AFTER `--`", async () => {
+      const dir = await tmpRepoDir();
+      const fakeSpawn = vi.fn(() =>
+        createFakeChild({ stdoutChunks: [Buffer.from("")], exitCode: 0 }),
+      ) as never;
+      // The caller-supplied `--` separator flips subsequent args into
+      // positional mode; a path like `-file.txt` is then a legitimate
+      // pathspec, not a short flag.
+      await expect(
+        runGit("diff", ["--", "-file.txt"], dir, { spawnFn: fakeSpawn }),
+      ).resolves.toMatchObject({ code: 0 });
+    });
+  });
+
+  describe("validateArg — allowlist rejects everything else with GIT_EXEC_DENIED", () => {
+    const rejectCases: Array<[string, string]> = [
+      ["--output=/tmp/x", "regression: was accepted in v1.4.2"],
+      ["--exec-path=/tmp/x", "exec-path injection"],
+      ["--config", "config flag"],
+      ["--upload-pack=foo", "upload-pack"],
+      ["--unified=abc", "value-format: non-numeric"],
+      ["--unified=3=4", "value-format: repeated equals"],
+      ["--unicode-flag", "unknown flag"],
+      ["––unified=3", "en-dash homoglyph"],
+      ["－－unified=3", "fullwidth homoglyph"],
+      ["-c", "short flag (single dash)"],
+      ["-foo", "short flag with body"],
+      ["with\x00nul", "NUL byte"],
+      ["with\rcr", "CR control character"],
+      ["with\nlf", "LF control character"],
+    ];
+    it.each(rejectCases)("rejects %s — %s", async (arg) => {
+      const dir = await tmpRepoDir();
+      try {
+        await runGit("diff", [arg], dir);
+        throw new Error(`expected runGit to reject ${JSON.stringify(arg)}`);
+      } catch (err) {
+        expect((err as { code: string }).code).toBe("GIT_EXEC_DENIED");
+      }
+    });
+
+    it("rejects an arg of length > 4096", async () => {
+      const dir = await tmpRepoDir();
+      const huge = "a".repeat(5_000);
+      try {
+        await runGit("diff", [huge], dir);
+        throw new Error("expected runGit to reject 5k-char arg");
+      } catch (err) {
+        expect((err as { code: string }).code).toBe("GIT_EXEC_DENIED");
+      }
+    });
+  });
+
+  it("end-to-end regression: HARDENING_PREFIX still bypasses validateArg and positional refs pass", async () => {
+    const dir = await tmpRepoDir();
+    const fakeSpawn = vi.fn(() =>
+      createFakeChild({ stdoutChunks: [Buffer.from("M\tfile.ts\n")], exitCode: 0 }),
+    ) as never;
+    // The shape squad callers actually use: `diff --name-status --no-renames
+    // <rev>..<rev>`. Allowlist must accept it as a whole and the embedded
+    // `-c core.fsmonitor=false …` hardening prefix must not get validated.
+    const result = await runGit("diff", ["--name-status", "--no-renames", "HEAD~1..HEAD"], dir, {
+      spawnFn: fakeSpawn,
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("file.ts");
+  });
+
   it("rejects relative cwd", async () => {
     await expect(runGit("diff", [], "relative/path")).rejects.toMatchObject({
       code: "GIT_EXEC_DENIED",

@@ -4,6 +4,7 @@ import type { ZodType, ZodTypeDef } from "zod";
 import { SquadError } from "../errors.js";
 import { ensureRelativeInsideRoot } from "./path-safety.js";
 import { withFileLock } from "./file-lock.js";
+import { readWithPrevFallback } from "./safe-read.js";
 import { logger } from "../observability/logger.js";
 
 /**
@@ -200,27 +201,38 @@ export class JsonlStore<TVersion extends number, T extends { schema_version: TVe
     const filePath = await this.resolveFilePath(workspaceRoot, options.configuredPath);
     const absRoot = path.resolve(workspaceRoot);
 
+    // Stat the primary first to cheaply hit the per-process cache when the
+    // file exists and is unchanged. When the primary has gone missing (e.g.
+    // mid atomic-rewrite rename window), fall through to
+    // `readWithPrevFallback` which retries against `<filePath>.prev` if it
+    // is fresh.
     let stat;
     try {
       stat = await fs.stat(filePath);
     } catch {
-      return [];
+      stat = null;
     }
-    if (!stat.isFile()) return [];
+    if (stat && !stat.isFile()) return [];
 
-    const cached = this.cache.get(absRoot);
-    if (
-      cached &&
-      cached.filePath === filePath &&
-      cached.mtimeMs === stat.mtimeMs &&
-      cached.size === stat.size
-    ) {
-      return cached.entries;
+    if (stat) {
+      const cached = this.cache.get(absRoot);
+      if (
+        cached &&
+        cached.filePath === filePath &&
+        cached.mtimeMs === stat.mtimeMs &&
+        cached.size === stat.size
+      ) {
+        return cached.entries;
+      }
     }
 
     let raw: string;
+    let readFromPrev = false;
     try {
-      raw = await fs.readFile(filePath, "utf8");
+      const result = await readWithPrevFallback(filePath);
+      if (result === null) return [];
+      raw = result.content;
+      readFromPrev = result.source === "prev";
     } catch (err) {
       throw new SquadError(
         "CONFIG_READ_FAILED",
@@ -303,7 +315,12 @@ export class JsonlStore<TVersion extends number, T extends { schema_version: TVe
       });
     }
 
-    this.cache.set(absRoot, { mtimeMs: stat.mtimeMs, size: stat.size, filePath, entries });
+    // Only cache when we read the PRIMARY file. A `.prev`-sourced read is a
+    // transient mid-rename snapshot; caching it would pin stale content past
+    // the rewrite window. The next call re-stats the primary and refreshes.
+    if (stat && !readFromPrev) {
+      this.cache.set(absRoot, { mtimeMs: stat.mtimeMs, size: stat.size, filePath, entries });
+    }
     return entries;
   }
 

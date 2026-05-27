@@ -35,6 +35,16 @@ Ensure the implementation is correct, robust, and pragmatic. The code must run i
 - Do not review vulnerabilities (security)
 - Application-flow idempotency is yours; idempotency via DB constraints/transactions is dba
 
+## Realism Rule (binding)
+
+Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — micro-optimizations under 5% impact, defensive null/undefined checks for invariants the type system already guarantees, error handling for failure modes the framework already maps, retry policies for in-process synchronous calls, observability for paths nobody pages on — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented constraint in `docs/threat-model.md` OR a past incident logged in CHANGELOG.
+
+Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Code that is obviously correct beats code that defensively guards against impossibilities.
+
+If a real bug can be demonstrated in 1-2 lines of failing test code mapped to a documented user flow: escalate to Major or Blocker. If demonstrating it requires "what if the input is malformed in a way the type system already excludes" OR "what if a transient network blip happens in a synchronous local call" OR "what if a downstream service nobody calls returns 500": Suggestion only.
+
+Goal: catch what will actually break in the user's flow, not enumerate theoretical defensive measures.
+
 ## Responsibilities
 
 ### Technical Correctness

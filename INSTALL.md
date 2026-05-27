@@ -4,7 +4,7 @@ This guide walks through installing `squad-mcp` in every supported host: Claude 
 
 After install you get:
 
-- 23 deterministic MCP tools (Claude Code exposes them as `mcp__squad__*`; other hosts may use a different prefix). Counts grow as new features land — the running server is authoritative; call `tools/list` to see the live count.
+- 27 deterministic MCP tools (Claude Code exposes them as `mcp__squad__*`; other hosts may use a different prefix). Counts grow as new features land — the running server is authoritative; call `tools/list` to see the live count.
 - 12 MCP resources (`agent://*`, `severity://*`)
 - 3 MCP prompts (`squad_orchestration`, `agent_advisory`, `consolidator`)
 - 4 slash commands — Claude Code only:
@@ -19,14 +19,14 @@ After install you get:
 
 ## Prerequisites
 
-- Node.js 20+ on `PATH`. Both the npm path and the Claude Code plugin path shell out to `node` (the plugin manifest runs `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js`); CI tests on Node 20 and 22.
+- Node.js 22+ on `PATH`. Both the npm path and the Claude Code plugin path shell out to `node` (the plugin manifest runs `node ${CLAUDE_PLUGIN_ROOT}/dist/index.js`); CI tests on Node 22 and 24.
 - A host that speaks MCP (Claude Code, Claude Desktop, Cursor, Warp, Continue, …)
 - Git available on `PATH` (used by `detect_changed_files`)
 
 Verify Node:
 
 ```bash
-node --version   # v20+
+node --version   # v22+
 ```
 
 ## Path A — Claude Code plugin (recommended)

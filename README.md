@@ -720,7 +720,7 @@ This project follows [SemVer](https://semver.org/). Releases are tagged `vX.Y.Z`
 
 ## Contributing
 
-Issues and PRs welcome at <https://github.com/ggemba/squad-mcp>. Run `npm test && npm run build` before opening a PR. CI runs on Linux + Windows on Node 20 and 22.
+Issues and PRs welcome at <https://github.com/ggemba/squad-mcp>. Run `npm test && npm run build` before opening a PR. CI runs on Linux + Windows on Node 22 and 24.
 
 ## License
 

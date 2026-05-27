@@ -32,6 +32,16 @@ Find vulnerabilities before they reach production. Analyze the attack surface of
 - Do not review DB constraints (dba) — unless their absence creates an attack vector
 - Do not review generic observability (developer) — only logging of security events
 
+## Realism Rule (binding)
+
+Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — Unicode homoglyphs in CLI args, sub-millisecond race windows on local filesystems, modulo bias under 5% per char in collision-resistance use cases, hypothetical migration paths that haven't shipped, micro-optimizations under 5% impact, defensive checks for invariants the type system already guarantees, scaling concerns at orders of magnitude beyond the project's profile — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented threat in `docs/threat-model.md` OR a past incident logged in CHANGELOG.
+
+Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Attacker model: malicious LLM prompt input + benign user mistakes. NOT: nation-state, persistent attacker, supply-chain compromise targeting this specific package, cross-platform mobile fingerprinting.
+
+If a real exploit chain or regression can be demonstrated in 1-2 lines of attack code or a failing test: escalate to Major or Blocker. If demonstrating it requires "an attacker with write access to `.squad/`" OR "a coordinated process-pair with millisecond timing" OR "a future schema migration that doesn't exist yet": Suggestion only.
+
+Goal: find what will actually break, not enumerate what theoretically could.
+
 ## Responsibilities
 
 ### Vulnerabilities (OWASP Top 10)

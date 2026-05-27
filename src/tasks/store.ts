@@ -5,6 +5,7 @@ import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
 import { SquadError } from "../errors.js";
 import { ensureRelativeInsideRoot } from "../util/path-safety.js";
 import { withFileLock } from "../util/file-lock.js";
+import { readWithPrevFallback } from "../util/safe-read.js";
 import { logger } from "../observability/logger.js";
 
 /**
@@ -121,29 +122,41 @@ export async function readTasks(
   const filePath = resolveTasksFile(workspaceRoot, options.configuredPath);
   const absRoot = path.resolve(workspaceRoot);
 
+  // Stat the primary first to cheaply hit the per-process cache when the
+  // file exists and is unchanged. When the primary has gone missing (e.g.
+  // mid atomic-rewrite rename window in `writeTasks`), fall through to
+  // `readWithPrevFallback` which retries against `<filePath>.prev` if it
+  // is fresh. tasks.json is plain JSON not JSONL — the helper returns the
+  // raw string and we parse below.
   let stat;
   try {
     stat = await fs.stat(filePath);
   } catch {
-    return EMPTY_FILE;
+    stat = null;
   }
-  if (!stat.isFile()) {
+  if (stat && !stat.isFile()) {
     return EMPTY_FILE;
   }
 
-  const cached = cache.get(absRoot);
-  if (
-    cached &&
-    cached.filePath === filePath &&
-    cached.mtimeMs === stat.mtimeMs &&
-    cached.size === stat.size
-  ) {
-    return cached.data;
+  if (stat) {
+    const cached = cache.get(absRoot);
+    if (
+      cached &&
+      cached.filePath === filePath &&
+      cached.mtimeMs === stat.mtimeMs &&
+      cached.size === stat.size
+    ) {
+      return cached.data;
+    }
   }
 
   let raw: string;
+  let readFromPrev = false;
   try {
-    raw = await fs.readFile(filePath, "utf8");
+    const result = await readWithPrevFallback(filePath);
+    if (result === null) return EMPTY_FILE;
+    raw = result.content;
+    readFromPrev = result.source === "prev";
   } catch (err) {
     throw new SquadError(
       "CONFIG_READ_FAILED",
@@ -170,12 +183,17 @@ export async function readTasks(
     );
   }
 
-  cache.set(absRoot, {
-    mtimeMs: stat.mtimeMs,
-    size: stat.size,
-    filePath,
-    data: validated.data,
-  });
+  // Only cache when we read the PRIMARY file. A `.prev`-sourced read is a
+  // transient mid-rename snapshot; caching it would pin stale content past
+  // the rewrite window. The next call re-stats the primary and refreshes.
+  if (stat && !readFromPrev) {
+    cache.set(absRoot, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      filePath,
+      data: validated.data,
+    });
+  }
   return validated.data;
 }
 

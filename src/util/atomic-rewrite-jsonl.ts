@@ -6,10 +6,16 @@ import { SquadError } from "../errors.js";
 /**
  * Atomically rewrite a JSONL file with a new set of rows. Survives crashes
  * mid-write and races with concurrent appenders that hold the same file
- * lock. Concurrent READERS (which do not take the lock today by design)
- * also survive — they either see the pre-rewrite file in full or the
- * post-rewrite file in full, never a half-written state. The protocol
- * uses POSIX rename semantics (atomic-within-filesystem).
+ * lock. The protocol uses POSIX rename semantics (atomic-within-filesystem).
+ *
+ * Concurrent READERS (which do not take the lock today by design) survive
+ * the inter-rename window via `readWithPrevFallback`: between the `source
+ * → .prev` rename and the `tmp → source` rename, a reader can observe
+ * ENOENT on the primary; the helper retries against `<file>.prev` when its
+ * `mtimeMs` is within `maxPrevAgeMs` (default 5s). Outside that freshness
+ * window, the reader sees `null` rather than serving a stale snapshot. The
+ * rename pair is normally a single inter-syscall gap; the freshness budget
+ * is generous on purpose.
  *
  * Used by:
  *   - `prune_learnings` (v0.11.0+) to mark entries archived/promoted in a

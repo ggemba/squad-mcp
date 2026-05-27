@@ -5,7 +5,126 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-05-26
+
+### Security
+
+- `generateRunId` now sources its 6-char suffix from `crypto.randomBytes`
+  (CSPRNG) instead of `Math.random()`, so co-tenant processes cannot guess
+  in-flight run ids from a leaked seed. The modulo mapping from 256 → 36
+  introduces a ≤1.6% per-char bias, documented inline; negligible for
+  collision resistance at the 36⁶ keyspace this id occupies.
+- `validateArg` in `src/exec/git.ts` switched from a forbidden-flag
+  blocklist to a two-phase grammar: a tight allowlist of long flags
+  (`--`, `--cached`, `--name-status`, `--no-renames`, `--no-ext-diff`)
+  plus `^--unified=\d+$`, with short flags (`-x`) rejected outright.
+  Closes the bypass where `--output=/tmp/x`, `--exec-path=…`, and Unicode
+  homoglyph variants (`––`, `－－`) were silently accepted in v1.4.2.
+
+### Behavior changes
+
+- Concurrent readers of `runs.jsonl`, `learnings.jsonl`, and `tasks.json`
+  now fall back to the `<file>.prev` sibling on `ENOENT` when its `mtimeMs`
+  is within a 5-second freshness window, covering the brief mid-rewrite
+  rename gap in `atomicRewriteJsonl` and `tasks/store.writeTasks`. Stale
+  `.prev` files (older than 5s) are ignored — readers see an empty result
+  rather than serving an old snapshot. The fallback emits an info-level
+  `safe_read_fallback` log with the mtime delta; no schema changes.
+- **`/squad:implement` execution order inverted.** Phase 5 (advisory squad)
+  now runs AFTER Phase 8 (implementation), scoring the diff that landed
+  instead of a plan draft. Eliminates plan-version drift where advisor
+  scores went stale after a planner-driven plan revision. Planner (Phase 2)
+  remains the pre-Gate-1 sanity check; advisors no longer duplicate that
+  work. Review mode order is unchanged. See `skills/squad/modes/implement.md`
+  "Execution order" for the full sequence.
+- **Phase 5 advisory prompt now caps findings per agent**: max 1 Blocker,
+  2 Major, 2 Minor + Suggestion combined. Padding (findings without
+  concrete evidence or repro path) degrades the rubric instead of
+  signalling thoroughness. Prioritization is the deliverable.
+- **Phase 10 fast-path**: when `apply_consolidation_rules` returns clean
+  APPROVED (no blockers, no unjustified majors, weighted_score ≥ threshold),
+  the `tech-lead-consolidator` subagent dispatch is SKIPPED — the tool's
+  scorecard surfaces directly. Saves one Opus dispatch (~30 s) on the
+  happy path. A user who wants the consolidator narration on an already-clean
+  diff can re-run `/squad:review` against the merged commit.
+
+### Agent prompts
+
+- `security`, `qa`, `architect`, `developer` each gained a binding **Realism
+  Rule** section. Theoretical edge cases that won't materialize in real
+  operation (Unicode homoglyphs in CLI args, sub-millisecond race windows,
+  modulo bias under 5%, hypothetical migration paths, micro-optimizations
+  under 5% impact, defensive checks for type-system-guaranteed invariants,
+  scaling concerns beyond the project's profile) are **Suggestion only**,
+  never Major or Blocker — unless tied to a documented threat in
+  `docs/threat-model.md` or a past incident in CHANGELOG. Default project
+  profile assumed: solo-developer MCP server, Node 22+, Linux/macOS, local
+  stdio transport, no network exposure. Workspaces can override by adding
+  `docs/threat-model.md`.
+
+### Pipeline (`/squad:pipeline`)
+
+- **Auto-execution between explicit gates.** Pre-v1.5 the pipeline was a
+  stateful advisor — it recommended the next slash command and the user
+  typed each one (6+ slash commands per cradle-to-grave feature). From
+  v1.5 the pipeline invokes sub-skills directly via the `Skill` tool and
+  halts only at inter-phase gates (`AskUserQuestion` with
+  `proceed` / `adjust` / `skip` / `exit`). Sub-skills' own internal gates
+  (e.g. `/squad:implement` Gate 1 plan approval, Gate 2 Blocker halt)
+  keep firing as before. The user fires ONE entry command and answers
+  inline gate questions thereafter.
+- **Reserved interruption commands.** At ANY inter-phase or sub-skill
+  gate, the user may type `pipeline stop`, `pipeline skip`,
+  `pipeline redo`, or `pipeline back` to break the auto-flow without
+  exiting the pipeline cleanly. Documented in `skills/pipeline/SKILL.md`
+  "Reserved commands".
+- **Resume cache** (`.squad/pipeline-state.json`, mode `0o600`,
+  gitignored) — pipeline now writes a thin state file at every phase
+  transition so the user can resume across context compaction or a
+  closed session. Carries phase status + 1-line outcomes ONLY — no full
+  sub-skill outputs, no secrets, no transcripts. Sub-skill outputs live
+  in each sub-skill's own store (`.squad/runs.jsonl`, `.squad/tasks.json`).
+  Schema documented in `skills/pipeline/SKILL.md` "State persistence".
+  Atomic-rewrite via `.prev` sibling; `safeReadFile` handles the
+  mid-rename ENOENT fallback. Inviolable Rule 3 replaced by "State
+  persistence is a thin resume cache, not a journal".
+
+### Implementer dispatch
+
+- **Slim dispatch prompt** — pre-v1.5 the orchestrator embedded the full hunks
+  of every file in scope inside the implementer's prompt. From v1.5 the
+  prompt carries paths only; the implementer uses `Read` on-demand. Prompt
+  size drops 5-10× on multi-file plans, reducing transmission latency and
+  letting the implementer choose what to read based on which files it
+  actually edits.
+- **Gates run by orchestrator, not implementer** — pre-v1.5 the implementer
+  ran `npm test` / `npm run lint` (or polyglot equivalents) inline. From
+  v1.5 the orchestrator runs gates ONCE after the dispatch returns. The
+  implementer's allowed Bash set is narrowed to read-only git; test/lint
+  runners are forbidden. Saves wall-clock on the happy path; failures route
+  through the Phase 11 reject-loop the same way as before.
+- **Parallel sub-task dispatch (opt-in)** — when the approved plan marks
+  sub-tasks with `(parallel-group: N)` suffix or a top-of-plan
+  `parallel-groups` declaration, the orchestrator dispatches non-overlapping
+  groups in parallel. Same parallelism contract as Phase 5 advisors. Burns
+  more Opus calls (N dispatches) in exchange for wall-clock (longest
+  sub-task instead of sum). Auto-parallelisation is intentionally NOT
+  inferred — the cost of an incorrect inference (two implementers editing
+  the same file) is unbounded.
+
+### Model strategy
+
+- **`--deep` no longer overrides agent models to Opus.** Pre-v1.5, the
+  `--deep` flag forced `model: "opus"` on every `Task()` dispatch (planner,
+  advisors, consolidator persona, code-explorer), regardless of the agent's
+  frontmatter pin. This made wall-clock 3-5x worse for the marginal quality
+  gain of Opus over Sonnet 4.6 on advisory pattern-matching. From v1.5+ the
+  frontmatter pin wins in EVERY mode — `quick`, `normal`, and `deep`. What
+  `--deep` still does: force-includes `architect` + `security` in the
+  advisory squad, raises the Phase 11 reject-loop cap from 2 to 3, and
+  suggests Codex (gated on `--codex` consent). Implementer (opus pin) and consolidator
+  persona (opus pin) keep their high-stakes models — the pin is the right
+  level for that upgrade, not a mode-level sledgehammer.
 
 ## [1.4.2] - 2026-05-21
 

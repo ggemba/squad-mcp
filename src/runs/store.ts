@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { AGENT_NAMES_TUPLE } from "../config/ownership-matrix.js";
@@ -8,6 +9,7 @@ import { withFileLock } from "../util/file-lock.js";
 import { logger } from "../observability/logger.js";
 import { RUNS_SCHEMA_VERSION } from "../util/schema-version.js";
 import { SafeString } from "../tools/_shared/schemas.js";
+import { readWithPrevFallback } from "../util/safe-read.js";
 
 /**
  * SQUAD RUNS STORE — telemetry journal for skill invocations. As of v0.10.0
@@ -363,13 +365,21 @@ function resolveRunsFile(workspaceRoot: string, configuredPath: string | undefin
  * [a-z0-9] (36^6 = 2.18B unique values per millisecond — collision
  * chance is effectively zero across realistic concurrent writers in
  * the same ms).
+ *
+ * Suffix entropy comes from `crypto.randomBytes` (CSPRNG) rather than
+ * `Math.random()` so co-tenant processes cannot guess in-flight run ids
+ * from a leaked seed. Each byte is mapped to the 36-char alphabet via
+ * modulo: 256 mod 36 = 4, so 4 of 36 buckets receive one extra byte —
+ * a ≤1.6% bias per char. Negligible for collision resistance at 36^6
+ * keyspace; this id is not a security-bearing secret.
  */
 export function generateRunId(): string {
   const ts = Date.now().toString(36);
-  let suffix = "";
   const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = randomBytes(6);
+  let suffix = "";
   for (let i = 0; i < 6; i++) {
-    suffix += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    suffix += ALPHABET[bytes[i]! % ALPHABET.length];
   }
   return `${ts}-${suffix}`;
 }
@@ -400,27 +410,37 @@ export async function readRuns(
   const filePath = resolveRunsFile(workspaceRoot, options.configuredPath);
   const absRoot = path.resolve(workspaceRoot);
 
+  // Stat the primary first to cheaply hit the per-process cache when the file
+  // exists and is unchanged. When the primary has gone missing (e.g. mid
+  // atomic-rewrite rename window), fall through to `readWithPrevFallback`
+  // which retries against `<filePath>.prev` if it is fresh.
   let stat;
   try {
     stat = await fs.stat(filePath);
   } catch {
-    return [];
+    stat = null;
   }
-  if (!stat.isFile()) return [];
+  if (stat && !stat.isFile()) return [];
 
-  const cached = cache.get(absRoot);
-  if (
-    cached &&
-    cached.filePath === filePath &&
-    cached.mtimeMs === stat.mtimeMs &&
-    cached.size === stat.size
-  ) {
-    return cached.entries;
+  if (stat) {
+    const cached = cache.get(absRoot);
+    if (
+      cached &&
+      cached.filePath === filePath &&
+      cached.mtimeMs === stat.mtimeMs &&
+      cached.size === stat.size
+    ) {
+      return cached.entries;
+    }
   }
 
   let raw: string;
+  let readFromPrev = false;
   try {
-    raw = await fs.readFile(filePath, "utf8");
+    const result = await readWithPrevFallback(filePath);
+    if (result === null) return [];
+    raw = result.content;
+    readFromPrev = result.source === "prev";
   } catch (err) {
     throw new SquadError(
       "CONFIG_READ_FAILED",
@@ -500,7 +520,12 @@ export async function readRuns(
     });
   }
 
-  cache.set(absRoot, { mtimeMs: stat.mtimeMs, size: stat.size, filePath, entries });
+  // Only cache when we read the PRIMARY file. A `.prev`-sourced read is a
+  // transient mid-rename snapshot; caching it would pin stale content past
+  // the rewrite window. The next call re-stats the primary and refreshes.
+  if (stat && !readFromPrev) {
+    cache.set(absRoot, { mtimeMs: stat.mtimeMs, size: stat.size, filePath, entries });
+  }
   return entries;
 }
 

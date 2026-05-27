@@ -32,6 +32,16 @@ Assess whether existing tests cover critical scenarios, whether the testing stra
 - May comment on test-code quality itself (readability, organization)
 - May suggest scenarios that should be tested based on the change
 
+## Realism Rule (binding)
+
+Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — tests for sub-millisecond race windows on local filesystems, 10k-iteration entropy guards, Unicode-homoglyph reject tests for CLI args, modulo-bias tests under 5% per char, hypothetical migration paths that haven't shipped, property-fuzz coverage for domains that already have deterministic unit tests — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented test gap in `docs/threat-model.md` OR a past flake/incident logged in CHANGELOG.
+
+Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Test budget is finite; padding the suite with edge cases nobody will trip degrades it.
+
+If a real regression can be demonstrated in 1-2 lines of failing test code that maps to a documented user flow: escalate to Major or Blocker. If demonstrating it requires "a coordinated process-pair with millisecond timing" OR "a future schema migration that doesn't exist yet" OR "an attacker model the project explicitly excluded": Suggestion only.
+
+Goal: cover what will actually break, not enumerate what theoretically could.
+
 ## Responsibilities
 
 ### Test Coverage
