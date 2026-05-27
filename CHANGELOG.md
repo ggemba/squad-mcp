@@ -5,6 +5,60 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-05-27
+
+### Fixed
+
+- **Phase 0 PR resolution — Bitbucket Cloud refspec cascade.**
+  `skills/squad/modes/review.md` previously documented `pull-requests/<N>/head`
+  as the Bitbucket Cloud refspec, but Bitbucket Cloud does NOT publish a stable
+  PR head ref (many repos publish nothing; some publish
+  `refs/pull-requests/<N>/from`). When the documented refspec failed, the
+  orchestrator improvised — often falling into `git ls-remote` + per-branch
+  fetch cascades that took 100+ seconds on a small PR. Section 3 now documents
+  a 3-attempt cascade for Bitbucket Cloud: (1) try
+  `refs/pull-requests/<N>/from`; (2) on failure, hit the metadata API
+  (`/2.0/repositories/<ws>/<repo>/pullrequests/<N>` — NOT `/diff`, which
+  remains banned) for source + destination branch names and fetch them as
+  ordinary branches; (3) as a last resort, list remote branches and ask the
+  user to name the source branch. GitHub path is unchanged (single-shot
+  `pull/<N>/head`).
+- **Phase 0 halt list — `couldn't find remote ref`.**
+  Added to the auth-failure enumeration. Previously the orchestrator
+  improvised after fetch failed with this string, falling into the very
+  slow paths Section 5 was meant to prevent.
+- **Phase 0 search paths — Windows.** Added
+  `C:/Users/<user>/source/repos/<repo>`, `C:/Users/<user>/source/<repo>`,
+  `C:/Users/<user>/Projects/<repo>`, and `/Users/<user>/Projects/<repo>`
+  (macOS) to the existing-clone discovery list, so Windows users with
+  Visual Studio / JetBrains layouts don't force a fresh `/tmp` clone.
+
+### Changed
+
+- **Slimmer advisory agent prompts.** Realism Rule, untrusted-input contract,
+  and per-score Notes were duplicated verbatim across
+  `agents/{architect,dba,developer,reviewer,security,qa}.md`. Extracted to
+  `shared/_Calibration.md` (new) and replaced by short pointer sections.
+  Each agent role file lost 9-21 lines (~5-7% per file, 70 lines total)
+  while keeping the dimension-specific calibration anchors inline. Net: less
+  duplicated text in every advisory dispatch; lower per-prompt token count.
+- **SKILL.md history pruning.** Removed legacy migration rationales
+  (`Pre-v1.5`, `pre-v0.8.0`, several `(v1.5+)` qualifiers on stable
+  behaviour) and the "Pre-v1.5 deep mode also overrode model: opus..."
+  block. Kept tags that act as guard-rails (e.g. `(v1.7+)` on
+  micro-mode-only features that callers must check for).
+
+### Why
+
+Baseline `/squad:review --profile` on a 5-file Bitbucket PR (PR #3 in
+`acg.noname.card.lambda`, +6/-93 LOC) took 9 min 44 s end-to-end.
+Phase 0 alone was 115 s due to the documented-but-broken Bitbucket
+refspec; advisory dispatch carried ~70 lines of duplicated text per
+agent prompt. These edits target the wall-clock budget directly — Phase 0
+should drop to ~15-30 s when the published ref or metadata API path
+works (no app password fallback), and per-agent prompt parsing trims a
+few seconds × N agents.
+
 ## [1.7.1] - 2026-05-27
 
 ### Fixed

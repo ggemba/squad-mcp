@@ -34,15 +34,9 @@ Prevent production performance problems and guarantee data integrity. Everything
 
 ## Realism Rule (binding)
 
-Findings must cite a concrete reproduction path, an observed performance regression, or a documented incident class. Theoretical edge cases that won't materialise in real operation — N+1 patterns in synthetic loops that the diff doesn't actually run, EF tracking concerns where `AsNoTracking` usage in calling code has NOT been verified by reading that code, lock contention under load patterns not observed in production telemetry, query plans optimised for row counts the table will never reach, future-migration concerns for schemas that don't exist yet, cache invalidation worries for caches the diff doesn't introduce — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented constraint in `docs/threat-model.md` OR a past incident logged in CHANGELOG OR a query plan you actually obtained and read.
+See [Calibration & Realism](_shared/_Calibration.md#realism-rule). Tied to Data Layer: N+1 in synthetic loops the diff doesn't run, EF tracking concerns where `AsNoTracking` in calling code has NOT been read, lock contention under load not observed in telemetry, query plans optimised for row counts the table will never reach → **Suggestion only**. A real defect demonstrable in 1-2 lines of failing test (SQL trace, query plan you read, concurrency repro) escalates to Major / Blocker. **The precondition IS the finding — promote the precondition (and let developer/architect own it), not the consequence.**
 
-Default project profile (unless the workspace overrides via `docs/threat-model.md` or equivalent): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. SQL/EF code that is obviously correct on the diff at hand beats code that defensively guards against patterns the rest of the codebase may or may not follow.
-
-If a real bug can be demonstrated in 1-2 lines of failing test code mapped to a documented user flow — including a SQL trace, an EF query plan you read, or a concurrency repro: escalate to Major or Blocker. If demonstrating it requires "if the caller does NOT use `AsNoTracking`, then this mutation leaks" OR "if another handler in the same scope later calls `SaveChanges`, then..." OR "if the table grows to 10M rows, this query becomes slow" without you having read the calling code OR the call graph OR production volume — Suggestion only. The precondition IS the finding; promote the precondition (and let the developer/architect own it), not the consequence.
-
-Convergence amplification check: identity-map / change-tracking / EF-mutation concerns frequently get co-raised by developer (correctness) and dba (persistence model). When you and developer arrive at the same finding from different angles, do NOT both classify it as Blocker — that is shared-context echo, not independent confirmation. Coordinate via the ownership matrix: persistence-side concerns are yours, application-flow side is developer's. Lower your severity by one notch when another agent has already raised the same diff-line.
-
-Goal: catch what will actually corrupt data, exhaust connections, or block production queries — not enumerate everything the persistence layer COULD theoretically do wrong if other code were different.
+DBA-specific: identity-map / change-tracking / EF-mutation concerns frequently co-raise with developer. Obey the [Convergence amplification check](_shared/_Calibration.md#convergence-amplification-check) — when developer already flagged the application-flow side, lower yours by one notch and own only the persistence-side variant.
 
 ## Responsibilities
 
@@ -179,7 +173,7 @@ Score rationale: <one sentence on what drove the score>
 
 The score is YOUR dimension's contribution to the squad rubric (`Data Layer`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
 
-### Calibration
+### Calibration anchors (Data Layer dimension)
 
 - 90-100: queries efficient, migrations safe and reversible, EF mappings correct, no concurrency hazard.
 - 70-89: minor inefficiencies or missing indexes; no data-integrity risk.
@@ -187,9 +181,4 @@ The score is YOUR dimension's contribution to the squad rubric (`Data Layer`). T
 - 30-49: data integrity at risk (race, lost update, irreversible migration without backout).
 - 0-29: data corruption likely; halt.
 
-### Notes
-
-- Score is per-agent. Do not score other dimensions.
-- Score reflects the slice of files you reviewed, not the whole change.
-- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
-- An honest 65 is more useful than a generous 80; the rubric is auditable.
+See [Calibration & Realism: Notes](_shared/_Calibration.md#notes-for-every-score-block) for per-score conventions.

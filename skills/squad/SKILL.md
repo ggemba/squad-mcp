@@ -87,7 +87,7 @@ Mode-specific phases live in sibling files so each invocation loads only the pha
 
 The phase list below is the full ordered spine. A phase whose body reads `→ modes/<file>.md` is executed from that file at its numbered slot; phase numbers are global and stable across files.
 
-**Implement-mode execution order (v1.5+).** Phase numbers are stable across files, but `/squad:implement` runs Phase 5 (advisory squad) AFTER Phase 8 (implementation) — not before. Rationale: advisory agents score the diff that actually landed, not a plan draft that may be revised. Eliminates plan-version drift (advisors stress-test plan v1, plan gets revised to v2, advisor scores become stale). See `modes/implement.md` for the full inverted order. Review mode order is unchanged (no implementation step exists).
+**Implement-mode execution order.** Phase numbers are stable across files, but `/squad:implement` runs Phase 5 (advisory squad) AFTER Phase 8 (implementation). Advisors score the diff that actually landed, not a plan draft (eliminates plan-version drift). See `modes/implement.md` for the inverted order. Review mode is linear (no implementation step exists).
 
 ## Phase 0.5 — Decompose PRD into tasks (task-mode only)
 
@@ -114,7 +114,7 @@ If the user wants to override, accept `force_work_type` or `force_agents`.
    - `mode = "deep"` if `risk.level == High` OR `work_type == "Security"` OR any of `touches_auth` / `touches_money` / `touches_migration` is true.
    - `mode = "micro"` (v1.7+) if `risk.level == Low` AND `files_count <= MICRO_AUTO_MAX_FILES` (default 2) AND `loc_changed < MICRO_AUTO_MAX_LOC` (default 30) AND none of the high-risk signals fire AND `work_type ∈ {Feature, Bug Fix, Refactor, Performance}`. Security and Business Rule never auto-trip micro — they need multi-agent eyes (security agent / PO). Requires upstream `detect_changed_files` to have produced `total_loc_changed` (auto-enabled when caller omitted `mode`); when stat is unavailable, micro auto-detect is silently skipped and the resolution falls through to quick/normal.
    - `mode = "quick"` if `risk.level == Low` AND `files_count <= QUICK_AUTO_MAX_FILES` (default 8) AND none of the high-risk signals fire AND `work_type != "Security"` AND micro didn't trip.
-   - `mode = "normal"` otherwise. This is the pre-v0.8.0 behaviour and the implicit default.
+   - `mode = "normal"` otherwise. Implicit default.
    - Returned as `mode_source: "auto"`.
 3. **Safety override on forced `--quick` over high-risk diff.** The cap-to-2 stays, but `security` is force-included as one of the two agents, and `mode_warning.code === "forced_quick_on_high_risk"` is set. Never silently honour `--quick` on a security-relevant change without that warning.
 4. **Safety override on forced `--micro` over high-risk diff (v1.7+).** Micro mode skips advisor dispatch entirely; it is unsafe on auth/money/migration/Security. The orchestrator DEGRADES the request to `quick` (so security still gets force-included) and sets `mode_warning.code === "forced_micro_on_high_risk"`. Surface this loudly — the user asked for the fastest path and got a slower-but-safer one.
@@ -190,7 +190,7 @@ If `--codex` flag present, or risk is High and the user opts in, dispatch Codex 
 
 ## Phase 5 — Advisory squad (parallel, sliced) — both modes
 
-> **In implement mode (v1.5+), this phase runs AFTER Phase 8 implementation, not before Phase 4.** See `modes/implement.md` "Execution order" for the rationale. Phase 5 advisors review the diff that the implementer just landed — not a plan draft. In review mode the phase runs in its declared spine position (review has no implementation step).
+> **In implement mode, this phase runs AFTER Phase 8 implementation, not before Phase 4.** Phase 5 advisors review the diff that the implementer just landed — not a plan draft. In review mode it runs in its declared spine position.
 
 > **PARALLEL DISPATCH IS MANDATORY (Inviolable Rule 9).** All `Task` calls for the advisory agents in this phase MUST be emitted as multiple tool_use blocks **inside a single assistant message**. Do not dispatch one, await its result, then dispatch the next — that linearises wall time by N×. The host runs same-message tool calls concurrently; cross-message tool calls are sequential.
 
@@ -217,13 +217,11 @@ Each agent declares its preferred model in its own frontmatter (`agents/<name>.m
 | `normal` | **Omit** the `model` parameter — same precedence as `quick`.                                                                                                      |
 | `deep`   | **Omit** the `model` parameter — same precedence as `quick` and `normal`.                                                                                         |
 
-What `--deep` actually changes (v1.5+, semantic only — never the model):
+What `--deep` actually changes (semantic only, never the model — agent frontmatter pin governs):
 
 - Force-includes `architect` + `security` in the advisory squad regardless of file signals.
 - Raises the Phase 11 reject-loop cap from 2 to 3.
 - Suggests Codex as an optional extra review (Phase 3 / Phase 9), still gated on explicit `--codex` consent.
-
-Pre-v1.5, `--deep` also overrode every dispatch to `model: opus`, which made wall-clock 3-5x worse for the marginal quality gain of Opus over Sonnet 4.6 on advisory pattern-matching. Implementer and the consolidator persona are already pinned to opus via their frontmatter; that pin is the right place for the high-stakes upgrade, not a mode-level sledgehammer.
 
 ### Dispatch steps
 
@@ -231,7 +229,7 @@ For each agent in `squad.agents`:
 
 1. Call `slice_files_for_agent` to get the file slice. (These reads can run in parallel too — batch them in one message.) **Preferred:** call `compose_advisory_bundle` ONCE up front — it returns `slices_by_agent` AND `hunks_by_agent` in a single roundtrip. Skip step 1's individual `slice_files_for_agent` calls when the bundle already carries them.
 2. Call `read_learnings` with `workspace_root`, `agent: "<agent-name>"`, and `changed_files: <file slice>` to fetch past team decisions for this agent. (Same — batch the per-agent reads.)
-3. Then in **one** assistant message, emit N `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>)` blocks — one per selected agent. The `model` parameter is OMITTED in every mode (v1.5+); the agent frontmatter pin governs.
+3. Then in **one** assistant message, emit N `Task(subagent_type="<agent-name>", description="<Role> review", prompt=<advisory prompt with learnings injected>)` blocks — one per selected agent. The `model` parameter is OMITTED in every mode; the agent frontmatter pin governs.
 
 ### Hunks vs full-file content (perf path)
 
@@ -242,7 +240,7 @@ Rules:
 - Default — pass `hunks` inline; instruct the agent to `Read` if they need broader context.
 - When `full_file_changed: true` (file added or deleted entirely), the diff IS the file; no `Read` fallback needed.
 - When `truncated: true` (diff exceeded `max_hunk_bytes_per_file`), flag this explicitly in the agent prompt so the agent knows to `Read` the file.
-- When `hunks_by_agent` is absent (caller passed `include_hunks: false`, or extraction failed silently), fall back to the pre-v0.12 behaviour: pass `file_contents` from `slices_by_agent` inline.
+- When `hunks_by_agent` is absent (caller passed `include_hunks: false`, or extraction failed silently), fall back to passing `file_contents` from `slices_by_agent` inline.
 
 ### Language-aware prompt supplements
 
@@ -345,8 +343,8 @@ Per-agent advisory prompt template (use the `agent_advisory` MCP prompt with arg
 You are participating in an advisory review.
 
 ## Plan / Context
-{In implement mode (v1.5+): the approved plan AND a one-paragraph summary of what the implementer just landed (from the Implementation Report Section 2). Advisors score the actual diff, not the plan draft.
- In review mode: "Review of existing changes" plus any user-supplied context.}
+{In implement mode: approved plan AND a one-paragraph summary of what the implementer just landed (Implementation Report Section 2). Advisors score the actual diff, not the plan draft.
+ In review mode: "Review of existing changes" + any user-supplied context.}
 
 ## Your sliced view
 Files in scope (from slices_by_agent[agent].matched_files):
@@ -481,7 +479,7 @@ then SKIP the `tech-lead-consolidator` subagent dispatch. Surface the tool outpu
 
 Before dispatching the consolidator (normal / deep only; not on fast-path), call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
 
-Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance. The `model` parameter is OMITTED (v1.5+); the consolidator's frontmatter already pins opus, which is the right level for an arbitration step.
+Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance. The `model` parameter is OMITTED; the consolidator's frontmatter already pins opus.
 
 The consolidator prompt should include the learnings block under a `## Past team decisions` heading so the consolidator can:
 

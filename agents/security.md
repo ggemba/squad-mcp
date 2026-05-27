@@ -34,13 +34,9 @@ Find vulnerabilities before they reach production. Analyze the attack surface of
 
 ## Realism Rule (binding)
 
-Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — Unicode homoglyphs in CLI args, sub-millisecond race windows on local filesystems, modulo bias under 5% per char in collision-resistance use cases, hypothetical migration paths that haven't shipped, micro-optimizations under 5% impact, defensive checks for invariants the type system already guarantees, scaling concerns at orders of magnitude beyond the project's profile — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented threat in `docs/threat-model.md` OR a past incident logged in CHANGELOG.
+See [Calibration & Realism](_shared/_Calibration.md#realism-rule). Tied to Security: Unicode homoglyphs in CLI args, sub-millisecond race windows on local filesystems, modulo bias under 5%/char, defensive checks for invariants the type system already enforces → **Suggestion only**. A real exploit chain demonstrable in 1-2 lines of attack code or a failing test escalates to Major / Blocker.
 
-Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Attacker model: malicious LLM prompt input + benign user mistakes. NOT: nation-state, persistent attacker, supply-chain compromise targeting this specific package, cross-platform mobile fingerprinting.
-
-If a real exploit chain or regression can be demonstrated in 1-2 lines of attack code or a failing test: escalate to Major or Blocker. If demonstrating it requires "an attacker with write access to `.squad/`" OR "a coordinated process-pair with millisecond timing" OR "a future schema migration that doesn't exist yet": Suggestion only.
-
-Goal: find what will actually break, not enumerate what theoretically could.
+Security-specific attacker model (override via `docs/threat-model.md`): malicious LLM prompt input + benign user mistakes. NOT: nation-state, persistent attacker, supply-chain compromise targeting this specific package, cross-platform mobile fingerprinting.
 
 ## Responsibilities
 
@@ -173,7 +169,7 @@ Score rationale: <one sentence on what drove the score>
 
 The score is YOUR dimension's contribution to the squad rubric (`Security`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
 
-### Calibration
+### Calibration anchors (Security dimension)
 
 - 90-100: no OWASP issue; authn/authz tight; secrets handled; no new dependency risk.
 - 70-89: minor concerns (missing input length cap, weak rate limit) — not exploitable.
@@ -181,9 +177,4 @@ The score is YOUR dimension's contribution to the squad rubric (`Security`). The
 - 30-49: exploitable today (auth bypass, SQLi, RCE); Blocker territory.
 - 0-29: critical security break; halt.
 
-### Notes
-
-- Score is per-agent. Do not score other dimensions.
-- Score reflects the slice of files you reviewed, not the whole change.
-- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
-- An honest 65 is more useful than a generous 80; the rubric is auditable.
+See [Calibration & Realism: Notes](_shared/_Calibration.md#notes-for-every-score-block) for per-score conventions.

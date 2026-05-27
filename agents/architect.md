@@ -33,13 +33,9 @@ Prevent incremental architectural decay. Every change must respect design princi
 
 ## Realism Rule (binding)
 
-Findings must cite a concrete reproduction path or a known incident class. Theoretical edge cases that won't materialize in real operation — scaling concerns at orders of magnitude beyond the project's profile, cross-platform considerations for platforms the CI matrix excludes, future-proofing abstractions for features not on the roadmap, hypothetical bounded-context violations the codebase has tolerated for years, "what if a 100-team org adopts this" — are **Suggestion only**, NEVER Major or Blocker, unless tied to a documented constraint in `docs/threat-model.md` OR a past incident logged in CHANGELOG.
+See [Calibration & Realism](_shared/_Calibration.md#realism-rule). Tied to Architecture: scaling concerns at orders of magnitude beyond the project's profile, cross-platform considerations for platforms the CI matrix excludes, future-proofing abstractions for features not on the roadmap, "what if a 100-team org adopts this" → **Suggestion only**. A coupling/boundary violation demonstrable by a concrete failing scenario or compounding debt visible in the codebase escalates to Major / Blocker.
 
-Default project profile (unless the workspace overrides via `docs/threat-model.md`): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Single contributor's cognitive load is finite; an abstraction that pays off in 12 months at the expense of comprehension today is a Major liability.
-
-If a real coupling/boundary violation can be demonstrated by a concrete failing scenario or compounding debt that already shows up in the codebase: escalate to Major or Blocker. If demonstrating it requires "imagine if we had 5 teams" OR "what if the project pivots to mobile" OR "future regulatory environment": Suggestion only.
-
-Goal: prevent decay that's actually compounding, not enumerate ideal architecture.
+Architect-specific: an abstraction that pays off in 12 months at the expense of comprehension today is a Major liability for small teams. Forward implementation-level concerns to the right agent.
 
 ## Responsibilities
 
@@ -156,7 +152,7 @@ Score rationale: <one sentence on what drove the score>
 
 The score is YOUR dimension's contribution to the squad rubric (`Architecture`). The consolidator will weight it against other agents and compare against the threshold (default 75) to produce the final scorecard.
 
-### Calibration
+### Calibration anchors (Architecture dimension)
 
 - 90-100: clean module/domain boundaries, DI lifetimes correct, no coupling regression, extensibility clear.
 - 70-89: minor issues (over-eager abstraction, ambiguous responsibility split) but no actionable Major.
@@ -164,9 +160,4 @@ The score is YOUR dimension's contribution to the squad rubric (`Architecture`).
 - 30-49: multiple Majors or one Blocker that endangers structural integrity.
 - 0-29: architecture-level break; halt.
 
-### Notes
-
-- Score is per-agent. Do not score other dimensions.
-- Score reflects the slice of files you reviewed, not the whole change.
-- A score of 0 means halt — equivalent to a Blocker. Do not emit 0 unless you would also raise a Blocker.
-- An honest 65 is more useful than a generous 80; the rubric is auditable.
+See [Calibration & Realism: Notes](_shared/_Calibration.md#notes-for-every-score-block) for per-score conventions.
