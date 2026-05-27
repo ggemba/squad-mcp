@@ -159,16 +159,22 @@ Non-blocking try/catch per `shared/_Telemetry-Contract.md`: I/O errors log silen
 
 ### Review mode
 
-Resolve target first:
+Resolve target first (v1.7+ — explicit working_tree support):
 
-- Empty argument → review the current uncommitted diff (`base_ref` = `HEAD`, `staged_only=false`)
-- Branch name → review `<branch>..HEAD` or `main..<branch>` per user intent
+- **Empty argument** → run `git status --porcelain` first.
+  - If output is non-empty (dirty working tree, staged or unstaged): pass `working_tree: true` to `compose_advisory_bundle`. This emits `git diff HEAD` and covers BOTH staged and unstaged uncommitted changes. **This is the v1.7 default for "review what I'm working on right now."**
+  - If output is empty (clean tree): fall back to `base_ref: "HEAD~1"` (review the most recent commit). If even that has no diff (initial commit or no commits at all), halt and ask the user what to review.
+- **`--working-tree` / `--dirty` flag** → force `working_tree: true` regardless of git status (no shell call needed). Useful when the user wants to be explicit.
+- **`--staged` flag** → pass `staged_only: true` (review only staged changes, ignore unstaged).
+- **Branch name** → review `<branch>..HEAD` or `main..<branch>` per user intent (`base_ref: "<branch>"`).
 - **PR URL or `#N`** → run the clone-and-fetch recipe in `modes/review.md` "Phase 0 — Resolve PR target" BEFORE calling any MCP tool. NEVER fetch the PR diff via REST API, WebFetch, `curl` on `/diff`, or any HTTP path — every one of those has produced 10+ minute hangs against private repos (auth-walled, Cloudflare-rate-limited). Local git only. On auth failure, halt and surface the setup steps; do NOT fall back to slow paths.
-- File path → review the working-tree changes under that path
+- **File path** → review the working-tree changes under that path (still pass `working_tree: true`; the file list will be filtered by the path).
 
-Run `compose_advisory_bundle` with `workspace_root`, the resolved `base_ref`, `user_prompt = "review the changes in this diff"` (or richer if user gave context), and `plan = ""` (empty — no plan to validate in review).
+`working_tree`, `staged_only`, and `base_ref` are mutually exclusive. The MCP tool schema rejects combinations.
 
-Surface to the user: file count, work type, risk level, selected agents.
+Run `compose_advisory_bundle` with `workspace_root`, the resolved diff selector (`working_tree`, `staged_only`, or `base_ref`), `user_prompt = "review the changes in this diff"` (or richer if user gave context), and `plan = ""` (empty — no plan to validate in review).
+
+Surface to the user: file count, work type, risk level, selected agents, and **which diff mode was used** (working_tree vs staged vs branch range). When auto-selected from `git status --porcelain`, also surface: "review of uncommitted changes (X files dirty)" so the user knows you didn't review a committed range.
 
 ## Phase 2 — Build plan + tech-lead-planner (implement mode only, skipped in quick)
 

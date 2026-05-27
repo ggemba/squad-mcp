@@ -68,6 +68,7 @@ async function buildMicroPrompt(args: {
   workspaceRoot: string;
   baseRef?: string;
   stagedOnly: boolean;
+  workingTree: boolean;
   maxHunkBytes: number;
   userPrompt: string;
 }): Promise<{
@@ -91,6 +92,7 @@ async function buildMicroPrompt(args: {
         cwd: safeCwd,
         files: filePaths,
         staged_only: args.stagedOnly,
+        working_tree: args.workingTree,
         max_bytes_per_file: args.maxHunkBytes,
       };
       if (args.baseRef !== undefined) hunksInput.base_ref = args.baseRef;
@@ -191,6 +193,13 @@ const schema = z.object({
   plan: safeString(65_536),
   base_ref: safeString(200).optional(),
   staged_only: z.boolean().optional().default(false),
+  /**
+   * Review dirty working tree (staged + unstaged vs HEAD). Mutually
+   * exclusive with `base_ref` and `staged_only` — the underlying
+   * `detect_changed_files` schema enforces it. Introduced v1.7 for
+   * /squad:review against work-in-progress.
+   */
+  working_tree: z.boolean().optional().default(false),
   read_content: z.boolean().optional().default(true),
   /**
    * Execution depth. Omit to let `selectMode` auto-detect from
@@ -352,6 +361,7 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
     workspace_root: input.workspace_root,
     user_prompt: safeUserPrompt,
     staged_only: input.staged_only,
+    working_tree: input.working_tree,
     read_content: input.read_content,
     force_agents: input.force_agents,
   };
@@ -383,6 +393,7 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
       workspaceRoot: input.workspace_root,
       ...(input.base_ref !== undefined ? { baseRef: input.base_ref } : {}),
       stagedOnly: input.staged_only,
+      workingTree: input.working_tree,
       maxHunkBytes: input.max_hunk_bytes_per_file ?? 8192,
       userPrompt: safeUserPrompt,
     });
@@ -432,6 +443,7 @@ export async function composeAdvisoryBundle(input: Input): Promise<AdvisoryBundl
         cwd: safeCwd,
         files: filePaths,
         staged_only: input.staged_only,
+        working_tree: input.working_tree,
         max_bytes_per_file: maxHunkBytes,
       };
       if (input.base_ref !== undefined) hunksInput.base_ref = input.base_ref;

@@ -9,6 +9,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`working_tree` review mode.** `detect_changed_files`,
+  `compose_squad_workflow`, and `compose_advisory_bundle` now accept
+  `working_tree: true` to diff `git diff HEAD` — i.e. staged AND unstaged
+  changes vs HEAD. Mutually exclusive with `base_ref` and `staged_only` (the
+  upstream schema rejects combinations). Closes the gap where `/squad:review`
+  could only review committed ranges; the skill spine now resolves an empty
+  argument by running `git status --porcelain` first and promoting to
+  `working_tree: true` when the tree is dirty. `diff-hunks.ts` mirrors the
+  option so micro mode + advisory hunks both see the dirty diff.
 - **`micro` execution depth — single-pass inline review (review mode).** New
   fourth depth alongside `quick`/`normal`/`deep`. Auto-trips when the diff is
   cirurgical: `files_count <= 2` AND `loc_changed < 30` AND `risk.level == Low`

@@ -71,6 +71,13 @@ export interface ComposeCoreInput {
   user_prompt: string;
   base_ref?: string;
   staged_only?: boolean;
+  /**
+   * Review the dirty working tree (staged + unstaged vs HEAD). Mutually
+   * exclusive with `base_ref` and `staged_only` — the upstream
+   * `detect_changed_files` schema rejects combinations. Introduced v1.7
+   * for `/squad:review` against work-in-progress.
+   */
+  working_tree?: boolean;
   read_content?: boolean;
   mode?: ExecMode;
   force_work_type?: WorkType;
@@ -209,10 +216,12 @@ export async function composeWorkflowCore(input: ComposeCoreInput): Promise<Comp
     workspace_root: string;
     base_ref?: string;
     staged_only: boolean;
+    working_tree: boolean;
     with_stats: boolean;
   } = {
     workspace_root: input.workspace_root,
     staged_only: input.staged_only ?? false,
+    working_tree: input.working_tree ?? false,
     with_stats: wantsStats,
   };
   if (input.base_ref !== undefined) detectInput.base_ref = input.base_ref;

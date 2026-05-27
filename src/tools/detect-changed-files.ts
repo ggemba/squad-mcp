@@ -7,22 +7,39 @@ import { createSafePathContext, resolveSafePath } from "../util/path-safety.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
 import { logger } from "../observability/logger.js";
 
-const schema = z.object({
-  workspace_root: safeString(4096),
-  base_ref: safeString(200).optional(),
-  staged_only: z.boolean().optional().default(false),
-  /**
-   * When true, run an additional `git diff --numstat` and sum
-   * `insertions + deletions` across all changed text files. The result lands
-   * in `total_loc_changed`. Default false to preserve the cheap-path
-   * (one git subprocess) for callers that don't need the stat.
-   *
-   * Introduced v1.7 — feeds the `micro` auto-detect LOC cap in `selectMode`.
-   * Binary files (numstat reports them as `-\t-\t<path>`) are excluded from
-   * the sum; same for entries with a non-numeric add/del column.
-   */
-  with_stats: z.boolean().optional().default(false),
-});
+const schema = z
+  .object({
+    workspace_root: safeString(4096),
+    base_ref: safeString(200).optional(),
+    staged_only: z.boolean().optional().default(false),
+    /**
+     * Review the dirty working tree (everything not yet committed: staged
+     * AND unstaged changes vs HEAD). Equivalent to `git diff HEAD`. The
+     * common /squad:review use case where the user has been editing in a
+     * branch and wants the squad to look at the work-in-progress before
+     * committing.
+     *
+     * Mutually exclusive with `base_ref` and `staged_only` — see the
+     * `.refine` below. Introduced v1.7.
+     */
+    working_tree: z.boolean().optional().default(false),
+    /**
+     * When true, run an additional `git diff --numstat` and sum
+     * `insertions + deletions` across all changed text files. The result lands
+     * in `total_loc_changed`. Default false to preserve the cheap-path
+     * (one git subprocess) for callers that don't need the stat.
+     *
+     * Introduced v1.7 — feeds the `micro` auto-detect LOC cap in `selectMode`.
+     * Binary files (numstat reports them as `-\t-\t<path>`) are excluded from
+     * the sum; same for entries with a non-numeric add/del column.
+     */
+    with_stats: z.boolean().optional().default(false),
+  })
+  .refine((v) => !(v.working_tree && (v.base_ref !== undefined || v.staged_only)), {
+    message:
+      "working_tree is mutually exclusive with base_ref and staged_only — pass only one diff mode",
+    path: ["working_tree"],
+  });
 
 type Input = z.infer<typeof schema>;
 
@@ -152,7 +169,16 @@ export async function detectChangedFiles(
   let baseRefUsed: string | null = null;
   let rangeSuffix: string[];
 
-  if (input.staged_only) {
+  if (input.working_tree) {
+    // `git diff HEAD` — single-ref form (no `..`) — emits all changes
+    // between HEAD and the working tree, which covers BOTH staged and
+    // unstaged modifications. Mutual exclusivity with base_ref/staged_only
+    // is enforced by the schema refine above.
+    rangeSuffix = ["HEAD"];
+    nameArgs = ["--name-status", "--no-renames", "HEAD"];
+    invocation = "git diff --name-status --no-renames HEAD";
+    baseRefUsed = "HEAD";
+  } else if (input.staged_only) {
     rangeSuffix = ["--cached"];
     nameArgs = ["--name-status", "--no-renames", "--cached"];
     invocation = "git diff --name-status --no-renames --cached";
