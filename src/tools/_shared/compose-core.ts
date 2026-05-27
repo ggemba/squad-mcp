@@ -247,6 +247,13 @@ export async function composeWorkflowCore(input: ComposeCoreInput): Promise<Comp
   const allPaths = changed.files.map((f) => f.path);
   const { kept: filePaths, skipped: skippedPaths } = applySkipPaths(allPaths, config.skip_paths);
 
+  // Project the kept paths back into the ChangedFile shape so the downstream
+  // `selectSquad` call can apply the v1.7.3+ weak-path-hint gate (status=D
+  // skip, magnitude threshold). `applySkipPaths` works on strings to keep its
+  // signature stable; we rebuild the typed list here.
+  const keptSet = new Set(filePaths);
+  const keptFiles = changed.files.filter((f) => keptSet.has(f.path));
+
   const classification = classifyWorkType({
     user_prompt: safeUserPrompt,
     files: filePaths,
@@ -269,9 +276,23 @@ export async function composeWorkflowCore(input: ComposeCoreInput): Promise<Comp
   // (passthrough only), so the substitution is safe.
   const risk = scoreRisk({ ...riskSignals, loc_changed: riskSignals.loc_changed ?? 0 });
 
+  // v1.7.3: pass the rich ChangedFile shape (with status + per-file LOC) so
+  // `selectSquad` can apply the weak-path-hint gate. Legacy callers that still
+  // pass `string[]` are accepted via the schema's z.union; internal callers
+  // now feed the structured form.
   const squad = await selectSquad({
     work_type: workType,
-    files: filePaths,
+    files: keptFiles.map((f) => {
+      const entry: {
+        path: string;
+        status: typeof f.status;
+        loc_added?: number;
+        loc_deleted?: number;
+      } = { path: f.path, status: f.status };
+      if (f.loc_added !== undefined) entry.loc_added = f.loc_added;
+      if (f.loc_deleted !== undefined) entry.loc_deleted = f.loc_deleted;
+      return entry;
+    }),
     read_content: input.read_content ?? true,
     workspace_root: input.workspace_root,
     force_agents: input.force_agents ?? [],

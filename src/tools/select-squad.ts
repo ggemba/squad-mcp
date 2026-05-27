@@ -19,13 +19,79 @@ import {
 import { isSquadError } from "../errors.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
 
+/**
+ * Minimum lines-changed in a single file required for a WEAK path hint
+ * (`requires_content: true` in `ownership-matrix.ts`) to promote its agent
+ * when no content signal for that agent was found. v1.7.3+.
+ *
+ * Rationale: a one-line edit to `DependencyInjection.cs` that only renames
+ * a config-key string should not spawn the architect — the file's name is
+ * suggestive, but the actual change is trivial. A file with ≥5 changed lines
+ * is a heavier hint that something meaningful is happening, even if no content
+ * signal regex matched (regex coverage is incomplete by design).
+ *
+ * Pre-existing behaviour ignored magnitude entirely: any path match promoted
+ * the agent regardless of diff size.
+ */
+export const MIN_LOC_FOR_WEAK_PATH = 5;
+
+/**
+ * File-input shape accepted by `select_squad`. The legacy form (plain string
+ * path) is treated as `{ path, status: "modified" }` for backward compatibility
+ * with v1.7.2 and earlier callers — including external scripts and the
+ * `select_squad` MCP tool surface. Internal callers (`compose-core.ts`,
+ * `compose-advisory-bundle.ts`) construct the rich form with status + per-file
+ * loc so the v1.7.3+ weak-path-hint gate has the signals it needs.
+ */
+const fileInputSchema = z.union([
+  safeString(4096),
+  z.object({
+    path: safeString(4096),
+    // ChangeStatus values from src/tools/detect-changed-files.ts. Default
+    // "modified" matches the legacy string-form coercion.
+    status: z
+      .enum(["added", "modified", "deleted", "renamed", "copied", "type_changed", "unknown"])
+      .optional()
+      .default("modified"),
+    loc_added: z.number().int().min(0).optional(),
+    loc_deleted: z.number().int().min(0).optional(),
+  }),
+]);
+
 const schema = z.object({
   work_type: z.enum(["Feature", "Bug Fix", "Refactor", "Performance", "Security", "Business Rule"]),
-  files: z.array(safeString(4096)).max(10_000).default([]),
+  files: z.array(fileInputSchema).max(10_000).default([]),
   read_content: z.boolean().optional().default(true),
   force_agents: z.array(z.enum(AGENT_NAMES_TUPLE)).optional().default([]),
   workspace_root: safeString(4096).optional(),
 });
+
+/**
+ * Normalised internal file shape — legacy strings get coerced into this. All
+ * downstream logic in `selectSquad` reads through this type, so adding new
+ * gating signals (e.g. binary detection) is a single-site change.
+ */
+interface NormalisedFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "copied" | "type_changed" | "unknown";
+  loc_added?: number;
+  loc_deleted?: number;
+}
+
+function normaliseFiles(raw: z.infer<typeof schema>["files"]): NormalisedFile[] {
+  const out: NormalisedFile[] = [];
+  for (const entry of raw) {
+    if (typeof entry === "string") {
+      out.push({ path: entry, status: "modified" });
+    } else {
+      const f: NormalisedFile = { path: entry.path, status: entry.status };
+      if (entry.loc_added !== undefined) f.loc_added = entry.loc_added;
+      if (entry.loc_deleted !== undefined) f.loc_deleted = entry.loc_deleted;
+      out.push(f);
+    }
+  }
+  return out;
+}
 
 /**
  * User-facing surface detection (v0.12+, C2). Matched against the changed-file
@@ -136,10 +202,17 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
   // reason for existing is to surface PO. `force_agents` still wins
   // below: a caller passing `force_agents: ["product-owner"]` re-adds
   // the agent regardless of this drop.
+  // v1.7.3: normalise file inputs once up-front. Legacy string entries become
+  // { path, status: "modified" }; structured entries are passed through. All
+  // downstream logic — including `hasUserFacingFile` below and the matching
+  // loop further on — reads through this normalised shape.
+  const files = normaliseFiles(input.files);
+  const filePathsForDetection = files.map((f) => f.path);
+
   const skipProductOwner =
     input.work_type === "Feature" &&
     matrixEntry.core.includes("product-owner") &&
-    !hasUserFacingFile(input.files);
+    !hasUserFacingFile(filePathsForDetection);
 
   const coreAgents = skipProductOwner
     ? matrixEntry.core.filter((a) => a !== "product-owner")
@@ -164,7 +237,66 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
   const ctx = createSafePathContext();
   const canReadContent = input.read_content && input.workspace_root !== undefined;
 
-  for (const file of input.files) {
+  for (const f of files) {
+    // Collect both path and content matches without promoting yet — promotion
+    // is gated below per-match against the file's status and magnitude.
+    const pathMatches: { agent: AgentName; signal: string; requires_content: boolean }[] = [];
+    const contentMatches: {
+      agent: AgentName;
+      signal: string;
+      source: "content";
+      truncated?: boolean;
+    }[] = [];
+
+    for (const hint of PATH_HINTS) {
+      if (hint.pattern.test(f.path)) {
+        pathMatches.push({
+          agent: hint.agent,
+          signal: hint.description,
+          requires_content: hint.requires_content === true,
+        });
+      }
+    }
+
+    let snippetTruncated = false;
+    if (canReadContent) {
+      try {
+        const abs = await resolveSafePath(input.workspace_root, f.path, ctx);
+        const snippet = await readSnippet(abs);
+        if (snippet) {
+          snippetTruncated = snippet.truncated;
+          for (const sig of CONTENT_SIGNALS) {
+            if (!signalApplies(sig, f.path)) continue;
+            if (sig.pattern.test(snippet.content)) {
+              contentMatches.push({
+                agent: sig.agent,
+                signal: sig.description,
+                source: "content",
+                truncated: snippet.truncated,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        if (isSquadError(err)) {
+          lowConfidence.push({ file: f.path, reason: `path rejected: ${err.code}` });
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // v1.7.3 promotion gate. SKIP-D universal: deleted files never promote via
+    // path (there is no post-deletion content for the agent to review). WEAK
+    // path hints (PathHint.requires_content === true) require ALSO a content
+    // signal for the same agent OR file new (status=added) OR file has
+    // sufficient magnitude (loc_added + loc_deleted >= MIN_LOC_FOR_WEAK_PATH).
+    const isDeleted = f.status === "deleted";
+    const isAdded = f.status === "added";
+    const fileLoc = (f.loc_added ?? 0) + (f.loc_deleted ?? 0);
+    const meetsLocThreshold = fileLoc >= MIN_LOC_FOR_WEAK_PATH;
+    const contentAgents = new Set<AgentName>(contentMatches.map((m) => m.agent));
+
     const matched: {
       agent: AgentName;
       signal: string;
@@ -172,51 +304,51 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
       truncated?: boolean;
     }[] = [];
 
-    for (const hint of PATH_HINTS) {
-      if (hint.pattern.test(file)) {
-        matched.push({
-          agent: hint.agent,
-          signal: hint.description,
-          source: "path",
+    for (const pm of pathMatches) {
+      if (isDeleted) {
+        lowConfidence.push({
+          file: f.path,
+          reason: `path signal "${pm.signal}" (${pm.agent}) skipped: file is deleted`,
         });
+        continue;
       }
-    }
-
-    let contentMatched = false;
-    let snippetTruncated = false;
-    if (canReadContent) {
-      try {
-        const abs = await resolveSafePath(input.workspace_root, file, ctx);
-        const snippet = await readSnippet(abs);
-        if (snippet) {
-          snippetTruncated = snippet.truncated;
-          for (const sig of CONTENT_SIGNALS) {
-            if (!signalApplies(sig, file)) continue;
-            if (sig.pattern.test(snippet.content)) {
-              matched.push({
-                agent: sig.agent,
-                signal: sig.description,
-                source: "content",
-                truncated: snippet.truncated,
-              });
-              contentMatched = true;
-            }
-          }
-        }
-      } catch (err) {
-        if (isSquadError(err)) {
-          lowConfidence.push({ file, reason: `path rejected: ${err.code}` });
+      if (pm.requires_content) {
+        const hasContentForSameAgent = contentAgents.has(pm.agent);
+        if (!hasContentForSameAgent && !isAdded && !meetsLocThreshold) {
+          lowConfidence.push({
+            file: f.path,
+            reason: `weak path signal "${pm.signal}" (${pm.agent}) without content confirmation, file is not new, and loc_changed ${fileLoc} < ${MIN_LOC_FOR_WEAK_PATH}`,
+          });
           continue;
         }
-        throw err;
       }
+      matched.push({ agent: pm.agent, signal: pm.signal, source: "path" });
+    }
+
+    // Content matches always promote (they are evidence of actual change),
+    // regardless of file status. Deleted files can still produce content
+    // matches when `read_content` is true and the snippet was captured from
+    // the pre-deletion blob (rare path; usually the file is gone from disk).
+    for (const cm of contentMatches) {
+      matched.push({
+        agent: cm.agent,
+        signal: cm.signal,
+        source: "content",
+        ...(cm.truncated !== undefined ? { truncated: cm.truncated } : {}),
+      });
     }
 
     if (matched.length === 0) {
-      lowConfidence.push({ file, reason: "no path or content signal matched" });
+      // Only record the generic "no signal matched" reason when nothing —
+      // neither path nor content — fired. The targeted "deleted" / "weak"
+      // skip reasons recorded above already explain those cases.
+      if (pathMatches.length === 0) {
+        lowConfidence.push({ file: f.path, reason: "no path or content signal matched" });
+      }
       continue;
     }
 
+    const contentMatched = contentMatches.length > 0;
     const seen = new Set<string>();
     for (const m of matched) {
       const key = `${m.agent}|${m.signal}`;
@@ -225,7 +357,7 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
       const confidence: Evidence["confidence"] =
         m.source === "content" ? "high" : contentMatched ? "medium" : "medium";
       const ev: Evidence = {
-        file,
+        file: f.path,
         agent: m.agent,
         signal: m.signal,
         source: m.source,
@@ -237,7 +369,7 @@ export async function selectSquad(input: Input): Promise<SelectSquadOutput> {
         selected.add(m.agent);
         rationale.push({
           agent: m.agent,
-          reason: `${m.source} signal in ${file}: ${m.signal}`,
+          reason: `${m.source} signal in ${f.path}: ${m.signal}`,
         });
       }
     }

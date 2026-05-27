@@ -57,6 +57,19 @@ export interface ChangedFile {
   status: ChangeStatus;
   raw_status: string;
   old_path?: string;
+  /**
+   * Lines added in this file (numstat first column). Present only when
+   * `with_stats: true` AND numstat succeeded AND the file is not binary.
+   * Introduced v1.7.3 — consumed by `select_squad` to gate weak path hints
+   * (a file with <5 LOC changed does not trigger secondary agents whose
+   * only signal is path nomenclature).
+   */
+  loc_added?: number;
+  /**
+   * Lines deleted in this file (numstat second column). Same presence rules
+   * as `loc_added`.
+   */
+  loc_deleted?: number;
 }
 
 export interface DetectChangedFilesOutput {
@@ -99,6 +112,38 @@ function sumNumstat(stdout: string): number {
     total += adds + dels;
   }
   return total;
+}
+
+/**
+ * Parse numstat into a per-file map of `{ added, deleted }`. Same defensive
+ * parse as `sumNumstat`: binary files (numstat prints `-\t-\t<path>`) and
+ * malformed lines are skipped — the file simply has no entry in the map.
+ *
+ * Renames are not handled because `--no-renames` is passed to both name-status
+ * and numstat upstream; numstat for a rename without that flag emits
+ * `<adds>\t<dels>\t<old> => <new>` which would not key cleanly. With
+ * `--no-renames`, a rename appears as a delete of the old path plus an add of
+ * the new path, each on its own clean line.
+ *
+ * Introduced v1.7.3 — fed into ChangedFile.loc_added/loc_deleted for the
+ * `select_squad` weak-path-hint magnitude gate.
+ */
+function parseNumstatPerFile(stdout: string): Map<string, { added: number; deleted: number }> {
+  const out = new Map<string, { added: number; deleted: number }>();
+  for (const lineRaw of stdout.split("\n")) {
+    const line = lineRaw.trim();
+    if (!line) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    const adds = Number.parseInt(parts[0]!, 10);
+    const dels = Number.parseInt(parts[1]!, 10);
+    if (!Number.isFinite(adds) || adds < 0) continue;
+    if (!Number.isFinite(dels) || dels < 0) continue;
+    const filePath = parts.slice(2).join("\t");
+    if (!filePath) continue;
+    out.set(filePath, { added: adds, deleted: dels });
+  }
+  return out;
 }
 
 function mapStatus(raw: string): ChangeStatus {
@@ -258,6 +303,18 @@ export async function detectChangedFiles(
   // can't be evaluated; that is strictly safer than crashing the whole detect.
   if (numstatResult !== null && numstatResult.code === 0) {
     output.total_loc_changed = sumNumstat(numstatResult.stdout);
+    // Per-file LOC enrichment (v1.7.3) — silently no-op for files that are
+    // binary or whose numstat line didn't parse (those just stay without
+    // loc_added/loc_deleted, and downstream select_squad treats absent stats
+    // as "unknown size" → conservative reject from weak-path-hint promotion).
+    const perFile = parseNumstatPerFile(numstatResult.stdout);
+    for (const f of output.files) {
+      const stats = perFile.get(f.path);
+      if (stats !== undefined) {
+        f.loc_added = stats.added;
+        f.loc_deleted = stats.deleted;
+      }
+    }
   }
 
   return output;
