@@ -5,6 +5,18 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-05-27
+
+### Fixed
+
+- **Release pin alignment.** v1.7.0 tag was pushed but the release workflow's
+  "verify version matches tag" step rejected the build because three version
+  pins (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+  `src/index.ts SERVER_VERSION`) were never bumped from 1.6.1. As a result
+  `@gempack/squad-mcp@1.7.0` was never published to npm and `/plugin` still
+  reported 1.6.1. 1.7.1 ships the same code as 1.7.0 with all four pins
+  aligned via the official `npm run bump-version` script.
+
 ## [1.7.0] - 2026-05-27
 
 ### Added
