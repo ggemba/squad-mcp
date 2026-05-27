@@ -6,6 +6,13 @@ const schema = z.object({
   touches_money: z.boolean().optional().default(false),
   touches_migration: z.boolean().optional().default(false),
   files_count: z.number().int().nonnegative().optional().default(0),
+  /**
+   * Total lines added + removed across the diff. Passthrough only — does NOT
+   * feed the Low/Medium/High computation (otherwise a large but mechanical
+   * rename would inflate risk). Exists so that `selectMode` can apply the
+   * `micro` auto-detect LOC cap (v1.7+). Default 0 (no cap signal).
+   */
+  loc_changed: z.number().int().nonnegative().optional().default(0),
   new_module: z.boolean().optional().default(false),
   api_contract_change: z.boolean().optional().default(false),
 });

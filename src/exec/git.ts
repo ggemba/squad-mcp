@@ -22,7 +22,18 @@ const REF_MAX_LEN = 200;
  * refactor cannot append to the set inadvertently).
  */
 const ALLOWED_FLAGS: ReadonlySet<string> = Object.freeze(
-  new Set(["--", "--cached", "--name-status", "--no-renames", "--no-ext-diff"] as const),
+  new Set([
+    "--",
+    "--cached",
+    "--name-status",
+    "--no-renames",
+    "--no-ext-diff",
+    // v1.7+: `detect_changed_files` with `with_stats: true` runs an extra
+    // `git diff --numstat <range>` in parallel and sums insertions+deletions
+    // to feed the `micro` mode auto-detect LOC cap. Without this entry the
+    // numstat subprocess is rejected by `validateArg` before git is spawned.
+    "--numstat",
+  ] as const),
 ) as ReadonlySet<string>;
 
 /**

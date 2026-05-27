@@ -59,6 +59,13 @@ export interface ExtractHunksInput {
    */
   staged_only?: boolean;
   /**
+   * Diff the dirty working tree (`git diff HEAD`) — staged + unstaged
+   * changes vs HEAD. When true, both `base_ref` and `staged_only` are
+   * ignored. Introduced v1.7 alongside the detect_changed_files
+   * `working_tree` flag; same mutual-exclusivity intent.
+   */
+  working_tree?: boolean;
+  /**
    * Per-file byte cap on the returned diff. Default 8 KB — large enough for
    * a typical multi-hunk change, small enough that 10+ files fit in the
    * Sonnet prompt budget. Truncated diffs carry a marker line.
@@ -108,7 +115,10 @@ export async function extractFileHunks(
   // practice the empty-override is unreliable across git versions; the flag
   // is the canonical defeat.
   const args: string[] = ["--no-ext-diff", `--unified=${unified}`];
-  if (input.staged_only) {
+  if (input.working_tree) {
+    // `git diff HEAD` — single-ref form covers staged + unstaged.
+    args.push("HEAD");
+  } else if (input.staged_only) {
     args.push("--cached");
   } else if (input.base_ref) {
     validateRef(input.base_ref);

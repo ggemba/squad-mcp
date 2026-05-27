@@ -30,6 +30,12 @@ const schema = z.object({
   user_prompt: safeString(8192),
   base_ref: safeString(200).optional(),
   staged_only: z.boolean().optional().default(false),
+  /**
+   * Review dirty working tree (staged + unstaged vs HEAD). Mutually
+   * exclusive with `base_ref` and `staged_only`; the upstream
+   * `detect_changed_files` schema rejects invalid combos. Introduced v1.7.
+   */
+  working_tree: z.boolean().optional().default(false),
   read_content: z.boolean().optional().default(true),
   /**
    * Execution depth. Omit to let `selectMode` auto-detect from
