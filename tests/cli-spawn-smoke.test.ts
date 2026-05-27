@@ -86,7 +86,6 @@ const presentClis = CLI_FILES.filter((file) => {
   const abs = path.join(REPO_ROOT, "tools", file);
   const exists = existsSync(abs);
   if (!exists) {
-     
     console.warn(`[cli-spawn-smoke] tools/${file} not found — skipping (was it renamed?)`);
   }
   return exists;
