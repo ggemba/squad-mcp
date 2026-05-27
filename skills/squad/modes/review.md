@@ -7,14 +7,16 @@ Loaded when the entry command is `/squad:review`. Hosts two phases:
 
 ## Phase 0 — Resolve PR target (review mode, PR URL / `#N` only)
 
-**Why this phase exists.** Before v1.5.x, the spine bullet for PR targets read "fetch the diff and treat as a branch range" — vague enough that the orchestrator improvised, often picking REST API or `WebFetch` paths that hung for 10+ minutes against private Bitbucket / GitHub repos behind SSO or Cloudflare. This phase enforces the only reliable path: local `git clone` + `git fetch` of the PR refspec.
+**Why this phase exists.** PR target resolution must use local `git clone` + `git fetch`. REST `/diff`, `WebFetch`, and HTML scraping have all hung 10+ minutes against private repos behind SSO / Cloudflare and are banned (Section 5).
 
 ### 1. Parse the PR URL
 
-| Platform        | URL shape                                                    | Refspec                  | Clone URL                                  |
-| --------------- | ------------------------------------------------------------ | ------------------------ | ------------------------------------------ |
-| GitHub          | `https://github.com/<owner>/<repo>/pull/<N>`                 | `pull/<N>/head`          | `git@github.com:<owner>/<repo>.git`        |
-| Bitbucket Cloud | `https://bitbucket.org/<workspace>/<repo>/pull-requests/<N>` | `pull-requests/<N>/head` | `git@bitbucket.org:<workspace>/<repo>.git` |
+| Platform        | URL shape                                                    | Primary refspec                 | Clone URL                                  |
+| --------------- | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------ |
+| GitHub          | `https://github.com/<owner>/<repo>/pull/<N>`                 | `pull/<N>/head`                 | `git@github.com:<owner>/<repo>.git`        |
+| Bitbucket Cloud | `https://bitbucket.org/<workspace>/<repo>/pull-requests/<N>` | `refs/pull-requests/<N>/from`\* | `git@bitbucket.org:<workspace>/<repo>.git` |
+
+\* Bitbucket Cloud does NOT expose PR head refs reliably. Some repos publish `refs/pull-requests/<N>/from` (newer repos), others publish nothing at all. See Section 3 — the fetch is a try/fallback cascade, not a single refspec.
 
 For a bare `#N`, take the remote URL from the current cwd's `origin` (`git remote get-url origin`) and classify by host. If the host is neither `github.com` nor `bitbucket.org`, halt and surface: "PR target only supported for GitHub and Bitbucket Cloud — got <host>".
 
@@ -22,11 +24,13 @@ For a bare `#N`, take the remote URL from the current cwd's `origin` (`git remot
 
 Search in this order, use the first one that satisfies BOTH (a) the directory exists AND (b) `git -C <dir> remote get-url origin` resolves to the same `<owner>/<repo>` as the PR URL:
 
-1. `/home/<user>/Projects/<repo>` — the user's primary workspace root.
-2. The current cwd.
-3. Sibling directories under the cwd's parent that match `<repo>` (`*<repo>*`).
+1. Linux: `/home/<user>/Projects/<repo>` — the user's primary workspace root.
+2. macOS: `/Users/<user>/Projects/<repo>` — same role on Darwin.
+3. Windows: `C:/Users/<user>/source/repos/<repo>`, then `C:/Users/<user>/source/<repo>`, then `C:/Users/<user>/Projects/<repo>` — common Visual Studio + JetBrains layouts.
+4. The current cwd.
+5. Sibling directories under the cwd's parent that match `<repo>` (`*<repo>*`).
 
-If none match, create a throwaway shallow clone:
+If none match, create a throwaway shallow clone (use the OS-appropriate temp dir — `/tmp` on Linux/macOS, `$env:TEMP` on Windows; Git Bash translates `/tmp` to `$TEMP` so the literal `/tmp/squad-pr-*` path is portable when invoked from a Bash tool):
 
 ```bash
 mkdir -p /tmp/squad-pr-<repo>-<N>
@@ -38,23 +42,83 @@ git clone --depth 1 --filter=blob:none --no-checkout \
 
 ### 3. Fetch the PR ref + base
 
-From inside the working clone (`cd <clone-path>`):
+From inside the working clone (`cd <clone-path>`). **GitHub is single-shot. Bitbucket Cloud is a 3-step cascade.**
+
+#### 3a. GitHub
 
 ```bash
-# fetch the PR head into a private ref namespace (no branch pollution)
-git fetch origin <refspec>:refs/squad-pr/<N> --no-tags --quiet
-
-# detect the default base
+git fetch origin pull/<N>/head:refs/squad-pr/<N> --no-tags --quiet
 DEFAULT_BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
                 | sed 's|^origin/||')
 DEFAULT_BASE="${DEFAULT_BASE:-main}"
-
-# fetch the base
 git fetch origin "$DEFAULT_BASE":refs/squad-base/<N> --no-tags --quiet
-
-# resolve the merge-base — that's the diff start
 BASE_REF=$(git merge-base refs/squad-pr/<N> refs/squad-base/<N>)
 ```
+
+#### 3b. Bitbucket Cloud — try in order, stop at first success
+
+**Attempt 1 — published PR ref (works on some repos):**
+
+```bash
+git fetch origin refs/pull-requests/<N>/from:refs/squad-pr/<N> --no-tags --quiet 2>&1
+```
+
+If output contains `couldn't find remote ref`, the repo does NOT publish PR refs. Do NOT retry the same refspec with a different prefix. Move to Attempt 2.
+
+**Attempt 2 — metadata API (only the `pullrequests/<N>` endpoint, NOT `/diff`):**
+
+The metadata endpoint returns source + destination branch names and is sub-second; the `/diff` endpoint is the one banned by Section 5 because it hangs behind Cloudflare / SSO. They are different endpoints.
+
+```bash
+# Pick up stored credentials (Git Credential Manager / netrc / store helper)
+CRED=$(printf "url=https://bitbucket.org\n\n" | git credential fill 2>/dev/null)
+USER=$(echo "$CRED" | grep '^username=' | sed 's/^username=//')
+PASS=$(echo "$CRED" | grep '^password=' | sed 's/^password=//')
+
+# Empty PASS, or PASS that is a normal account password (not an app password),
+# returns 0 bytes — Bitbucket API requires an app password with "Repositories:
+# Read" scope. See Section 5 for setup.
+META=$(curl -sS --max-time 10 -u "$USER:$PASS" \
+  "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/pullrequests/<N>")
+
+# Parse with jq if available, otherwise grep/sed:
+SOURCE_BRANCH=$(echo "$META" | jq -r '.source.branch.name' 2>/dev/null \
+                 || echo "$META" | grep -oE '"branch":\s*\{"name":\s*"[^"]+"' | head -1 | sed 's/.*"name":\s*"\([^"]*\)"/\1/')
+DEST_BRANCH=$(echo "$META" | jq -r '.destination.branch.name' 2>/dev/null \
+                 || echo "$META" | grep -oE '"branch":\s*\{"name":\s*"[^"]+"' | sed -n '2p' | sed 's/.*"name":\s*"\([^"]*\)"/\1/')
+
+# If both branches resolved, fetch them as ordinary branches:
+if [ -n "$SOURCE_BRANCH" ] && [ -n "$DEST_BRANCH" ]; then
+  git fetch origin "$SOURCE_BRANCH:refs/squad-pr/<N>" --no-tags --quiet
+  git fetch origin "$DEST_BRANCH:refs/squad-base/<N>" --no-tags --quiet
+  BASE_REF=$(git merge-base refs/squad-pr/<N> refs/squad-base/<N>)
+fi
+```
+
+**Attempt 3 — heuristic discovery (last resort, no app password, no published ref):**
+
+This is the fallback that worked in the 2026-05-27 baseline run that produced this rewrite. Slowest of the three (≈ 20-30s on a 5-branch repo). Use ONLY when Attempts 1 and 2 both failed. The orchestrator owns the user-prompt for branch selection — do NOT pick silently.
+
+```bash
+# 1. List remote branches (cheap).
+git ls-remote --heads origin
+
+# 2. Surface feature-prefixed branches to the user:
+#      "Could not resolve PR #<N> via published ref or metadata API.
+#       Found the following candidates:
+#         - feature/CN-6-correcao-codereview
+#         - feature/EST-318-voucher-noname
+#       Which one is the source of PR #<N>? (or paste another branch name)"
+#    Wait for an explicit answer before fetching anything. NEVER guess by
+#    diff-size heuristics alone — that produced wrong-PR reviews in past runs.
+
+# 3. Once the user names the branch:
+git fetch origin "<user-named-branch>:refs/squad-pr/<N>" --no-tags --quiet
+git fetch origin "develop:refs/squad-base/<N>" --no-tags --quiet  # or main/master per repo convention
+BASE_REF=$(git merge-base refs/squad-pr/<N> refs/squad-base/<N>)
+```
+
+**If all three attempts fail**, halt per Section 5. Do NOT fall back to scraping the PR HTML page, `WebFetch`, or the `/diff` REST endpoint — those produce 10+ minute hangs.
 
 ### 4. Stage the diff for the spine
 
@@ -74,16 +138,17 @@ Then return to the spine with:
 - `workspace_root` = the clone path (NOT necessarily the original cwd).
 - `base_ref` = `$BASE_REF` (SHA from step 3).
 
-### 5. Auth failures — STOP, do not retry, do not fall back
+### 5. Auth + ref failures — STOP, do not retry, do not fall back
 
-`git clone` / `git fetch` against a private repo fail with one of:
+`git clone` / `git fetch` against a private repo fail with one of these strings; treat each as a halt signal (do NOT silently retry, do NOT scrape the HTML PR page, do NOT call `/diff`):
 
 - `Permission denied (publickey)` — no SSH key on the platform.
 - `could not read Username for 'https://...'` — no HTTPS credential helper.
 - `remote: Repository not found` — auth identity has no read access.
 - `fatal: Authentication failed` — token expired / revoked.
+- `couldn't find remote ref` — the refspec you tried doesn't exist on this remote. In Bitbucket Cloud this means the repo doesn't publish PR refs; advance to Section 3b Attempt 2 (metadata API) ONCE, then halt if that also fails. Do NOT loop different refspec variants — every variant of `pull-requests/N/*` returns the same error on a repo that doesn't publish them.
 
-On ANY of those: surface the error VERBATIM, then present these setup options and halt. Do NOT retry. Do NOT fall back to REST API, `WebFetch`, or `curl` on `/diff` URLs — those paths burned 12 minutes in past runs and never returned.
+On ANY of those: surface the error VERBATIM, then present these setup options and halt. Do NOT retry the same path. Do NOT fall back to REST API on `/diff`, `WebFetch`, or `curl` on `/diff` URLs — those paths burned 12 minutes in past runs and never returned. (The metadata API call in Section 3b Attempt 2 is the ONE exception — it hits `/pullrequests/<N>` for branch names only and is sub-second.)
 
 **Bitbucket Cloud setup (recommended: app password):**
 
