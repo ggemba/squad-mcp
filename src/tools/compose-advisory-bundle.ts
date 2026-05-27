@@ -95,13 +95,25 @@ async function buildMicroPrompt(args: {
       };
       if (args.baseRef !== undefined) hunksInput.base_ref = args.baseRef;
       const allHunks = await extractFileHunks(hunksInput);
+      // Sanitize diff content + file paths before embedding in the prompt.
+      // The diff is attacker-controlled when reviewing untrusted code — a
+      // hostile commit could embed role tokens or natural-language override
+      // instructions in changed lines, and the orchestrator is instructed
+      // to emit micro_prompt verbatim. sanitizeForPrompt strips zero-width,
+      // bidi, control codepoints, role tokens, and normalises NFKC. Same
+      // pass already applied to safeUserPrompt in composeAdvisoryBundle.
+      // File paths from `git diff --name-status` are also untrusted (a
+      // malicious branch could check in a path with newlines / markdown
+      // structure) — sanitize them too before rendering as headings.
       const parts: string[] = [];
       for (const p of filePaths) {
         const h = allHunks[p];
         if (h === undefined) continue;
-        parts.push(`### ${p}${h.truncated ? "  (truncated)" : ""}`);
+        const safePath = sanitizeForPrompt(p);
+        const safeDiff = sanitizeForPrompt(h.diff);
+        parts.push(`### ${safePath}${h.truncated ? "  (truncated)" : ""}`);
         parts.push("```diff");
-        parts.push(h.diff);
+        parts.push(safeDiff);
         parts.push("```");
       }
       diffText = parts.length > 0 ? parts.join("\n") : "[diff produced no hunks]";

@@ -5,6 +5,7 @@ import { runGit, validateRef, type RunGitOptions } from "../exec/git.js";
 import { isSquadError, SquadError } from "../errors.js";
 import { createSafePathContext, resolveSafePath } from "../util/path-safety.js";
 import { SafeString as safeString } from "./_shared/schemas.js";
+import { logger } from "../observability/logger.js";
 
 const schema = z.object({
   workspace_root: safeString(4096),
@@ -172,22 +173,42 @@ export async function detectChangedFiles(
   // talk to the same git index and don't block each other; the LOC stat is
   // cheap (one extra git fork, ~50-150ms cold) but waiting on it sequentially
   // would tax callers that ALWAYS pass with_stats=true (e.g. compose-core
-  // auto-detect path). Promise.all sequences them by wall-clock max, not sum.
+  // auto-detect path). Promise.allSettled sequences by wall-clock max AND
+  // isolates numstat failure: name-status is the authoritative result, a
+  // numstat rejection (allowlist regression, OOM, transient git error) must
+  // never kill the detect call. Fail-soft is intentional and documented in
+  // the schema field's JSDoc.
   let nameResult: Awaited<ReturnType<typeof runGit>>;
   let numstatResult: Awaited<ReturnType<typeof runGit>> | null = null;
-  try {
-    if (input.with_stats) {
-      const numstatArgs = ["--numstat", "--no-renames", ...rangeSuffix];
-      [nameResult, numstatResult] = await Promise.all([
-        runGit("diff", nameArgs, cwd, opts),
-        runGit("diff", numstatArgs, cwd, opts),
-      ]);
-    } else {
-      nameResult = await runGit("diff", nameArgs, cwd, opts);
+  if (input.with_stats) {
+    const numstatArgs = ["--numstat", "--no-renames", ...rangeSuffix];
+    const [nameSettled, numstatSettled] = await Promise.allSettled([
+      runGit("diff", nameArgs, cwd, opts),
+      runGit("diff", numstatArgs, cwd, opts),
+    ]);
+    if (nameSettled.status === "rejected") {
+      const err = nameSettled.reason;
+      if (isSquadError(err)) throw err;
+      throw new SquadError("GIT_EXEC_DENIED", err instanceof Error ? err.message : String(err));
     }
-  } catch (err) {
-    if (isSquadError(err)) throw err;
-    throw new SquadError("GIT_EXEC_DENIED", err instanceof Error ? err.message : String(err));
+    nameResult = nameSettled.value;
+    if (numstatSettled.status === "fulfilled") {
+      numstatResult = numstatSettled.value;
+    } else {
+      const err = numstatSettled.reason;
+      const code = isSquadError(err) ? err.code : "UNKNOWN";
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn("numstat subprocess rejected; omitting total_loc_changed", {
+        details: { code, message },
+      });
+    }
+  } else {
+    try {
+      nameResult = await runGit("diff", nameArgs, cwd, opts);
+    } catch (err) {
+      if (isSquadError(err)) throw err;
+      throw new SquadError("GIT_EXEC_DENIED", err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (nameResult.code !== 0) {
@@ -204,11 +225,11 @@ export async function detectChangedFiles(
     invocation,
   };
 
-  // Numstat is an additive signal — if the second subprocess failed we
-  // surface the file list anyway and just omit `total_loc_changed`. The
-  // caller's worst case is a downstream auto-detect that falls through to
-  // `quick`/`normal` because the LOC cap can't be evaluated; that is
-  // strictly safer than crashing the whole detect call.
+  // Numstat is an additive signal — if the second subprocess returned non-zero
+  // OR was rejected outright (logged above), we surface the file list anyway
+  // and just omit `total_loc_changed`. The caller's worst case is a downstream
+  // auto-detect that falls through to `quick`/`normal` because the LOC cap
+  // can't be evaluated; that is strictly safer than crashing the whole detect.
   if (numstatResult !== null && numstatResult.code === 0) {
     output.total_loc_changed = sumNumstat(numstatResult.stdout);
   }
