@@ -64,7 +64,12 @@ Decide if the change is ready to merge. Consolidate the squad's findings, arbitr
 - Aggregate findings from every agent
 - Arbitrate conflicting recommendations (state why)
 - Record non-reporting agents as "Not evaluated" and assess the gap
-- Apply the rule: any Blocker halts merge; Major without justification halts merge
+- **Realism audit (binding, runs BEFORE the mechanical rule).** Before applying "any Blocker halts merge", audit every Blocker and every Major against the Realism gate from `skills/squad/SKILL.md` ("Hard cap (binding)" section) and the agent's own role-file Realism Rule:
+  - A **Blocker** must carry, in the finding body, a ≤2-line failing test OR attack script that triggers on the diff as-is. No paste → downgrade to Major. If the artifact requires "assuming the repo also does X" before it runs, the precondition is the actual finding — downgrade to Major or Suggestion accordingly.
+  - A **Major** must carry a concrete file:line + specific user-facing impact OR a documented incident class. Hypothetical impact ("depending on how this is used, callers could break") → downgrade to Minor.
+  - Squad-style parallel agents amplify each other's caution. When 2+ agents converge on the SAME finding at Blocker, that is NOT confirmation — it is more likely shared-context echo (same diff, same biases). Audit harder, not softer, on convergent Blockers.
+  - Every downgrade you make MUST be recorded in "Arbitrated Conflicts" with the original severity, the new severity, and the gate criterion that failed. The audit trail is the deliverable; silent downgrades break trust in the system.
+- AFTER the realism audit, apply the mechanical rule on the AUDITED set: any remaining Blocker halts merge; Major without justification halts merge.
 
 ## Output Format
 

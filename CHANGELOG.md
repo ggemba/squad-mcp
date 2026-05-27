@@ -5,6 +5,57 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-05-27
+
+### Behavior changes
+
+- **`/squad:review` PR-target resolution is now a binding recipe, not a vague
+  bullet.** Before v1.6, the spine instruction for `/squad:review <pr-url>`
+  read "PR number → fetch the diff and treat as a branch range" — vague enough
+  that the orchestrator improvised, often round-tripping through Bitbucket /
+  GitHub REST APIs or `WebFetch` against auth-walled private repos and
+  hanging for 10+ minutes per run. The new `skills/squad/modes/review.md`
+  "Phase 0 — Resolve PR target" enforces the only reliable path: local
+  `git clone --depth 1 --filter=blob:none --no-checkout` + `git fetch origin
+<refspec>:refs/squad-pr/<N>`, with a documented refspec table for GitHub
+  (`pull/<N>/head`) and Bitbucket Cloud (`pull-requests/<N>/head`). REST API,
+  `WebFetch`, and `curl` on `/diff` are now explicitly forbidden. On auth
+  failure the skill halts and surfaces SSH-key / app-password / `gh auth login`
+  setup steps verbatim instead of retrying in a loop. Spine bullet in
+  `skills/squad/SKILL.md` updated to point at the recipe.
+- **Severity-inflation calibration in the advisory squad.** Three changes work
+  together to counter the failure mode where 2 agents in quick-mode converge
+  on the same hypothetical Blocker and the consolidator mechanically forwards
+  it as REJECTED:
+  - `skills/squad/SKILL.md` "Hard cap (binding)" reworded: **0 Blockers by
+    default**, 1 only when the agent can paste a ≤2-line failing test OR
+    attack script INSIDE the finding body that triggers the failure on the
+    diff as-is. Hypothetical chains ("if `AsNoTracking` is not used
+    elsewhere, then mutation persists") are explicitly demoted to Suggestion;
+    they depend on code outside the diff that the agent has not read.
+  - New "Realism gate (binding, inline)" subsection in the per-agent advisory
+    prompt template (same file, inside the `agent_advisory` prompt body so it
+    is injected on every dispatch — not just referenced from a role file).
+    Four-criterion gate: concrete evidence, reproducible artifact for Blocker,
+    concrete impact for Major, and an honesty test ("would a calibrated
+    single-pass review raise this at the same severity?").
+  - `agents/tech-lead-consolidator.md` gains a Realism-audit step that runs
+    BEFORE the mechanical "any Blocker halts merge" rule. The consolidator
+    now downgrades Blockers without a pasted artifact to Major and Majors
+    with hypothetical impact to Minor, recording every downgrade in the
+    "Arbitrated Conflicts" table with the gate criterion that failed. Two
+    agents converging on the same Blocker is treated as an echo-chamber
+    signal (audit harder), not as confirmation (audit softer).
+
+### Migration notes
+
+- No MCP-contract changes. Tool schemas, agent definitions (other than
+  `tech-lead-consolidator`), and skill phase numbering are unchanged.
+- Behavior shift: existing `/squad:review` runs against unchanged diffs will
+  produce fewer Blockers and more Majors / Suggestions. Calibrate any
+  downstream automation (PR-status gates, slack alerts) that keyed on the
+  raw Blocker count.
+
 ## [1.5.2] - 2026-05-26
 
 ### Fixed

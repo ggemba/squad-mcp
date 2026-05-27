@@ -148,7 +148,7 @@ Resolve target first:
 
 - Empty argument → review the current uncommitted diff (`base_ref` = `HEAD`, `staged_only=false`)
 - Branch name → review `<branch>..HEAD` or `main..<branch>` per user intent
-- PR number → fetch the diff and treat as a branch range
+- **PR URL or `#N`** → run the clone-and-fetch recipe in `modes/review.md` "Phase 0 — Resolve PR target" BEFORE calling any MCP tool. NEVER fetch the PR diff via REST API, WebFetch, `curl` on `/diff`, or any HTTP path — every one of those has produced 10+ minute hangs against private repos (auth-walled, Cloudflare-rate-limited). Local git only. On auth failure, halt and surface the setup steps; do NOT fall back to slow paths.
 - File path → review the working-tree changes under that path
 
 Run `compose_advisory_bundle` with `workspace_root`, the resolved `base_ref`, `user_prompt = "review the changes in this diff"` (or richer if user gave context), and `plan = ""` (empty — no plan to validate in review).
@@ -348,13 +348,22 @@ You do NOT implement. Output is text only.
 
 Each agent emits at most:
 
-- **1 Blocker** — only if a concrete exploit chain, data-loss path, or user-flow regression can be demonstrated in 1-2 lines of attack/test code.
-- **2 Major** — each with cited file:line evidence and a concrete repro or impact statement.
+- **0 Blockers by default.** Emit 1 ONLY when you can paste, INSIDE the finding body itself, a ≤2-line failing test OR attack script that triggers the failure on the current diff. Not a sketch ("you could write a test that..."), not a hypothesis ("if X is also true, then Y"), not a chain that depends on code outside this diff that you have not read — an actual runnable artifact a reader can paste into the repo and watch fail. If you cannot paste the artifact, the finding is Major at best, Suggestion when more honest. "If `AsNoTracking` is not used elsewhere, then mutation persists" is a hypothetical — it depends on code outside the diff and asks the reader to verify the precondition; that is Suggestion, NOT Blocker.
+- **2 Major** — each with cited file:line evidence AND either a concrete repro path you walked yourself or a documented incident class. A Major may still depend on context outside the diff (e.g. "this changes a public API contract"), but the impact statement must be specific, not "depending on how this is used, it could break callers".
 - **2 Minor + Suggestion combined** — keep these tight; they are advisory only.
 
 If you find more candidates than the cap permits, fold the weakest into the most-related neighbor or drop them entirely. Prioritization is the deliverable; enumeration is not. Padding (findings without concrete evidence, repro path, or known incident class) is treated as low signal, not thoroughness, and degrades the rubric.
 
-See your role file's "Realism Rule (binding)" section for the threshold between theoretical edge cases (Suggestion only) and findings that earn Major/Blocker.
+### Realism gate (binding, inline — do NOT rely on the role-file copy alone)
+
+Before classifying any finding as Blocker or Major, run it through this gate:
+
+1. **Concrete evidence.** Can you point to a `file:line` in the diff that, by itself, exhibits the problem? If the problem only exists when combined with code you have NOT been shown, downgrade.
+2. **Reproducible artifact for Blocker.** Can you paste a ≤2-line failing test or attack script in the finding body that triggers the failure on the diff as-is? If you have to write "assuming the repo also does X" before the artifact runs, it is not a Blocker.
+3. **Concrete impact for Major.** Can you describe a specific user-facing failure, data-corruption path, or contract break — not "depending on usage, could lead to issues"? If the impact is conditional on configuration you cannot inspect, it is Minor or Suggestion.
+4. **Honesty test.** If a calibrated single-pass review (one expert reading the same diff for 15 minutes) would NOT raise this at the severity you chose, downgrade. Squad-style parallel agents amplify each other's caution; the gate exists to counter that drift.
+
+A finding that fails the gate is not "still useful at the original severity, we'll let the consolidator decide". It is downgraded BY YOU before it leaves your report, or dropped. The consolidator's job is to arbitrate cross-agent conflicts, not to clean up severity inflation upstream.
 
 ## Score
 
