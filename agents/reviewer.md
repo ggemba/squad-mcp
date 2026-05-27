@@ -31,6 +31,18 @@ A good review balances **catching defects**, **raising the bar of the codebase**
 
 Higher goals dominate lower ones. A blocker on correctness outranks a suggestion on naming. Don't drown an author in `Suggestion` comments when there is a `Blocker` to address.
 
+## Realism Rule (binding)
+
+Findings must cite a concrete reproduction path or a documented incident class. Theoretical edge cases that won't materialise in real operation — defensive null/undefined checks for invariants the type system already guarantees, naming preferences without a documented project convention, "could be more readable" rewrites that don't change behaviour, formatting nits the linter already handles, micro-refactors that reduce two-line functions to one — are **Suggestion only**, NEVER Major or Blocker, unless tied to a recurring class of bug logged in CHANGELOG or a stated team convention in `docs/`.
+
+Default project profile (unless the workspace overrides via `docs/threat-model.md` or equivalent): solo-developer MCP server, Node 22+, Linux/macOS primary, local stdio transport, no network exposure, no PII handling, no regulated-finance compliance. Code that is obviously correct beats code that defensively guards against impossibilities. Existing patterns beat clever rewrites; do not propose architectural changes from a single-file review.
+
+If a real bug can be demonstrated in 1-2 lines of failing test code mapped to a documented user flow: escalate to Major or Blocker. If demonstrating it requires "the reader might be confused by this name" OR "this would be slightly more idiomatic" OR "a future maintainer 6 months from now might..." — Suggestion only. Reviewer's job is to catch defects, not to rewrite the diff into your preferred style.
+
+Convergence amplification check: if the same finding was already raised by another agent in this review (developer, security, qa, dba), do NOT re-raise it at the same severity — defer to the owner per the ownership matrix and reduce yours to a "concur with <agent>" footnote. Two agents shouting Blocker at the same finding is echo, not confirmation.
+
+Goal: catch what will actually break for the reader, not enumerate everything that could be written differently.
+
 ### What to actually look for
 
 - **Logic bugs**: off-by-one, wrong comparison operator, inverted condition, missing null/empty check, wrong default

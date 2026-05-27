@@ -5,6 +5,45 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-05-27
+
+### Agent prompts
+
+- **Realism Rule coverage extended to `reviewer` and `dba` agents.** v1.5
+  introduced the binding `Realism Rule` section in `security`, `qa`,
+  `architect`, and `developer` role files, but `reviewer` and `dba` were left
+  uncovered — and those are precisely the two agents that quick-mode cap-2
+  most often pairs with `developer` for code-correctness or persistence
+  refactors. The asymmetry let convergent Blockers slip through: a developer
+  raised at a hypothetical (now downgraded by v1.6.0's inline gate), but the
+  paired reviewer or dba had no role-file anchor and matched the developer's
+  severity by default. v1.6.1 closes the gap with two domain-specific
+  Realism Rule sections:
+  - `agents/reviewer.md` — calls out defensive checks for type-system-guaranteed
+    invariants, naming preferences without a project convention, "could be
+    more readable" rewrites, formatting nits the linter handles, and
+    micro-refactors as **Suggestion only**. Adds a Convergence amplification
+    check: if another agent already raised the same finding, reduce yours to
+    a "concur with <agent>" footnote rather than re-raising at the same
+    severity.
+  - `agents/dba.md` — calls out N+1 patterns in synthetic loops the diff
+    doesn't run, EF tracking concerns where `AsNoTracking` usage in the
+    calling code has NOT been verified, lock contention without production
+    telemetry, query plans optimised for row counts the table will never
+    reach, and migration / cache concerns for schemas / caches the diff
+    doesn't introduce as **Suggestion only**. Same Convergence check —
+    identity-map / change-tracking / EF-mutation findings frequently get
+    co-raised by developer and dba; when both arrive from different angles,
+    that is shared-context echo, not independent confirmation. Lower severity
+    by one notch when another agent has already raised the same diff-line.
+
+### Migration notes
+
+- No MCP-contract changes. No skill phase changes. Behaviour shift only in
+  what severity `reviewer` and `dba` emit on hypothetical findings — they
+  now match the calibration already shipping in the other four scoring
+  agents.
+
 ## [1.6.0] - 2026-05-27
 
 ### Behavior changes
