@@ -5,6 +5,29 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-05-26
+
+### Fixed
+
+- README.md Quick Start and `/squad:pipeline` section aligned to v1.5
+  behavior — Phase 5 advisory now runs AFTER implementation, and the
+  pipeline auto-invokes sub-skills between explicit user-decision gates.
+  v1.5.0 shipped with stale README text describing the pre-v1.5 order;
+  this corrects the upgrade path documentation.
+
+### Tests
+
+- `tests/safe-read.test.ts` — covers `readWithPrevFallback` freshness
+  gate, primary read, `.prev` fallback within window, stale `.prev`
+  returns null, double-ENOENT returns null, non-ENOENT error rethrows,
+  and the `safe_read_fallback` info-log emission.
+- `tests/cli-spawn-smoke.test.ts` — replaces the deleted
+  `tests/cli-smoke.test.ts` incident-class guard. Spawns each
+  `tools/*.mjs` CLI at process level and asserts they do not crash
+  with `Cannot find module` / `SyntaxError` / `ReferenceError` —
+  guarding against the two v1.4.2 incidents (CLI crash without
+  `--file`, `post-review.mjs` broken imports).
+
 ## [1.5.0] - 2026-05-26
 
 ### Security
