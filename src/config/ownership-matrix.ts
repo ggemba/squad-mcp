@@ -324,6 +324,25 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
     agent: "dba",
     pattern: /\bSELECT\b[\s\S]{0,200}\bFROM\b/i,
     description: "Raw SQL query",
+    // Gated to code-bearing extensions: docs (.md, .txt, .rst) routinely
+    // contain example SQL in code fences and would false-positive otherwise.
+    ext_filter: [
+      ".cs",
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".py",
+      ".go",
+      ".sql",
+      ".cshtml",
+      ".java",
+      ".kt",
+      ".rb",
+      ".php",
+    ],
   },
   {
     agent: "dba",
@@ -332,7 +351,10 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
   },
   {
     agent: "dba",
-    pattern: /Migration|migrationBuilder\./,
+    // Previously matched bare word `Migration` anywhere (e.g. in comments like
+    // "// Migration helper") — tightened to require either the EF namespace
+    // import or an actual `migrationBuilder.<method>(` call.
+    pattern: /using\s+Microsoft\.EntityFrameworkCore\.Migrations|\bmigrationBuilder\.\w+\s*\(/,
     description: "EF migration",
   },
 
@@ -435,7 +457,9 @@ export const CONTENT_SIGNALS: ContentSignal[] = [
   },
   {
     agent: "security",
-    pattern: /\bRouter\s*\(\s*\)/,
+    // Previously matched any `Router()` call (e.g. internal factories like
+    // `function Router() { ... }`) — tightened to Express/decorator forms.
+    pattern: /\bexpress\.Router\s*\(\s*\)|\bnew\s+Router\s*\(|@Router\s*\(/,
     description: "Express router",
     ext_filter: TS_EXT,
   },
@@ -557,6 +581,25 @@ export interface PathHint {
   agent: AgentName;
   pattern: RegExp;
   description: string;
+  /**
+   * When true, this path hint alone does NOT promote the agent — the matching
+   * file must ALSO produce a content signal for the same agent, OR be a newly
+   * added file (status=A), OR have at least `MIN_LOC_FOR_WEAK_PATH` changed
+   * lines. Used for path patterns whose nomenclature is suggestive but where
+   * the actual content frequently has no agent-relevant change (e.g.
+   * `*Repository.cs` whose diff just renames a method, `DependencyInjection.cs`
+   * whose diff removes one `AddSingleton<>`). See `select_squad` promotion gate.
+   *
+   * STRONG hints (default `false` / omitted) continue to promote on path match
+   * alone — these are patterns whose location/nomenclature is dispositive
+   * regardless of the diff content (migrations folder, .sql files, test files,
+   * .csproj boundaries, Auth/Identity/Jwt naming).
+   *
+   * SKIP-D is applied universally to ALL path hints — a deleted file (status=D)
+   * never promotes via path because there is no post-deletion content for the
+   * agent to review. See `select_squad`.
+   */
+  requires_content?: boolean;
 }
 
 export const PATH_HINTS: PathHint[] = [
@@ -570,26 +613,31 @@ export const PATH_HINTS: PathHint[] = [
     agent: "dba",
     pattern: /Repository\.cs$/i,
     description: "Repository naming",
+    requires_content: true,
   },
   {
     agent: "dba",
     pattern: /DbContext\.cs$/i,
     description: "DbContext naming",
+    requires_content: true,
   },
   {
     agent: "dba",
     pattern: /[\\/]models[\\/]/i,
     description: "models folder",
+    requires_content: true,
   },
   {
     agent: "security",
     pattern: /Controller\.cs$/i,
     description: "Controller naming",
+    requires_content: true,
   },
   {
     agent: "security",
     pattern: /[\\/]Endpoints?[\\/]/i,
     description: "endpoints folder",
+    requires_content: true,
   },
   {
     agent: "security",
@@ -605,6 +653,7 @@ export const PATH_HINTS: PathHint[] = [
     agent: "architect",
     pattern: /Program\.cs$|Startup\.cs$/i,
     description: "composition root",
+    requires_content: true,
   },
   {
     agent: "architect",
@@ -615,6 +664,7 @@ export const PATH_HINTS: PathHint[] = [
     agent: "architect",
     pattern: /DependencyInjection\.cs$|ServiceCollectionExtensions\.cs$/i,
     description: "DI extensions",
+    requires_content: true,
   },
   {
     agent: "qa",

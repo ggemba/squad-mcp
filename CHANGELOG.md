@@ -5,6 +5,77 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-05-27
+
+### Fixed
+
+- **`select_squad` path-hint promotion gate (no more over-eager agent spawning).**
+  Until v1.7.2, a path-based agent signal (e.g. a file named `*Repository.cs`
+  hinting `dba`, or `DependencyInjection.cs` hinting `architect`) promoted the
+  agent on file-name match alone — regardless of file status or magnitude of
+  the change. Reproducer that motivated this release: a PR that deleted two
+  orphan `*Repository.cs` files and edited 6 lines of DI plumbing in
+  `DependencyInjection.cs` spawned a full normal-mode squad (developer + qa +
+  dba + architect + consolidator), 5 dispatches and ~5 min wall-clock, even
+  though the diff contained zero SQL/EF/migration code and zero structural
+  architectural change. The dba and architect were puxados purely by path
+  nomenclature.
+
+  New gate (`src/tools/select-squad.ts`):
+  1. **SKIP-D universal** — a deleted file (`status === "deleted"`) never
+     promotes via a path signal. There is no post-deletion content for the
+     agent to review.
+  2. **WEAK path signals** — `PathHint.requires_content: true` marks signals
+     whose nomenclature is suggestive but where the actual diff content
+     frequently has no agent-relevant change. A WEAK path match no longer
+     promotes the agent unless ALSO: a content signal for the same agent
+     fired, OR the file is newly added (`status === "added"`), OR the file
+     has at least `MIN_LOC_FOR_WEAK_PATH` (default 5) changed lines.
+  3. **Magnitude data flows end-to-end** — `detect_changed_files` now retains
+     per-file `loc_added` / `loc_deleted` from `git diff --numstat` (previously
+     only the aggregated `total_loc_changed` was kept). `compose-core.ts`
+     passes the rich `ChangedFile[]` shape to `selectSquad` (status + per-file
+     LOC) so the gate has the signals it needs.
+
+  9 `PATH_HINTS` marked WEAK (`requires_content: true`):
+  `Repository.cs`, `DbContext.cs`, `/models/`, `Controller.cs`, `/Endpoints/`,
+  `Program.cs`, `Startup.cs`, `DependencyInjection.cs`,
+  `ServiceCollectionExtensions.cs`. 7 STRONG hints (migrations folder, SQL
+  files, Auth/Identity/Jwt naming, `/api|/handlers|/middleware|/services/`,
+  `.csproj`, `*.test/spec/_test.go/test_*.py`) continue to promote on path
+  match alone (subject to SKIP-D).
+
+- **3 CONTENT_SIGNALS tightened to reduce false positives**:
+  - `dba` `\bSELECT\b...\bFROM\b` now gates on a code-bearing `ext_filter`
+    (was unrestricted — false-positive risk on `.md` / `.txt` example queries).
+  - `dba` `Migration|migrationBuilder.` rewritten as
+    `using\s+Microsoft\.EntityFrameworkCore\.Migrations|\bmigrationBuilder\.\w+\s*\(`
+    (was too loose — bare word `Migration` in a comment would trip).
+  - `security` `\bRouter\s*\(\s*\)` rewritten as
+    `\bexpress\.Router\s*\(\s*\)|\bnew\s+Router\s*\(|@Router\s*\(`
+    (was too loose — any internal `function Router() {}` would trip).
+
+### Added
+
+- `MIN_LOC_FOR_WEAK_PATH = 5` named constant exported from `select-squad.ts`
+  for future `.squad.yaml` override.
+- `ChangedFile.loc_added` / `loc_deleted` per-file (v1.7.3+) on
+  `detect_changed_files` output when `with_stats: true`.
+- `select_squad` accepts both legacy `files: string[]` AND new
+  `files: { path, status, loc_added?, loc_deleted? }[]` via `z.union`.
+  Backward compatible: legacy strings are coerced to `status: "modified"`.
+- 9 new tests in `tests/select-squad-path-gate.test.ts` covering SKIP-D,
+  WEAK-without-content non-promote, WEAK + loc-threshold promote, WEAK +
+  status=added promote, STRONG always-promote-except-D, legacy back-compat,
+  core-agents preservation.
+
+### Impact
+
+The PR that motivated this release would now spawn **2 agents (developer + qa,
+the Feature core)** instead of 5, in `quick` auto-mode. Wall-clock estimate:
+~30-60s instead of ~5min — a 5-8x reduction on the path that the diff
+shouldn't have triggered in the first place.
+
 ## [1.7.2] - 2026-05-27
 
 ### Fixed
