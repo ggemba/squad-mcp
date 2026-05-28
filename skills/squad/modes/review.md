@@ -57,6 +57,112 @@ BASE_REF=$(git merge-base refs/squad-pr/<N> refs/squad-base/<N>)
 
 #### 3b. Bitbucket Cloud — try in order, stop at first success
 
+> **Why this is a 4-step cascade.** Bitbucket Cloud has no single reliable way to fetch a PR — `pull/<N>/head` (GitHub style) does not exist, `refs/pull-requests/<N>/from` works on some repos but not others, and worst of all the Windows **Git Credential Manager (GCM 2.x)** intercepts git's HTTPS auth flow and dispatches OAuth when it sees `WWW-Authenticate: BitbucketCustom realm` — overriding any app password / API token the user stored. Phase 0 against Bitbucket Cloud has historically taken 3-6 min on Windows even with valid credentials. **Attempt 0 (v1.7.4+) sidesteps git entirely** and is the fastest path when the user has a working Atlassian API token (~5-10s total for any PR size).
+
+**Attempt 0 (v1.7.4+) — API-only fast path (preferred when an Atlassian API token is configured):**
+
+Bypasses `git clone`/`git fetch` entirely. The Bitbucket REST API is read-only over `curl`, returns sub-second on metadata + diffstat, and is not subject to the GCM OAuth-intercept that breaks git operations on Windows. Builds a local fake git repo from the API blobs that is indistinguishable from a real clone for `compose_advisory_bundle` purposes.
+
+```bash
+# A0.1: pick up stored credentials (any helper — GCM, netrc, store)
+CRED=$(printf "protocol=https\nhost=bitbucket.org\n\n" | git credential fill 2>/dev/null)
+USER=$(echo "$CRED" | grep '^username=' | sed 's/^username=//')
+PASS=$(echo "$CRED" | grep '^password=' | sed 's/^password=//')
+
+# A0.2: metadata — sub-second; gives us source SHA, destination SHA, title, state.
+META_HTTP=$(curl -sS -o /tmp/squad-pr-meta.json -w "%{http_code}" --max-time 10 \
+  -u "$USER:$PASS" \
+  "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/pullrequests/<N>")
+
+if [ "$META_HTTP" != "200" ]; then
+  # Common failures:
+  #   401 → username is the bare handle (Atlassian API tokens require EMAIL).
+  #   403 → token is missing the `Repositories: Read` scope (response body
+  #         carries `"required": ["read:repository:bitbucket"]`).
+  #   404 → wrong workspace/repo/PR id.
+  # See Section 5 setup notes. Fall through to Attempt 1 ONLY if you have
+  # reason to expect the git ref path will work (rare on Bitbucket Cloud).
+  # Otherwise halt and surface the API error verbatim.
+fi
+
+SRC_SHA=$(jq -r '.source.commit.hash' /tmp/squad-pr-meta.json)
+DST_SHA=$(jq -r '.destination.commit.hash' /tmp/squad-pr-meta.json)
+TITLE=$(jq -r '.title' /tmp/squad-pr-meta.json)
+STATE=$(jq -r '.state' /tmp/squad-pr-meta.json)
+
+# A0.3: diffstat — list of changed files + per-file status + per-file LOC.
+# Page size 500 covers nearly every real PR; for the rare giant PR, paginate.
+curl -sS -L -o /tmp/squad-pr-diffstat.json -u "$USER:$PASS" --max-time 10 \
+  "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/pullrequests/<N>/diffstat?pagelen=500"
+
+# A0.4: for each changed file, fetch BASE blob (at $DST_SHA) and HEAD blob
+# (at $SRC_SHA). Status from diffstat dictates which side to fetch:
+#   modified → both base and head
+#   added    → only head (base is empty)
+#   removed  → only base (head is empty)
+#   renamed  → both, plus the old path on base side
+WS=/tmp/squad-pr-<repo>-<N>
+mkdir -p "$WS"
+mkdir -p /tmp/squad-pr-head-stage
+jq -r '.values[] | "\(.status)\t\(.new.path // "")\t\(.old.path // "")"' /tmp/squad-pr-diffstat.json \
+  | while IFS=$'\t' read -r STATUS NEW_PATH OLD_PATH; do
+      case "$STATUS" in
+        added)
+          mkdir -p "/tmp/squad-pr-head-stage/$(dirname "$NEW_PATH")"
+          curl -sS -L -u "$USER:$PASS" --max-time 10 \
+            "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/src/$SRC_SHA/$NEW_PATH" \
+            -o "/tmp/squad-pr-head-stage/$NEW_PATH"
+          ;;
+        modified|renamed)
+          OLD_FILE="${OLD_PATH:-$NEW_PATH}"
+          mkdir -p "$WS/$(dirname "$OLD_FILE")"
+          mkdir -p "/tmp/squad-pr-head-stage/$(dirname "$NEW_PATH")"
+          curl -sS -L -u "$USER:$PASS" --max-time 10 \
+            "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/src/$DST_SHA/$OLD_FILE" \
+            -o "$WS/$OLD_FILE"
+          curl -sS -L -u "$USER:$PASS" --max-time 10 \
+            "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/src/$SRC_SHA/$NEW_PATH" \
+            -o "/tmp/squad-pr-head-stage/$NEW_PATH"
+          ;;
+        removed)
+          mkdir -p "$WS/$(dirname "$OLD_PATH")"
+          curl -sS -L -u "$USER:$PASS" --max-time 10 \
+            "https://api.bitbucket.org/2.0/repositories/<ws>/<repo>/src/$DST_SHA/$OLD_PATH" \
+            -o "$WS/$OLD_PATH"
+          # nothing to stage on head side — the file is gone in HEAD
+          ;;
+      esac
+    done
+
+# A0.5: build the fake git repo. Two commits: BASE state then HEAD state.
+cd "$WS"
+git init -q -b main
+git config user.email "squad-mcp@local"
+git config user.name "squad-mcp"
+git add -A 2>/dev/null && git commit -q -m "base @ $DST_SHA" --allow-empty
+BASE_REF=$(git rev-parse HEAD)
+
+# Overlay HEAD state: copy staged head files, then for `removed` entries
+# delete them from the working tree before commit.
+[ -d /tmp/squad-pr-head-stage ] && cp -r /tmp/squad-pr-head-stage/. "$WS/" 2>/dev/null
+jq -r '.values[] | select(.status == "removed") | .old.path' /tmp/squad-pr-diffstat.json \
+  | while read -r REMOVED; do rm -f "$WS/$REMOVED"; done
+
+git add -A 2>/dev/null
+git commit -q -m "PR #<N> head @ $SRC_SHA: $TITLE" --allow-empty
+rm -rf /tmp/squad-pr-head-stage
+
+# A0.6: return to the spine with workspace_root + base_ref.
+# workspace_root = $WS
+# base_ref = $BASE_REF
+```
+
+**When Attempt 0 applies:** Bitbucket Cloud target AND `git credential fill` returned a non-empty username and password. The metadata HTTP code is the bouncer — 200 means proceed; 401/403/404 means halt or fall through per the comment.
+
+**When Attempt 0 is unsuitable:** GitHub target (use Section 3a — `pull/<N>/head` is reliable there); no stored credential at all (skip to Attempt 3 heuristic discovery, since the user clearly hasn't set up auth).
+
+**Performance**: Attempt 0 wall-clock is dominated by the per-file `/src/` blob fetches. A 1-file PR takes ~3-5s; a 10-file PR takes ~5-8s; a 100-file PR takes ~25-40s. All MUCH faster than the ~3-6 min that git-based attempts cost on Windows when GCM is in the way.
+
 **Attempt 1 — published PR ref (works on some repos):**
 
 ```bash
@@ -147,18 +253,56 @@ Then return to the spine with:
 - `remote: Repository not found` — auth identity has no read access.
 - `fatal: Authentication failed` — token expired / revoked.
 - `couldn't find remote ref` — the refspec you tried doesn't exist on this remote. In Bitbucket Cloud this means the repo doesn't publish PR refs; advance to Section 3b Attempt 2 (metadata API) ONCE, then halt if that also fails. Do NOT loop different refspec variants — every variant of `pull-requests/N/*` returns the same error on a repo that doesn't publish them.
+- `HTTP 401 from /pullrequests/<N>` (Attempt 0/2) — username is likely the bare Bitbucket handle. Atlassian API tokens (2024+ format, `ATATT...`) require the **email** as username. Halt and surface: "use `<your-email>@<your-domain>` as username with API tokens, not the Bitbucket handle. See Section 5."
+- `HTTP 403 with body containing "required": ["read:repository:bitbucket"]` (Attempt 0/`/diff`) — token is missing the `Repositories: Read` scope. Halt and surface: "API token has `read:pullrequest` only; needs `read:repository` too. Recreate at https://id.atlassian.com/manage-profile/security/api-tokens with BOTH scopes checked."
 
 On ANY of those: surface the error VERBATIM, then present these setup options and halt. Do NOT retry the same path. Do NOT fall back to REST API on `/diff`, `WebFetch`, or `curl` on `/diff` URLs — those paths burned 12 minutes in past runs and never returned. (The metadata API call in Section 3b Attempt 2 is the ONE exception — it hits `/pullrequests/<N>` for branch names only and is sub-second.)
 
-**Bitbucket Cloud setup (recommended: app password):**
+**Bitbucket Cloud setup (Atlassian API Token — 2024+ format, recommended):**
 
+Atlassian deprecated app-passwords in favour of API tokens. The new format:
+
+- Starts with `ATATT` (≈ 192 chars)
+- Created at `https://id.atlassian.com/manage-profile/security/api-tokens` (NOT the old `bitbucket.org/account/settings/app-passwords/` page)
+- Uses your **email** as username (`user@domain.com`), NOT the Bitbucket handle. The handle returns 401 with API tokens.
+- Requires **BOTH** scopes for `/squad:review` to function end-to-end:
+  - `Pull requests: Read` — required for Attempt 0.2 (metadata) and Attempt 2 (metadata API fallback)
+  - `Repositories: Read` — required for Attempt 0.3-0.4 (diffstat + `/src/{sha}/{path}` blobs) AND for `git clone`/`git fetch` if those paths are exercised
+
+Setup steps:
+
+```bash
+# 1. Open https://id.atlassian.com/manage-profile/security/api-tokens
+# 2. "Create API token with scopes" → check "Pull requests: Read" AND "Repositories: Read"
+# 3. Copy the token (you only see it once)
+
+# 4. Store via git credential (works for both Attempt 0 and git operations):
+printf 'protocol=https\nhost=bitbucket.org\nusername=<your-email>@<your-domain>\npassword=<ATATT...>\n\n' | git credential approve
+
+# 5. Verify metadata API responds (Attempt 0 prerequisite):
+curl -sS -o /dev/null -w "%{http_code}\n" \
+  -u "<your-email>@<your-domain>:<ATATT...>" \
+  "https://api.bitbucket.org/2.0/repositories/<ws>/<any-repo>/pullrequests/<any-PR>"
+# Expected: 200. If 401, username is wrong (must be email). If 403, token missing scope.
 ```
-1. Open https://bitbucket.org/account/settings/app-passwords/
-2. Create token with scope "Repositories: Read"
-3. git config --global credential.helper store
-4. git clone https://<your-email>@bitbucket.org/<ws>/<repo>.git /tmp/test
-   (paste app password when prompted; stored for subsequent clones)
-```
+
+**Windows-specific warning — GCM OAuth intercept:**
+
+On Windows, Git Credential Manager (GCM 2.x) intercepts git's HTTPS auth flow and dispatches an **OAuth flow** when the server responds with `WWW-Authenticate: BitbucketCustom realm` — overriding any app password / API token stored in the credential cache. Symptom: `git clone` keeps failing with `fatal: Authentication failed` even when `git credential fill` returns the correct token, and even when `~/.netrc` is configured. None of these workarounds fixed it in our tests (Windows, Git Bash, GCM 2.1.2):
+
+- `git config --global credential.helper ""` (per-call disable)
+- `git -c http.extraHeader="Authorization: Basic ..."`
+- `GIT_ASKPASS=script.sh git clone ...`
+
+**Mitigations** (in order of preference):
+
+1. **Prefer Attempt 0** — the API-only path documented above sidesteps git entirely and is unaffected by GCM. As long as the API token works (`curl` returns 200), `/squad:review` runs in ~5-10s for Phase 0.
+2. **Force GCM into basic-auth mode** for Bitbucket (works on some installs):
+   ```bash
+   git config --global credential.https://bitbucket.org.bitbucketAuthModes basic
+   git config --global credential.https://bitbucket.org.username <your-email>@<your-domain>
+   ```
+3. **Last resort — SSH**: generate an SSH key, add the public half at `https://bitbucket.org/account/settings/ssh-keys/`, switch all clones to `git@bitbucket.org:<ws>/<repo>.git`. Works around GCM completely but requires user setup beyond this skill's scope.
 
 **GitHub setup:**
 
