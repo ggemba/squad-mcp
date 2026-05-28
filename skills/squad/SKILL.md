@@ -196,12 +196,13 @@ If `--codex` flag present, or risk is High and the user opts in, dispatch Codex 
 
 ### Phase 5 — `mode === "micro"` short-circuit (v1.7+)
 
-When `workflow.mode === "micro"`, **do not call `Task()` at all**. The bundle from `compose_advisory_bundle` already carries `micro_prompt` — a complete, single-pass review prompt with the full diff, criteria, scorecard template, and verdict rule. Skip every step below and emit the review inline:
+When `workflow.mode === "micro"`, **do not call `Task()` at all**. The bundle from `compose_advisory_bundle` already carries `micro_prompt` — a complete, single-pass review prompt with the full diff, criteria, mandatory contextual-investigation steps (v1.7.7+), scorecard template, and verdict rule. Skip the dispatch path and emit the review inline:
 
 1. Read `bundle.micro_prompt`.
-2. Treat the string as instructions FOR THE ORCHESTRATOR (you). Analyse the diff that the prompt carries, fill in the scorecard, and declare the verdict — all in the same assistant turn.
-3. Surface the result to the user verbatim as your own response, with file:line citations for any findings.
-4. Then proceed directly to Phase 10 (which is itself short-circuited when `mode === "micro"` — see below).
+2. Treat the string as instructions FOR THE ORCHESTRATOR (you). Execute the prompt's **"Investigação contextual obrigatória"** section first — Read the full files in the diff, Grep the new symbols for consumers, weigh PR title/branch context. **This is not optional.** Without it the review degrades to "syntax inspection on a hunk", which has been the failure mode for micro since v1.7.0 (file:line citations off-by-N, dead-code blind spots, severity miscalibration because consumers were invisible). 2-4 tool calls total, 30-90s extra wall-clock.
+3. After the investigation, analyse the diff. Fill in the scorecard with citations to **real file lines** (visible via Read), not hunk offsets. Declare the verdict.
+4. Surface the result to the user as your own response, with file:line citations for any findings + a brief note on what the investigation revealed (e.g., "consumer found at handlers/cards.cs:88" or "no consumers — field looks staged for a future PR").
+5. Then proceed directly to Phase 10 (which is itself short-circuited when `mode === "micro"` — see below).
 
 Do NOT dispatch `tech-lead-consolidator`. Do NOT call `apply_consolidation_rules`. Do NOT call `read_learnings` (v1 of micro mode is learnings-free; backlog: `--with-learnings` flag in v2). The verdict you declared in your inline response IS the verdict — record it in Phase 10's finalise call and stop.
 

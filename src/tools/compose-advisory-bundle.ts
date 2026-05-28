@@ -147,6 +147,11 @@ async function buildMicroPrompt(args: {
         `- Segurança visível no diff\n` +
         `- Performance visível no diff`;
 
+  const filesList =
+    filePaths.length > 0
+      ? filePaths.map((p) => `- \`${sanitizeForPrompt(p)}\``).join("\n")
+      : "[no changed files]";
+
   const prompt =
     `# Code Review — micro mode\n\n` +
     `- **Modo:** micro (${triggerLabel}: ${workflow.inferred_risk_signals.files_count} files, ${locShown} LOC, risk=${workflow.risk.level})\n` +
@@ -154,8 +159,41 @@ async function buildMicroPrompt(args: {
     `- **Work type:** ${workflow.work_type}\n\n` +
     `## Critérios\n\n${criteriaSection}\n\n` +
     `## Diff\n\n${diffText}\n\n` +
+    `## Investigação contextual obrigatória (v1.7.7+)\n\n` +
+    `Micro mode é single-pass — você NÃO terá uma segunda chance de revisar. ` +
+    `O diff acima é só a janela de mudança; antes de emitir o scorecard, ` +
+    `gaste **30-90s** levantando o contexto que o diff sozinho não revela:\n\n` +
+    `1. **Read full file** — para cada arquivo modificado abaixo, use a tool ` +
+    `Read no caminho completo. O diff carrega apenas os hunks; o file inteiro ` +
+    `revela imports, atributos de classe, construtores e outras propriedades ` +
+    `que podem mudar a interpretação da mudança. Citações \`file:line\` devem ` +
+    `referenciar a linha real do file pós-PR, não o offset do hunk.\n\n` +
+    `   Arquivos do diff:\n${filesList}\n\n` +
+    `2. **Cross-reference de símbolos novos / modificados** — para cada ` +
+    `identificador novo introduzido pelo diff (nome de propriedade, método, ` +
+    `tipo, constante), use Grep no repositório inteiro (com \`type\` ou \`glob\` ` +
+    `apropriado para o stack detectado) para descobrir consumidores. ` +
+    `Pergunta-âncora: *"esse símbolo é consumido por alguém ou é dead code ` +
+    `que vai ser ativado em um PR futuro?"*. Se nenhum consumidor existe, ` +
+    `o impacto real da mudança é zero — isso muda o teor da review.\n\n` +
+    `3. **Contexto do PR (title + branch + state)** — use o que está visível ` +
+    `no \`## Critérios\` acima. Branch names tipo \`fix/EST-123-...\` ou ` +
+    `\`feature/abc\` carregam intenção; PRs já MERGED com diff trivial ` +
+    `frequentemente são parte de uma série maior. Ajuste a severidade dos ` +
+    `findings em função dessa intenção (ex: default \`true\` num campo ` +
+    `payment é Minor se a branch indica que o comportamento já existia em ` +
+    `outro ponto do sistema, Major se a evidência aponta primeira ativação).\n\n` +
+    `Custo esperado: 2-4 tool calls totais (Read + 1-2 Grep). Vale a pena: a ` +
+    `diferença entre "esse default \`true\` é seguro porque ninguém ainda lê o ` +
+    `campo" e "esse default \`true\` vai habilitar contactless em todos os ` +
+    `cards do batch processor que está dois services acima" é a diferença ` +
+    `entre APPROVED e CHANGES_REQUIRED.\n\n` +
     `## Instruções\n\n` +
-    `Analise o diff acima. Aponte problemas, sugestões e elogios. Cite file:line. Seja específico e construtivo.\n\n` +
+    `Após a investigação contextual, analise o diff. Aponte problemas, ` +
+    `sugestões e elogios. Cite \`file:line\` referenciando a linha real ` +
+    `(visível via Read), não o offset do hunk. Seja específico e construtivo. ` +
+    `Quando uma observação depender de algo descoberto na investigação ` +
+    `(consumidor, contexto de PR), cite explicitamente.\n\n` +
     `Ao final emita o scorecard EXATAMENTE neste formato:\n\n` +
     `### Scorecard\n\n` +
     `| Critério                | Nota (0-10) | Observação                |\n` +
