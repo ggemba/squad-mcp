@@ -5,6 +5,54 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.7] - 2026-05-28
+
+### Changed
+
+- **Micro mode now mandates a contextual-investigation pass before scoring.**
+  Empirically observed in the v1.7.6 smoke test: the orchestrator's micro
+  review of `acg.noname.card.lambda#3` scored 8.5/10 / APPROVED after
+  reading only the 14-line diff hunk — missing three things a 30s
+  investigation would have caught:
+  1. The `:24` file:line citation was the offset of the hunk's closing `}`,
+     not the real line of the new property (which is around line 22-23 of
+     the post-PR file).
+  2. The default `true` was flagged as "needs justification" based purely
+     on the property name `ContactlessEnabled`; no Grep was run to see
+     whether `request.ContactlessEnabled` is actually consumed downstream
+     (if no consumer exists, the property is staged dead code with zero
+     runtime impact, and the severity is overstated).
+  3. The branch name `fix/EST-526-ajuste-contactless` ("**ajuste** contactless"
+     in Portuguese — "adjust") strongly hints that contactless behaviour
+     already exists in the codebase and this PR is one piece of a larger
+     adjustment; the review's framing as "first activation" was incorrect.
+
+  Fix: `buildMicroPrompt` (`src/tools/compose-advisory-bundle.ts`) now
+  emits an **"Investigação contextual obrigatória"** section between the
+  diff and the scoring instructions. It tells the orchestrator to spend
+  30-90s and 2-4 tool calls on:
+  1. **Read full file** — every modified file, not just the hunks, so
+     citations reference real post-PR line numbers and structural context
+     (imports, class attributes, constructors) is visible.
+  2. **Cross-reference of new/modified symbols** — Grep the repo (with
+     stack-appropriate `type`/`glob` filters) for every new identifier
+     introduced by the diff. The anchor question is _"is this symbol
+     consumed by anyone or is it dead code staged for a future PR?"_.
+     A symbol with no consumers has zero runtime impact and that fact
+     belongs in the review.
+  3. **PR title + branch context** — branch names like `fix/EST-123-...`
+     or `feature/abc` carry intent; merged PRs with trivial diffs are
+     frequently slices of a larger series. Severity calibration must
+     account for that.
+
+  `SKILL.md` Phase 5 micro short-circuit section updated correspondingly,
+  with the investigation marked **non-optional** ("not negotiable; without
+  it the review degrades to syntax inspection on a hunk").
+
+  Cost: micro mode wall-clock grows from ~30s to ~60-120s on first try.
+  This buys: correct file:line citations, dead-code detection, and severity
+  calibration that reflects the actual blast radius — not the hunk size.
+
 ## [1.7.6] - 2026-05-28
 
 ### Changed
