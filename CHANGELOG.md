@@ -5,6 +5,41 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.5] - 2026-05-28
+
+### Fixed
+
+- **`bin/launch.mjs` now auto-runs `npm install` when `node_modules/` is
+  missing on first run.** Empirically, Claude Code installs MCP plugins from
+  GitHub via `git clone` only — it does NOT run `npm install` afterwards.
+  Result: every release of squad-mcp (1.7.1 → 1.7.4 inclusive) shipped to
+  the user's cache as source-only. The wrapper tried `npm run build`
+  immediately, which calls `tsc`/`esbuild` from `node_modules/.bin/` — both
+  missing — and died with `'tsc' is not recognized` (Windows) or
+  `tsc: command not found` (Unix). The user had to manually run
+  `cd ~/.claude/plugins/cache/gempack/squad/<version>/ && npm install &&
+npm run build` after EVERY plugin update; the MCP server stayed in a
+  failed state until then (host symptom: `Failed to reconnect to
+plugin:squad:squad: -32000`).
+
+  Fix: launch.mjs now does a 2-step bootstrap on first run:
+  1. `npm install --no-audit --no-fund --loglevel=error` if
+     `node_modules/` is absent (~30-45s, one-time per cache version).
+  2. `npm run build` if `dist/index.js` is absent (~3-5s, one-time per
+     cache version).
+  3. Dynamic import the bundled server (existing behaviour).
+
+  Both bootstrap steps run ONCE per cache version (artifacts persist). All
+  install/build output goes to stderr so it can't corrupt the MCP JSON-RPC
+  stdout. On failure, the error message tells the user the exact directory
+  - command to retry manually.
+
+### Why
+
+After v1.7.2, v1.7.3, and v1.7.4 all triggered the same hand-fix loop on
+release, this was the obvious next thing to fix. The wrapper assumed the
+prior step (`npm install`) had run; reality says it never does.
+
 ## [1.7.4] - 2026-05-28
 
 ### Added
