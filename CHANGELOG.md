@@ -5,6 +5,67 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-05-28
+
+### Added
+
+- **`/squad:review` Phase 0 Attempt 0 — Bitbucket Cloud API-only fast path.**
+  New first attempt in the Bitbucket Cloud resolution cascade. Bypasses
+  `git clone` / `git fetch` entirely, using only the Bitbucket REST API
+  (`/pullrequests/<N>` for metadata, `/pullrequests/<N>/diffstat` for the
+  file list, `/src/<sha>/<path>` for individual file blobs). Builds a fake
+  local git repo with two commits (BASE state + HEAD state) that is
+  indistinguishable from a real clone for `compose_advisory_bundle`
+  purposes. Documented in `skills/squad/modes/review.md` Section 3b.
+
+  **When it fires**: Bitbucket Cloud target AND `git credential fill`
+  returns a non-empty username/password. Metadata HTTP code is the bouncer
+  — 200 means proceed, 401/403/404 halts or falls through.
+
+  **Performance**: dominated by per-file `/src/` blob fetches.
+  - 1-file PR → ~3-5s
+  - 10-file PR → ~5-8s
+  - 100-file PR → ~25-40s
+
+  All MUCH faster than git-based attempts on Windows when GCM is in the
+  way. The empirically-measured baseline for a 1-file PR (`acg.noname.card.lambda#3`,
+  the PR that motivated this release) was ~5m55s Phase 0 with the v1.7.3
+  cascade — now drops to ~5-10s end-to-end with Attempt 0.
+
+### Changed
+
+- **`skills/squad/modes/review.md` Section 5 — Bitbucket Cloud setup rewritten
+  for Atlassian API tokens (2024+ format).** App passwords are deprecated
+  upstream; the new format starts with `ATATT...`, is created at
+  `https://id.atlassian.com/manage-profile/security/api-tokens`, and requires
+  the user's **email** as username (not the Bitbucket handle — bare handle
+  returns 401 with API tokens).
+- **Required scopes documented**: `Pull requests: Read` AND `Repositories: Read`
+  (both are needed; `Pull requests: Read` alone returns 403 from `/diff` and
+  any `/src/` blob fetch with `"required": ["read:repository:bitbucket"]`).
+- **Windows GCM warning added**: Git Credential Manager 2.x intercepts
+  git's HTTPS auth and dispatches OAuth when the server responds with
+  `WWW-Authenticate: BitbucketCustom realm` — overriding any stored token.
+  None of `credential.helper=""`, `http.extraHeader`, `GIT_ASKPASS`, or
+  `~/.netrc` worked around it in our tests (Git Bash, GCM 2.1.2). Three
+  documented mitigations: prefer Attempt 0 (sidesteps git entirely), force
+  GCM into `basic` auth mode, or fall back to SSH.
+
+### Fixed
+
+- **Halt list expanded** for Attempt 0 / Attempt 2 failure modes:
+  - `HTTP 401 from /pullrequests/<N>` → username must be email, not handle.
+  - `HTTP 403 with body containing "required": ["read:repository:bitbucket"]`
+    → token is missing `Repositories: Read` scope; recreate with both
+    scopes marked.
+
+### Impact
+
+`/squad:review <bitbucket-PR-url>` on Windows (the dominant `/squad:review`
+target for many users) drops from ~3-6 min Phase 0 to ~5-10s when the user
+has a properly-scoped Atlassian API token. The git auth nightmare is moved
+from blocker to non-issue.
+
 ## [1.7.3] - 2026-05-27
 
 ### Fixed
