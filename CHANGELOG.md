@@ -5,6 +5,44 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.6] - 2026-05-28
+
+### Changed
+
+- **Attempt 0 now reads `~/.netrc` first** (with `--netrc-file` explicit for
+  Git Bash on Windows where `curl -n` auto-discovery is OS-dependent), and
+  falls back to `git credential fill` (GCM/store/etc) only when no bitbucket
+  entry exists in netrc. Reason: GCM on Windows has multiple stores (DPAPI,
+  default cache, OAuth refresh token) and a token rotation can leave the
+  "wrong" store as the responder. `~/.netrc` is a single plain-text file
+  the user can `cat` and edit in 5 seconds — bypass-proof against GCM
+  weirdness. The new helper exports `AUTH_SOURCE` so error messages tell the
+  user which credential store to fix.
+
+### Fixed
+
+- **Attempt 0 A0.4 race condition** (`jq | while read` subshell). v1.7.5
+  piped jq output directly into `while read`, which spawns a subshell on
+  Windows; the `git add -A` that followed sometimes ran before the curl
+  output buffers in the subshell finished flushing, producing an empty
+  BASE commit and a `+N/-0` diff instead of the real PR delta. v1.7.6
+  pre-collects the diffstat entries into a here-string read in the parent
+  shell — sync by construction.
+- **Attempt 0 A0.4 curl error handling**. v1.7.5 ran `curl` without
+  checking the HTTP code, so a 404/5xx on any individual blob fetch wrote
+  the JSON error body to the destination file and corrupted the BASE/HEAD
+  commits. v1.7.6 wraps each fetch in a helper that checks the HTTP code
+  and removes the destination file on non-200, plus emits a stderr log line
+  with `sha`/`path`/`http` for diagnosis. Empty paths from jq output
+  (trailing newlines) are also skipped.
+
+### Setup notes
+
+`skills/squad/modes/review.md` Section 5 now recommends `~/.netrc` as the
+primary credential store (with `git credential approve` as a parallel
+fallback), and adds an explicit reminder: **rotate token → update BOTH
+stores** to keep them in sync.
+
 ## [1.7.5] - 2026-05-28
 
 ### Fixed
