@@ -566,11 +566,19 @@ record_run({
         model: <model the agent actually ran with>,
         score: <0-100 or null for non-rubric agents (planner / consolidator / code-explorer)>,
         severity_score: <encoded: Blocker*1000 + Major*100 + Minor*10 + Suggestion; or null if not scored>,
+        started_at: <ISO 8601 timestamp captured the moment THIS agent's Task() was dispatched>,
         batch_duration_ms: <wall-clock from dispatch to result>,
         prompt_chars: <orchestrator-visible prompt char count>,
         response_chars: <orchestrator-visible response char count>
       }, ...
     ],
+    // Capture each agent's dispatch instant (ISO 8601) at the moment you call its
+    // `Task()` and carry it into `started_at` above. Together with `batch_duration_ms`
+    // it gives each agent a `[started_at, started_at + batch_duration_ms]` window; the
+    // aggregator overlaps those windows to infer `dispatch_shape` (parallel vs
+    // sequential). Linearized dispatch — non-overlapping windows — surfaces in
+    // `/squad:stats` as a Rule 9 (parallel dispatch) violation. Omit / 0 only in the
+    // Phase 1 in_flight row, where dispatch timing is not yet known.
     verdict: <APPROVED | CHANGES_REQUIRED | REJECTED | null on question / brainstorm>,
     weighted_score: <0-100 or null>,
     est_tokens_method: "chars-div-3.5",
