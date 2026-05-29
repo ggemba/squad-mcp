@@ -22,12 +22,32 @@
 //   is fragile against re-exports and conditional registration). The built
 //   dist/index.js must exist; run `npm run build` first (CI does this).
 //
+// MODEL-DRIFT CHECK (second, independent gate)
+//   Beyond the name-level tool diff above, this script also guards against the
+//   model-drift bug: prose in SKILL.md claiming an agent runs on a given model
+//   (opus/sonnet/haiku) that CONTRADICTS that agent's `agents/<name>.md`
+//   frontmatter `model:` pin. The frontmatter is the single source of truth;
+//   SKILL.md only narrates it, so any disagreement is a documentation bug.
+//
+//   HOW IT DETECTS A MISMATCH
+//     - Build agent→model truth by reading every `agents/*.md` frontmatter.
+//     - Scan SKILL.md line by line for ADJACENT agent-name + model-word
+//       assertions (parenthetical `name (model)`, `<Model>-class` next to a
+//       name, `name ... pins/pin <model>`, and `<model> for name`). Adjacency
+//       (a small word window), not mere same-line co-occurrence, is required
+//       so a list of agent names that ends in one shared model claim does not
+//       produce false positives.
+//     - For each (agent, claimedModel) pair, compare against the truth; any
+//       contradiction is reported as file:line with expected-vs-claimed.
+//
 // EXIT CODES
-//   0 — Phase 0 list and the registry agree.
-//   1 — drift detected (a two-sided diff is printed) or a runtime error.
+//   0 — Phase 0 list and the registry agree AND no model claim contradicts
+//       the agent frontmatter.
+//   1 — tool-name drift OR model-claim drift detected (details printed), or a
+//       runtime error.
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +55,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const serverPath = path.resolve(root, "dist", "index.js");
 const skillPath = path.resolve(root, "skills", "squad", "SKILL.md");
+const agentsDir = path.resolve(root, "agents");
 
 /**
  * Spawn the built server, perform the MCP handshake, and return the sorted
@@ -166,6 +187,132 @@ function getDocumentedToolNames() {
   return names.sort();
 }
 
+// ---------------------------------------------------------------------------
+// Model-drift check
+// ---------------------------------------------------------------------------
+
+const MODEL_WORDS = ["opus", "sonnet", "haiku"];
+
+/**
+ * Read every `agents/*.md` frontmatter `model:` line and return the truth map
+ * { "<agent-name>": "<model>" }. The frontmatter `name:` is the canonical key.
+ */
+function getAgentModelTruth() {
+  const truth = {};
+  const files = readdirSync(agentsDir).filter((f) => f.endsWith(".md"));
+  for (const f of files) {
+    const text = readFileSync(path.join(agentsDir, f), "utf8");
+    const fmMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!fmMatch) continue;
+    const fm = fmMatch[1];
+    const nameMatch = fm.match(/^name:\s*(\S+)\s*$/m);
+    const modelMatch = fm.match(/^model:\s*(\S+)\s*$/m);
+    if (!nameMatch || !modelMatch) continue;
+    const name = nameMatch[1].trim();
+    const model = modelMatch[1].trim().toLowerCase();
+    if (MODEL_WORDS.includes(model)) truth[name] = model;
+  }
+  if (Object.keys(truth).length === 0) {
+    throw new Error("parsed zero agent model pins from agents/*.md frontmatter");
+  }
+  return truth;
+}
+
+/**
+ * Resolve a (possibly nicknamed) agent token used in SKILL.md prose to its
+ * canonical frontmatter name. SKILL.md routinely abbreviates the tech-lead
+ * roles ("planner", "consolidator"); fold those onto their canonical names so
+ * a claim about "planner" is checked against `tech-lead-planner`'s pin.
+ */
+function canonicalAgent(token, truth) {
+  const t = token.toLowerCase().replace(/`/g, "");
+  if (truth[t]) return t;
+  const nicknames = {
+    planner: "tech-lead-planner",
+    consolidator: "tech-lead-consolidator",
+  };
+  if (nicknames[t] && truth[nicknames[t]]) return nicknames[t];
+  return null;
+}
+
+/**
+ * Scan SKILL.md for model assertions tied to a specific agent and return the
+ * list of contradictions: { line, lineNo, agent, expected, claimed, snippet }.
+ *
+ * Only ADJACENT agent-name + model-word pairs are treated as assertions, so a
+ * sentence that merely lists several agents and then states one shared model
+ * is matched on that one model word, not on every name on the line. Patterns:
+ *   1. `name (model)`            e.g. `code-explorer (haiku)`, `implementer (opus)`
+ *   2. `Model-class` after name  e.g. `code-explorer (... Haiku-class ...)`
+ *   3. `name ... pin[s] model`   e.g. `... product-owner all pin sonnet`
+ *   4. `model for name`          e.g. `opus for implementer`
+ */
+function findModelClaimDrift(truth) {
+  const body = readFileSync(skillPath, "utf8");
+  const lines = body.split(/\r?\n/);
+  // Alternation of every agent name AND known nickname, longest first so
+  // `tech-lead-consolidator` wins over a bare `consolidator` substring.
+  const agentTokens = [
+    ...Object.keys(truth),
+    "tech-lead-planner",
+    "tech-lead-consolidator",
+    "planner",
+    "consolidator",
+  ];
+  const uniqTokens = [...new Set(agentTokens)].sort((a, b) => b.length - a.length);
+  const agentAlt = uniqTokens.map((t) => t.replace(/[-]/g, "\\-")).join("|");
+  const modelAlt = MODEL_WORDS.join("|");
+
+  // Each pattern captures one (agent, model) pair via named-ordered groups.
+  // For each, group order is documented inline as [agentGroup, modelGroup].
+  const patterns = [
+    // 1. `name (model)` — agent immediately before a parenthetical model.
+    { re: new RegExp(`\\b(${agentAlt})\\b[^()]{0,40}?\\((${modelAlt})\\b`, "gi"), a: 1, m: 2 },
+    // 2. `Model-class` immediately after an agent name (within a short window).
+    { re: new RegExp(`\\b(${agentAlt})\\b[^.]{0,60}?\\b(${modelAlt})-class\\b`, "gi"), a: 1, m: 2 },
+    // 3. `name ... pin[s] model` — agent then a pin verb then the model.
+    {
+      re: new RegExp(`\\b(${agentAlt})\\b[^.]{0,40}?\\bpins?\\s+(${modelAlt})\\b`, "gi"),
+      a: 1,
+      m: 2,
+    },
+    // 4. `model for name` — model then "for" then the agent (e.g. "opus for implementer").
+    { re: new RegExp(`\\b(${modelAlt})\\s+for\\s+\`?(${agentAlt})\\b`, "gi"), a: 2, m: 1 },
+  ];
+
+  const drift = [];
+  const seen = new Set(); // dedupe (lineNo|agent|claimed) across overlapping patterns
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    for (const { re, a, m } of patterns) {
+      re.lastIndex = 0;
+      let mm;
+      while ((mm = re.exec(line)) !== null) {
+        const rawAgent = mm[a];
+        const claimed = mm[m].toLowerCase();
+        const agent = canonicalAgent(rawAgent, truth);
+        if (!agent) continue;
+        const expected = truth[agent];
+        if (expected !== claimed) {
+          const key = `${i + 1}|${agent}|${claimed}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          drift.push({
+            lineNo: i + 1,
+            agent,
+            expected,
+            claimed,
+            snippet: line.trim().slice(0, 140),
+          });
+        }
+        // Avoid zero-width infinite loops on empty matches.
+        if (mm.index === re.lastIndex) re.lastIndex++;
+      }
+    }
+  }
+  return drift;
+}
+
 function main() {
   return getRegisteredToolNames().then((registered) => {
     const documented = getDocumentedToolNames();
@@ -175,27 +322,57 @@ function main() {
 
     const missingFromDoc = registered.filter((n) => !docSet.has(n));
     const unknownInDoc = documented.filter((n) => !regSet.has(n));
+    const toolDrift = missingFromDoc.length > 0 || unknownInDoc.length > 0;
 
-    if (missingFromDoc.length === 0 && unknownInDoc.length === 0) {
+    // Second, independent gate: model-claim drift against agent frontmatter.
+    const truth = getAgentModelTruth();
+    const modelDrift = findModelClaimDrift(truth);
+
+    if (!toolDrift && modelDrift.length === 0) {
       console.log(
-        `skill-drift OK — SKILL.md Phase 0 lists all ${registered.length} registered tools.`,
+        `skill-drift OK — SKILL.md Phase 0 lists all ${registered.length} registered tools; ` +
+          `all model claims match agent frontmatter (${Object.keys(truth).length} agents checked).`,
       );
       process.exit(0);
     }
 
-    console.error("skill-drift FAILED — SKILL.md Phase 0 is out of sync with the registry.\n");
-    if (missingFromDoc.length > 0) {
-      console.error("  Registered but MISSING from SKILL.md Phase 0:");
-      for (const n of missingFromDoc) console.error(`    + ${n}`);
-      console.error("");
+    if (toolDrift) {
+      console.error("skill-drift FAILED — SKILL.md Phase 0 is out of sync with the registry.\n");
+      if (missingFromDoc.length > 0) {
+        console.error("  Registered but MISSING from SKILL.md Phase 0:");
+        for (const n of missingFromDoc) console.error(`    + ${n}`);
+        console.error("");
+      }
+      if (unknownInDoc.length > 0) {
+        console.error("  Listed in SKILL.md Phase 0 but NOT registered:");
+        for (const n of unknownInDoc) console.error(`    - ${n}`);
+        console.error("");
+      }
+      console.error(`  registry: ${registered.length} tools | doc: ${documented.length} entries`);
+      console.error("  Fix: update skills/squad/SKILL.md Phase 0 to match the registry.\n");
     }
-    if (unknownInDoc.length > 0) {
-      console.error("  Listed in SKILL.md Phase 0 but NOT registered:");
-      for (const n of unknownInDoc) console.error(`    - ${n}`);
+
+    if (modelDrift.length > 0) {
+      console.error(
+        "skill-drift FAILED — SKILL.md makes model claims that contradict agent frontmatter.\n",
+      );
+      const skillRel = path.relative(root, skillPath);
+      for (const d of modelDrift) {
+        console.error(
+          `  ${skillRel}:${d.lineNo} — ${d.agent}: expected '${d.expected}' (frontmatter), ` +
+            `but SKILL.md claims '${d.claimed}'`,
+        );
+        console.error(`      > ${d.snippet}`);
+      }
       console.error("");
+      console.error(
+        "  Fix: agents/<name>.md frontmatter is the source of truth — correct the SKILL.md prose.",
+      );
+      process.exit(1);
     }
-    console.error(`  registry: ${registered.length} tools | doc: ${documented.length} entries`);
-    console.error("  Fix: update skills/squad/SKILL.md Phase 0 to match the registry.");
+
+    // Reached only when there was tool-name drift but no model-claim drift
+    // (the model-drift branch exits 1 above on its own).
     process.exit(1);
   });
 }
