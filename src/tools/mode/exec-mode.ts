@@ -1,4 +1,5 @@
 import type { AgentName, WorkType } from "../../config/ownership-matrix.js";
+import type { ExecutionStep } from "../_shared/schemas.js";
 
 /**
  * Execution depth resolution and squad shaping.
@@ -312,4 +313,184 @@ export function shapeSquadForMode(
     };
   }
   return result;
+}
+
+/**
+ * Stable SKILL.md phase numbers the execution plan encodes. Only the phases
+ * whose run/skip/dispatch shape is *mode-dependent* appear in the plan — the
+ * always-on detect/classify/score phases (1) and the wrap phases (12) are not
+ * gated by mode and are therefore omitted from the plan.
+ */
+const PHASE_GATE_1 = 4; // Phase 4 — Gate 1 user approval (implement mode only)
+const PHASE_PLANNER = 2; // Phase 2 — tech-lead-planner
+const PHASE_ADVISORY = 5; // Phase 5 — advisory squad (or micro inline review)
+const PHASE_IMPLEMENTATION = 8; // Phase 8 — implementer subagent (implement mode only)
+const PHASE_CONSOLIDATOR = 10; // Phase 10 — apply_consolidation_rules + consolidator persona
+
+/**
+ * Build the typed, deterministic `execution_plan` for a resolved run ([O1]).
+ *
+ * This is a PURE projection of the already-resolved `mode` + the shaped agent
+ * list + the run mode (implement vs review). No LLM, no IO. It encodes the
+ * SKILL.md skip-conditions (lines ~108-127, 197-209, 449-460) as data:
+ *
+ *   Phase 4 (Gate 1, user approval)
+ *     - run only in implement mode AND when the run actually dispatches
+ *       advisors/planner. micro is review-only in V1 (no implementation step),
+ *       so Gate 1 never runs in micro. In review mode there is no Gate 1.
+ *       gate: "user" when it runs, else null.
+ *   Phase 2 (tech-lead-planner)
+ *     - skipped in quick (skip_reason "quick") and micro (skip_reason "micro").
+ *     - implement mode only — in review mode there is no plan to draft, so the
+ *       phase is skipped with skip_reason "review-mode".
+ *     - runs (dispatch "none" — planner is a single sequential persona, not a
+ *       parallel advisory fan-out) in normal / deep implement runs.
+ *   Phase 5 (advisory squad)
+ *     - micro → REPLACED by inline single-pass review: run true, dispatch
+ *       "inline", agents [] (no Task dispatch).
+ *     - quick / normal / deep → run true, dispatch "parallel", agents = the
+ *       shaped advisor list (cap-2 in quick, +architect/security in deep).
+ *   Phase 8 (implementation)
+ *     - implement mode → runs (the implementer subagent edits against the
+ *       approved plan; dispatch "none" — it is a single sequential persona).
+ *     - review mode → skipped with skip_reason "review-mode": review never
+ *       edits files. micro is review-only in V1, so its implementation phase
+ *       is likewise skipped (skip_reason "micro").
+ *   Phase 10 (consolidator)
+ *     - micro → entire phase skipped (skip_reason "micro"): the verdict was
+ *       emitted inline in Phase 5.
+ *     - quick / normal / deep → runs; apply_consolidation_rules always runs.
+ *       (The consolidator *persona* skip in quick is a sub-step of the phase,
+ *       not a whole-phase skip — the phase itself still runs to produce the
+ *       rubric, so run stays true. The persona-level detail is left to the
+ *       skill spine, which the SKILL.md text already governs.)
+ *
+ * `model_source` is always "frontmatter" — the agent's own `model` pin wins in
+ * every mode (SKILL.md "Model strategy by mode").
+ */
+export function buildExecutionPlan(args: {
+  mode: ExecMode;
+  agents: readonly AgentName[];
+  /**
+   * Run mode. Defaults to "implement" (the default invocation). Review mode
+   * has no planner draft and no Gate 1 — those phases are marked skipped with
+   * skip_reason "review-mode".
+   */
+  runMode?: "implement" | "review";
+}): ExecutionStep[] {
+  const { mode } = args;
+  const runMode = args.runMode ?? "implement";
+  const isImplement = runMode === "implement";
+  const isMicro = mode === "micro";
+  const isQuick = mode === "quick";
+
+  // Phase 4 — Gate 1 (user approval). Implement mode only, and not in micro
+  // (review-only in V1, no implementation step to approve).
+  const gate1Runs = isImplement && !isMicro;
+  const gate1: ExecutionStep = gate1Runs
+    ? {
+        phase: PHASE_GATE_1,
+        run: true,
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: "user",
+      }
+    : {
+        phase: PHASE_GATE_1,
+        run: false,
+        skip_reason: !isImplement ? "review-mode" : "micro",
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: null,
+      };
+
+  // Phase 2 — tech-lead-planner. Skipped in quick/micro; implement mode only.
+  let planner: ExecutionStep;
+  if (!isImplement) {
+    planner = {
+      phase: PHASE_PLANNER,
+      run: false,
+      skip_reason: "review-mode",
+      model_source: "frontmatter",
+      dispatch: "none",
+      gate: null,
+    };
+  } else if (isMicro || isQuick) {
+    planner = {
+      phase: PHASE_PLANNER,
+      run: false,
+      skip_reason: isMicro ? "micro" : "quick",
+      model_source: "frontmatter",
+      dispatch: "none",
+      gate: null,
+    };
+  } else {
+    planner = {
+      phase: PHASE_PLANNER,
+      run: true,
+      model_source: "frontmatter",
+      dispatch: "none",
+      gate: null,
+    };
+  }
+
+  // Phase 5 — advisory squad. micro → inline (no dispatch); else parallel fan-out.
+  const advisory: ExecutionStep = isMicro
+    ? {
+        phase: PHASE_ADVISORY,
+        run: true,
+        agents: [],
+        model_source: "frontmatter",
+        dispatch: "inline",
+        gate: null,
+      }
+    : {
+        phase: PHASE_ADVISORY,
+        run: true,
+        agents: [...args.agents],
+        model_source: "frontmatter",
+        dispatch: "parallel",
+        gate: null,
+      };
+
+  // Phase 8 — implementation. Implement mode only; never runs in review
+  // (advisory-only) or micro (review-only in V1).
+  const implementationRuns = isImplement && !isMicro;
+  const implementation: ExecutionStep = implementationRuns
+    ? {
+        phase: PHASE_IMPLEMENTATION,
+        run: true,
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: null,
+      }
+    : {
+        phase: PHASE_IMPLEMENTATION,
+        run: false,
+        skip_reason: !isImplement ? "review-mode" : "micro",
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: null,
+      };
+
+  // Phase 10 — consolidator. Whole phase skipped in micro; runs otherwise.
+  const consolidator: ExecutionStep = isMicro
+    ? {
+        phase: PHASE_CONSOLIDATOR,
+        run: false,
+        skip_reason: "micro",
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: null,
+      }
+    : {
+        phase: PHASE_CONSOLIDATOR,
+        run: true,
+        model_source: "frontmatter",
+        dispatch: "none",
+        gate: null,
+      };
+
+  // Phase-number order so the plan reads top-to-bottom as the spine executes.
+  return [planner, gate1, advisory, implementation, consolidator];
 }

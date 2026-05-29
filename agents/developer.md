@@ -1,7 +1,7 @@
 ---
 name: developer
 description: Pragmatic senior developer. Reviews technical correctness, robustness, API contracts, external integrations, observability, and application performance.
-model: opus
+model: sonnet
 ---
 
 # Developer

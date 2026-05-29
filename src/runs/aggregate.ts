@@ -2,6 +2,7 @@ import type { AgentName } from "../config/ownership-matrix.js";
 import {
   decodeSeverityScore,
   INVOCATION_VALUES,
+  type AgentMetrics,
   type RunRecord,
   type RunInvocation,
   type RunVerdict,
@@ -266,6 +267,23 @@ export interface HealthAggregate {
   avg_batch_duration_ms_per_agent: Map<AgentName, number>;
   /** Sum of batch_duration_ms per run, averaged across runs. */
   avg_total_duration_ms: number;
+  /**
+   * Dispatch-shape signal (v0.14+ [O3]). Counts of folded runs by inferred
+   * dispatch shape: how the run's advisory agents were dispatched relative
+   * to each other in wall-clock time.
+   *
+   *  - `parallel`: agent time windows OVERLAP — agents ran concurrently.
+   *  - `sequential`: windows do NOT overlap — the agents were LINEARIZED
+   *    (run one-after-another). This is an Inviolable Rule 9 violation
+   *    ("advisory agents MUST be dispatched in a single parallel batch").
+   *    `/squad:stats` surfaces this as "N runs linearized".
+   *  - `unknown`: cannot tell — `started_at` is missing on any agent, or the
+   *    run has fewer than 2 agents (overlap is undefined for <2 windows).
+   *
+   * Counts cover ALL folded runs (any status). Old records without
+   * per-agent `started_at` fall into `unknown` and are never misclassified.
+   */
+  dispatch_shape: { parallel: number; sequential: number; unknown: number };
 }
 
 /** Verdict histogram + score distribution. Excludes null-verdict (question/brainstorm). */
@@ -339,6 +357,66 @@ export function aggregateOutcomes(folded: FoldedRun[]): OutcomeAggregate {
   };
 }
 
+/**
+ * The three possible dispatch shapes a run can be classified into. See
+ * `inferDispatchShape` and `HealthAggregate.dispatch_shape`.
+ */
+export type DispatchShape = "parallel" | "sequential" | "unknown";
+
+/**
+ * Infer whether a run's agents were dispatched in PARALLEL or were LINEARIZED
+ * (run sequentially) by comparing their wall-clock time windows.
+ *
+ * Each agent's window is `[start, end]` where:
+ *   start = Date.parse(agent.started_at)
+ *   end   = start + agent.batch_duration_ms
+ *
+ * RULE:
+ *  - "unknown" if there are fewer than 2 agents (overlap is undefined for a
+ *    single window), OR any agent is missing `started_at`, OR any agent's
+ *    `started_at` does not parse to a finite epoch. We require the signal on
+ *    EVERY agent before classifying — a partial signal could misclassify.
+ *  - "parallel" if AT LEAST ONE pair of agent windows OVERLAP. Overlap is
+ *    inclusive of touching edges treated as non-overlap: two windows overlap
+ *    iff `aStart < bEnd && bStart < aEnd` (strict). Real parallel dispatch
+ *    produces heavily overlapping windows; exact edge-touching (b starts the
+ *    same ms a ends) is the degenerate hand-off that we read as sequential.
+ *  - "sequential" if NO pair overlaps — every window is disjoint from every
+ *    other, i.e. the agents were linearized (Inviolable Rule 9 violation).
+ *
+ * Pure: no I/O, no clock. Deterministic in the agent array.
+ */
+export function inferDispatchShape(agents: readonly AgentMetrics[]): DispatchShape {
+  if (agents.length < 2) return "unknown";
+
+  interface Window {
+    start: number;
+    end: number;
+  }
+  const windows: Window[] = [];
+  for (const a of agents) {
+    if (a.started_at === undefined) return "unknown";
+    const start = Date.parse(a.started_at);
+    if (!Number.isFinite(start)) return "unknown";
+    // batch_duration_ms is schema-guaranteed nonnegative+finite, but guard
+    // anyway so a future schema relaxation can't NaN-poison the comparison.
+    const dur = Number.isFinite(a.batch_duration_ms) ? a.batch_duration_ms : 0;
+    windows.push({ start, end: start + dur });
+  }
+
+  // Any overlapping pair ⇒ parallel. O(n²) is fine: realistic squads are ≤9
+  // agents, capped at 20 by the schema.
+  for (let i = 0; i < windows.length; i++) {
+    for (let j = i + 1; j < windows.length; j++) {
+      const a = windows[i]!;
+      const b = windows[j]!;
+      // Strict overlap: touching edges (a.end === b.start) is NOT overlap.
+      if (a.start < b.end && b.start < a.end) return "parallel";
+    }
+  }
+  return "sequential";
+}
+
 /** Operational telemetry: in_flight/aborted/completed counts + batch times. */
 export function aggregateHealth(folded: FoldedRun[]): HealthAggregate {
   let in_flight = 0;
@@ -348,12 +426,15 @@ export function aggregateHealth(folded: FoldedRun[]): HealthAggregate {
   const agentDurations = new Map<AgentName, { sum: number; n: number }>();
   let totalDurationSum = 0;
   let totalDurationN = 0;
+  const dispatch_shape = { parallel: 0, sequential: 0, unknown: 0 };
 
   for (const f of folded) {
     if (f.status === "in_flight") in_flight++;
     else if (f.status === "completed") completed++;
     else aborted++;
     if (f.synthesized_aborted) synthesized_aborted++;
+
+    dispatch_shape[inferDispatchShape(f.record.agents)]++;
 
     let runTotal = 0;
     for (const a of f.record.agents) {
@@ -382,6 +463,7 @@ export function aggregateHealth(folded: FoldedRun[]): HealthAggregate {
     synthesized_aborted,
     avg_batch_duration_ms_per_agent,
     avg_total_duration_ms: totalDurationN > 0 ? Math.floor(totalDurationSum / totalDurationN) : 0,
+    dispatch_shape,
   };
 }
 
