@@ -76,6 +76,31 @@ export interface ConsolidationOutput {
    * the downgrade in their output.
    */
   downgraded_by_score: boolean;
+  /**
+   * Deterministic signal: does the tech-lead-consolidator PERSONA have anything
+   * to arbitrate / narrate beyond what this tool already produced? Drives the
+   * Phase-10 persona-skip fast-path in skills/squad/SKILL.md.
+   *
+   * Mirrors the three consolidation triggers in shared/_Severity-and-Ownership.md
+   * ("Consolidation Rules") that genuinely require human-style arbitration:
+   *
+   *   TRUE iff ANY of:
+   *     - a Blocker is present                 (blockers.length > 0)
+   *     - an unjustified Major is present      (majors_unjustified.length > 0)
+   *     - a finding was forwarded to another   (forwarded.length > 0)
+   *       agent — the deterministic proxy for
+   *       "conflicting recommendations across
+   *       agents" that the persona must arbitrate
+   *
+   *   FALSE only when NONE of those hold.
+   *
+   * When FALSE the rubric/verdict/scorecard already speak for themselves and the
+   * persona dispatch can be skipped. The deterministic verdict + rubric +
+   * scorecard_text are ALWAYS produced regardless of this flag — this signal only
+   * governs whether the (sonnet) persona ALSO runs. Conservative by design: any
+   * blocker / unjustified major / cross-agent forward keeps the persona running.
+   */
+  arbitration_needed: boolean;
 }
 
 export function applyConsolidationRules(input: Input): ConsolidationOutput {
@@ -145,6 +170,14 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
     downgradedByScore = true;
   }
 
+  // Deterministic persona-skip signal. TRUE when the consolidator persona has
+  // something to arbitrate/narrate: a Blocker, an unjustified Major, or a
+  // cross-agent forwarded finding (proxy for "conflicting recommendations").
+  // FALSE only when none hold — the rubric then speaks for itself. See the
+  // `arbitration_needed` field doc above and shared/_Severity-and-Ownership.md.
+  const arbitrationNeeded =
+    blockers.length > 0 || majorsUnjustified.length > 0 || forwarded.length > 0;
+
   const scoreSummary = rubric
     ? ` Weighted score: ${rubric.weighted_score.toFixed(1)}/100${rubric.passes_threshold ? "" : " (below threshold)"}.`
     : "";
@@ -170,6 +203,7 @@ export function applyConsolidationRules(input: Input): ConsolidationOutput {
     summary,
     rubric,
     downgraded_by_score: downgradedByScore,
+    arbitration_needed: arbitrationNeeded,
   };
 }
 
@@ -181,7 +215,10 @@ export const applyConsolidationRulesTool: ToolDef<typeof schema> = {
     "When reports carry per-dimension scores (0-100), also returns a weighted rubric scorecard " +
     "(see score_rubric). Optional `min_score` downgrades APPROVED to CHANGES_REQUIRED if the " +
     "weighted score is below the floor — useful for projects that want a quality bar beyond " +
-    "absence of blockers. Includes severity_counts and agents_involved for downstream summarization.",
+    "absence of blockers. Includes severity_counts and agents_involved for downstream summarization. " +
+    "Also returns `arbitration_needed` (true iff any blocker, unjustified major, or cross-agent " +
+    "forwarded finding) so callers can skip the consolidator persona when there is nothing to arbitrate; " +
+    "the verdict + rubric scorecard are produced regardless.",
   schema,
   handler: applyConsolidationRules,
 };

@@ -471,21 +471,23 @@ Call `apply_consolidation_rules` with the reports array (each with `score` popul
 - Verdict (APPROVED / CHANGES_REQUIRED / REJECTED) per severity rules
 - `rubric` with `weighted_score`, per-dimension breakdown, and `scorecard_text` (pre-formatted ASCII)
 - `downgraded_by_score: true` if you supplied `min_score` and the weighted score fell below it (only downgrades APPROVED → CHANGES_REQUIRED, never further)
+- `arbitration_needed` — deterministic boolean: `true` iff there is something for the consolidator persona to arbitrate/narrate (any blocker, any unjustified major, or any cross-agent forwarded finding); `false` only when none hold.
 
-**Fast-path (skip consolidator persona on clean APPROVED).** When `apply_consolidation_rules` returns ALL of:
+**Fast-path (skip consolidator persona when nothing to arbitrate).** SKIP the `tech-lead-consolidator` subagent dispatch when:
 
-- `verdict === "APPROVED"`
-- `blockers.length === 0`
-- `majors_unjustified.length === 0`
-- `rubric.weighted_score >= rubric.threshold`
+- `arbitration_needed === false`
 
-then SKIP the `tech-lead-consolidator` subagent dispatch. Surface the tool output (verdict + `rubric.scorecard_text` + summary) directly to the user. Rationale: a clean APPROVED has nothing for the consolidator persona to arbitrate; the rubric speaks for itself. Saves one consolidator (sonnet) dispatch (~30s) on the happy path. A user who wants the consolidator's narration + rollback plan on an already-approved diff can re-run `/squad:review` against the merged commit — that path goes through the persona unconditionally.
+This GENERALIZES the previous clean-APPROVED-only fast-path: the persona is now skipped whenever there is nothing to arbitrate, **regardless of whether the verdict is APPROVED or CHANGES_REQUIRED** (e.g. a CHANGES_REQUIRED driven only by Minors/Suggestions with no blocker, no unjustified major, and no forwarded item). ALWAYS run the persona when `arbitration_needed === true` (any blocker → REJECTED, any unjustified major, or any cross-agent forward). When in doubt, the tool errs toward `true` and the persona runs.
+
+When the persona is skipped, surface the tool output (verdict + `rubric.scorecard_text` + summary) directly to the user. The rubric + `scorecard_text` are ALWAYS computed by `apply_consolidation_rules` and MUST be surfaced verbatim to the user even when the persona is skipped. Rationale: when there is nothing to arbitrate, the rubric speaks for itself; this saves one consolidator (sonnet) dispatch (~30s). A user who wants the consolidator's narration + rollback plan on a skipped diff can re-run `/squad:review` (without `--quick`) — that path goes through the persona whenever `arbitration_needed` is true, and re-running on the merged commit forces it.
 
 **When `mode === "quick"`**, `apply_consolidation_rules` still runs and produces the verdict + scorecard. The tech-lead-consolidator subagent dispatch (below) is SKIPPED — surface the verdict + scorecard directly to the user without the consolidator-persona narration / rollback plan. Quick mode trades depth for speed; users who want the consolidator's full arbitration re-run without `--quick` or with `--deep`.
 
-Before dispatching the consolidator (normal / deep only; not on fast-path), call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
+Before dispatching the consolidator (normal / deep only; only when `arbitration_needed === true`, i.e. not on the fast-path), call `read_learnings` once with `workspace_root` and `changed_files: <full diff file list>` (no agent filter — the consolidator needs the full picture across agents). Capture `rendered`.
 
 Then dispatch `tech-lead-consolidator` subagent via `Task(subagent_type="tech-lead-consolidator", description="Consolidate verdict", prompt=<all reports + apply_consolidation_rules output INCLUDING the rubric.scorecard_text + learnings.rendered>)`. The consolidator surfaces the verdict + scorecard + rollback plan / mitigation guidance. The `model` parameter is OMITTED; the consolidator's frontmatter already pins sonnet.
+
+Keep the persona prompt trimmed: pass it the EXISTING reports + the `apply_consolidation_rules` output (verdict + `rubric.scorecard_text`) and have it reference those — it must NOT re-derive the scorecard or re-score dimensions. Its job is arbitration + narration on top of the deterministic rubric, not recomputation.
 
 The consolidator prompt should include the learnings block under a `## Past team decisions` heading so the consolidator can:
 

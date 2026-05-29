@@ -61,6 +61,7 @@ Decide if the change is ready to merge. Consolidate the squad's findings, arbitr
 
 ### Consolidation of Reports
 
+- You receive the existing agent reports and the deterministic `apply_consolidation_rules` output (verdict + rubric `scorecard_text`). Reference those — do NOT re-derive the scorecard or re-score dimensions. Your value-add is arbitration + narration on top of the rubric, not recomputation.
 - Aggregate findings from every agent
 - Arbitrate conflicting recommendations (state why)
 - Record non-reporting agents as "Not evaluated" and assess the gap
