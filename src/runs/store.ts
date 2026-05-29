@@ -174,6 +174,17 @@ const GitRefSchema = z
  *    not "exclusive time spent on this agent's work". Reflected in the
  *    /squad:stats output label.
  *
+ *  - `started_at` (OPTIONAL, v0.14+ [O3]): ISO-8601 wall-clock timestamp of
+ *    this agent's Task() dispatch (the moment the orchestrator fired the
+ *    Task() call). Paired with `batch_duration_ms` it defines the agent's
+ *    time window [started_at, started_at + batch_duration_ms]. The aggregator
+ *    uses these windows to INFER whether a run's advisory agents were
+ *    dispatched in parallel (windows overlap) or were linearized / run
+ *    sequentially (windows do NOT overlap — an Inviolable Rule 9 violation).
+ *    OPTIONAL so existing rows (written before this field existed) and
+ *    in_flight rows (dispatch not yet timed) still validate; runs without it
+ *    on every agent are reported as "unknown" shape, never misclassified.
+ *
  *  - `prompt_chars` / `response_chars` (renamed from input/output_chars in
  *    v0.9.0): orchestrator-visible character counts of the dispatch prompt
  *    and the agent's returned string. EXCLUDES the agent's own internal
@@ -190,6 +201,12 @@ const AgentMetricsSchema = z.object({
   score: z.number().int().min(0).max(100).nullable(),
   severity_score: z.number().int().min(0).max(9999).nullable(),
   batch_duration_ms: z.number().int().nonnegative().finite(),
+  // OPTIONAL (v0.14+ [O3]): ISO-8601 dispatch timestamp. Backward-compatible —
+  // older rows and in_flight rows omit it. Paired with batch_duration_ms to
+  // derive the agent's [start, end] window for dispatch-shape inference in
+  // aggregate.inferDispatchShape. SafeString(40) matches the run-level
+  // started_at width (room for "2026-05-11T10:00:00.000Z").
+  started_at: SafeString(40).optional(),
   prompt_chars: z.number().int().nonnegative().finite(),
   response_chars: z.number().int().nonnegative().finite(),
 });

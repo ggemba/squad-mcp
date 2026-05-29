@@ -35,6 +35,16 @@ import { appendRun, runRecordSchema } from "../runs/store.js";
  *    carrying the full agent metrics + verdict + weighted_score. Same `id`
  *    as the in_flight row; aggregator pairs them.
  *
+ *    Dispatch-shape signal (v0.14+ [O3]): on this terminal row the skill
+ *    SHOULD set each advisory agent's OPTIONAL `started_at` (ISO-8601 of the
+ *    moment that agent's Task() was dispatched). Combined with
+ *    `batch_duration_ms` it lets `aggregate.inferDispatchShape` detect when
+ *    advisory agents were LINEARIZED (run sequentially) instead of in a single
+ *    parallel batch — an Inviolable Rule 9 violation that `/squad:stats`
+ *    surfaces as "N runs linearized". The field is optional and purely
+ *    additive: omitting it (older skills, in_flight rows) classifies the run
+ *    as dispatch-shape "unknown" rather than failing validation.
+ *
  * If `record_run` throws on the Phase 10 finalisation, the skill writes a
  * second row with `status: "aborted"` and `mode_warning: { code:
  * "RECORD_FAILED", message: <reason> }` so the in_flight row never strands.
