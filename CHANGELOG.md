@@ -5,6 +5,39 @@ All notable changes to `squad-mcp` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-05-28
+
+### Added
+
+- **`compose_squad_workflow` now emits a typed, deterministic
+  `execution_plan`.** The tool returns a structured plan (per-phase mode and
+  skip conditions) instead of leaving the orchestrator to infer dispatch
+  shape from prose, plus an optional `run_mode` input to drive it. The plan
+  is the single source of truth that `SKILL.md` consumes.
+- **Advisory dispatch-shape telemetry.** Each advisory now records a
+  per-agent `started_at`; the aggregate detects whether a batch ran
+  parallel, sequential, or unknown and surfaces it in `/squad:stats`. Purely
+  advisory — it observes dispatch shape, it does not change it.
+
+### Changed
+
+- **`SKILL.md` now consumes the `execution_plan`.** Collapsed five
+  duplicated mode / skip-condition prose sites into one canonical section
+  driven by the typed plan. Behaviour is preserved; the prose is no longer
+  the source of truth.
+- **`developer` advisory pinned to `sonnet`.** It was the only advisory
+  still on `opus`; pinning it to `sonnet` brings it in line with the rest
+  of the advisory tier.
+
+### Fixed
+
+- **Corrected stale model claims in `SKILL.md`.** The consolidator is
+  `sonnet` (not `opus`), and the implementer is the only role on `opus`.
+
+### Chore
+
+- gitignore `.omakiten/`.
+
 ## [1.7.7] - 2026-05-28
 
 ### Changed
