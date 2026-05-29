@@ -52,3 +52,8 @@ coverage/
 
 # personal exploration scripts (not for publish)
 tools/inspect-warp-db.mjs
+
+# omakiten — project is registered in the GLOBAL store (~/.local/share/omakiten
+# + ~/.config/omakiten) via `okt init`; no omakiten files normally land in the
+# repo. Defensive ignore in case a preset / local config is ever scaffolded here.
+.omakiten/
